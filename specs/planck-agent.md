@@ -50,7 +50,7 @@ has in its list.
 - `Planck.Agent.Skill` — filesystem-based skill loader; `load_all/1`, `from_file/1`,
   `system_prompt_section/1`
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination
-- `Planck.Agent.Config` — Skogsra config for `sessions_dir` and `skills_dirs`
+- `Planck.Agent.Config` — Skogsra config for `sessions_dir`, `skills_dirs`, `tools_dirs`, and `compactor`
 - `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`
 - `Planck.Agent.TeamTemplate` — loads static agent definitions from JSON; tools merged
   in programmatically by the caller
@@ -62,6 +62,8 @@ has in its list.
 - Inspect environment variables or detect API key availability — the caller
   pre-filters `available_models` before passing them in
 - Define what tools workers have — the caller provides the tool list at start time
+- Auto-load skills, external tools, or compactors — loading from the filesystem
+  and wiring into agents is an application-level decision owned by `planck_headless`
 
 ## Core structs
 
@@ -109,7 +111,8 @@ The caller merges tools in before spawning.
   provider:      atom(),
   model_id:      String.t(),
   system_prompt: String.t(),   # already resolved from file path if applicable
-  opts:          keyword()
+  opts:          keyword(),
+  tools:         [String.t()]  # tool names resolved from tool_pool: at start time
 }
 ```
 
@@ -118,7 +121,7 @@ The caller merges tools in before spawning.
 Internal GenServer state — not part of the public API.
 
 ```elixir
-%Planck.Agent.Agent{
+%Planck.Agent{
   id:                 String.t(),
   name:               String.t() | nil,
   description:        String.t() | nil,
@@ -142,7 +145,7 @@ Internal GenServer state — not part of the public API.
   text_buffer:        String.t(),
   thinking_buffer:    String.t(),
   usage:              %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()},
-  on_compact:         (([Message.t()] -> {:summary, String.t()} | :skip)) | nil
+  on_compact:         (([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip)) | nil
 }
 ```
 
@@ -171,7 +174,7 @@ used by `rewind/2`.
 @spec rewind(agent(), pos_integer()) :: :ok
 
 # Synchronous state snapshot (for tests and UI initial render).
-@spec get_state(agent()) :: %Planck.Agent.Agent{}
+@spec get_state(agent()) :: %Planck.Agent{}
 
 # Lightweight metadata: id, name, description, type, role, status, turn_index, usage.
 @spec get_info(agent()) :: map()
@@ -364,12 +367,15 @@ usage from message content (chars ÷ 4) and triggers when usage exceeds
 `ratio * model.context_window` (default ratio: 0.8).
 
 When triggered, it summarises older messages via an LLM call using a prompt that
-prioritises the active goal and recent requests. Returns `{:summary, text}` on success
-or `:skip` on failure (original messages unchanged).
+prioritises the active goal and recent requests. Returns `{:compact, summary_msg, kept}`
+on success or `:skip` on failure (original messages unchanged).
 
 The agent inserts the summary as a `{:custom, :summary}` checkpoint in `state.messages`
 and persists it to the session. Future LLM calls are built from the latest checkpoint
 onward — full history is retained in the session for audit and UI pagination.
+
+Custom compactors implement the `Planck.Agent.Compactor` behaviour and are loaded
+via `Compactor.load/1` from a `.exs` file.
 
 ```elixir
 on_compact = Planck.Agent.Compactor.build(model, ratio: 0.8, keep_recent: 10)
@@ -402,9 +408,9 @@ Planck.Agent.Supervisor  (strategy: :one_for_all)
 ├── DynamicSupervisor     (name: Planck.Agent.SessionSupervisor, strategy: :one_for_one)
 │   └── Planck.Agent.Session  (restart: :temporary, registered via :global)
 └── DynamicSupervisor     (name: Planck.Agent.AgentSupervisor, strategy: :one_for_one)
-    ├── Planck.Agent.Agent (id: "orch-1", role: :orchestrator, team_id: "team-abc")
-    ├── Planck.Agent.Agent (id: "work-1", role: :worker,       team_id: "team-abc")
-    └── Planck.Agent.Agent (id: "work-2", role: :worker,       team_id: "team-abc")
+    ├── Planck.Agent (id: "orch-1", role: :orchestrator, team_id: "team-abc")
+    ├── Planck.Agent (id: "work-1", role: :worker,       team_id: "team-abc")
+    └── Planck.Agent (id: "work-2", role: :worker,       team_id: "team-abc")
 ```
 
 `:one_for_all` on the top-level supervisor ensures the Registry and PubSub always
@@ -439,11 +445,14 @@ each other.
 to the template file. Valid providers are derived from `Planck.AI.Model.providers/0`.
 
 ```elixir
+alias Planck.Agent
+alias Planck.Agent.{AgentSpec, Compactor, TeamTemplate}
+
 {:ok, specs} = TeamTemplate.load("config/team.json")
 
 team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 session_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-on_compact = Planck.Agent.Compactor.build(model)
+on_compact = Compactor.build(model)
 
 Enum.each(specs, fn spec ->
   tools = Map.get(tools_by_type, spec.type, [])

@@ -103,8 +103,79 @@ defmodule Planck.Agent.CompactorTest do
     end
   end
 
+  # --- load/1 ---
+
+  defp unique_mod, do: :"TestCompactor#{System.unique_integer([:positive])}"
+
+  describe "load/1" do
+    @moduletag :tmp_dir
+
+    test "loads a valid compactor module from a .exs file", %{tmp_dir: dir} do
+      mod = unique_mod()
+      path = Path.join(dir, "compactor.exs")
+
+      File.write!(path, """
+      defmodule #{mod} do
+        @behaviour Planck.Agent.Compactor
+        @impl true
+        def compact(_messages), do: :skip
+      end
+      """)
+
+      assert {:ok, fun} = Compactor.load(path)
+      assert is_function(fun, 1)
+      assert fun.([]) == :skip
+    end
+
+    test "loaded module can return {:compact, summary, kept}", %{tmp_dir: dir} do
+      mod = unique_mod()
+      path = Path.join(dir, "compactor.exs")
+
+      File.write!(path, """
+      defmodule #{mod} do
+        @behaviour Planck.Agent.Compactor
+        @impl true
+        def compact(messages) do
+          summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "summary"}])
+          {:compact, summary, Enum.take(messages, -1)}
+        end
+      end
+      """)
+
+      assert {:ok, fun} = Compactor.load(path)
+      msgs = [Planck.Agent.Message.new(:user, [{:text, "hi"}])]
+      assert {:compact, %{role: {:custom, :summary}}, _kept} = fun.(msgs)
+    end
+
+    test "returns error for a missing file" do
+      assert {:error, reason} = Compactor.load("/no/such/compactor.exs")
+      assert reason =~ "failed to load compactor"
+    end
+
+    test "returns error when file defines no module with compact/1", %{tmp_dir: dir} do
+      mod = unique_mod()
+      path = Path.join(dir, "bad.exs")
+
+      File.write!(path, """
+      defmodule #{mod} do
+        def other_fn(_), do: :ok
+      end
+      """)
+
+      assert {:error, reason} = Compactor.load(path)
+      assert reason =~ "no module implementing Planck.Agent.Compactor"
+    end
+
+    test "returns error for syntax errors in the file", %{tmp_dir: dir} do
+      path = Path.join(dir, "syntax_error.exs")
+      File.write!(path, "defmodule Oops {")
+      assert {:error, reason} = Compactor.load(path)
+      assert reason =~ "failed to load compactor"
+    end
+  end
+
   describe "integration with Agent" do
-    alias Planck.Agent.Agent
+    alias Planck.Agent
     alias Planck.AI.Context
 
     defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)

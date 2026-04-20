@@ -232,9 +232,10 @@ defmodule Planck.Agent.BuiltinTools do
     end
   end
 
+  @doc false
   @spec run_bash(String.t(), pos_integer(), Path.t()) ::
           {:ok, String.t()} | {:error, String.t()}
-  defp run_bash(command, timeout, cwd) do
+  def run_bash(command, timeout, cwd) do
     exec_opts = [:sync, :stdout, :stderr, {:cd, String.to_charlist(cwd)}]
     task = Task.async(fn -> :exec.run(command, exec_opts) end)
 
