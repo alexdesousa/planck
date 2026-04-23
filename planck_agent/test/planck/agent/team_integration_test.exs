@@ -389,6 +389,82 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   # ---------------------------------------------------------------------------
+  # spawn_agent grantable skills
+  # ---------------------------------------------------------------------------
+
+  defp call_spawn_for_prompt(spawn_tool, orch_id, extra_args \\ %{}) do
+    base = %{
+      "type" => "reviewer",
+      "name" => "Reviewer",
+      "description" => "Reviews code",
+      "system_prompt" => "You are a reviewer.",
+      "provider" => "ollama",
+      "model_id" => "llama3.2"
+    }
+
+    {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
+    {:ok, pid} = Agent.whereis(agent_id)
+
+    on_exit(fn ->
+      if Process.alive?(pid),
+        do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
+    end)
+
+    Agent.get_state(pid).system_prompt
+  end
+
+  describe "spawn_agent grantable skills" do
+    test "granted skills are appended to the spawned agent's system prompt" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      skill = %Planck.Agent.Skill{
+        name: "code_review",
+        description: "Reviews code.",
+        path: "/tmp/skills/code_review",
+        skill_file: "/tmp/skills/code_review/SKILL.md"
+      }
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [], [skill])
+      prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["code_review"]})
+
+      assert prompt =~ "You are a reviewer."
+      assert prompt =~ "code_review"
+      assert prompt =~ "Reviews code."
+    end
+
+    test "unknown skill names are silently ignored" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [], [])
+      prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["unknown"]})
+
+      assert prompt == "You are a reviewer."
+    end
+
+    test "no skills key leaves system prompt unchanged" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      skill = %Planck.Agent.Skill{
+        name: "code_review",
+        description: "Reviews code.",
+        path: "/tmp/skills/code_review",
+        skill_file: "/tmp/skills/code_review/SKILL.md"
+      }
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [], [skill])
+      prompt = call_spawn_for_prompt(spawn_tool, orch_id)
+
+      assert prompt == "You are a reviewer."
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # built-in tools exercised through a spawned worker
   # ---------------------------------------------------------------------------
 

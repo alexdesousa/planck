@@ -121,11 +121,11 @@ orch_tools =
   ) ++ Planck.Agent.Tools.worker_tools(team_id, nil)
 ```
 
-## Integration with team templates
+## Integration with teams
 
-When using `Planck.Agent.TeamTemplate`, pass external tools in the `tools_by_type`
-map alongside built-in tools. The LLM knows their names and descriptions from the
-`TOOL.json` files:
+When starting agents from a `%Planck.Agent.Team{}`, pass external tools in the
+`tools_by_type` map alongside built-in tools. The LLM knows their names and
+descriptions from the `TOOL.json` files:
 
 ```elixir
 tools_by_type = %{
