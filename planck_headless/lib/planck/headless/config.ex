@@ -14,11 +14,9 @@ defmodule Planck.Headless.Config do
   To change a value at runtime, set the application env and call the
   Skogsra-generated `reload_<key>/0` function.
 
-  `planck_headless` does not read a user-editable config file. Persistent
-  user configuration is either set via env vars or `config :planck, ...` in
-  a consuming application's `config/runtime.exs`. If a CLI surface needs a
-  JSON/YAML config file, it layers that on top before starting the
-  application (e.g. `planck_cli`).
+  JSON config files (`~/.planck/config.json` and `.planck/config.json`) are
+  read via `JsonBinding` as part of Skogsra's binding chain. Keys that appear
+  in a JSON file override application config but are overridden by env vars.
 
   ## Env vars
 
@@ -35,7 +33,9 @@ defmodule Planck.Headless.Config do
   | `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                             |
 
   `*_DIRS` env vars take a colon-separated list; paths are expanded at runtime
-  (`~` and relative paths resolved).
+  (`~` and relative paths resolved). The `:models` key has no env var
+  equivalent — declare models in `.planck/config.json` or
+  `config :planck, :models, [...]`.
 
   ### Provider API keys
 
@@ -52,49 +52,21 @@ defmodule Planck.Headless.Config do
 
   use Skogsra
 
-  defmodule LocalServers do
+  defmodule Models do
     @moduledoc false
+
+    # Skogsra type for the `models` config key. Accepts a list of model-entry
+    # maps and parses them via `Planck.AI.Config.from_list/1`, producing a list
+    # of `%Planck.AI.Model{}` structs. Invalid entries are skipped with a
+    # warning (delegated to `Planck.AI.Config`). No env-var form — model
+    # declarations are too structured for a flat string.
 
     use Skogsra.Type
 
     @impl Skogsra.Type
-    @spec cast(term()) :: {:ok, [%{type: atom(), base_url: String.t()}]} | {:error, String.t()}
-    def cast(value) when is_binary(value) do
-      servers =
-        value
-        |> String.split(",")
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.map(fn entry ->
-          case String.split(entry, ":", parts: 2) do
-            [type, base_url] -> %{type: String.to_atom(type), base_url: base_url}
-            _ -> {:error, entry}
-          end
-        end)
-
-      if Enum.all?(servers, &is_map/1) do
-        {:ok, servers}
-      else
-        {:error, "invalid PLANCK_LOCAL_SERVERS format; expected \"type:url,...\""}
-      end
-    end
-
-    def cast(value) when is_list(value) do
-      servers =
-        Enum.map(value, fn
-          %{"type" => type, "base_url" => base_url} ->
-            %{type: String.to_atom(type), base_url: base_url}
-
-          %{type: type, base_url: base_url} ->
-            %{type: type, base_url: base_url}
-        end)
-
-      {:ok, servers}
-    end
-
-    def cast(value) do
-      {:error, "expected a comma-separated string or list of server maps, got: #{inspect(value)}"}
-    end
+    @spec cast(term()) :: {:ok, [Planck.AI.Model.t()]} | {:error, String.t()}
+    def cast(list) when is_list(list), do: {:ok, Planck.AI.Config.from_list(list)}
+    def cast(_), do: {:error, "expected a list of model maps"}
   end
 
   defmodule PathList do
@@ -138,7 +110,7 @@ defmodule Planck.Headless.Config do
           tools_dirs: [Path.t()],
           teams_dirs: [Path.t()],
           compactor: Path.t() | nil,
-          local_servers: [%{type: atom(), base_url: String.t()}]
+          models: [Planck.AI.Model.t()]
         }
 
   defstruct default_provider: nil,
@@ -148,7 +120,7 @@ defmodule Planck.Headless.Config do
             tools_dirs: [".planck/tools", "~/.planck/tools"],
             teams_dirs: [".planck/teams", "~/.planck/teams"],
             compactor: nil,
-            local_servers: []
+            models: []
 
   @envdoc """
   Colon-separated list of JSON config files to read at boot, in order.
@@ -204,13 +176,33 @@ defmodule Planck.Headless.Config do
     binding_order: @json
 
   @envdoc """
-  Comma-separated list of local model servers in `type:base_url` format.
-  Multiple servers of the same type are supported.
+  List of model declarations for local providers (and optional cloud model
+  overrides). Each entry follows the `Planck.AI.Config` JSON format. Only
+  readable from `.planck/config.json` or application config — no env var
+  equivalent (the format is too structured for a flat string).
 
-  Example: `ollama:http://localhost:11434,llama_cpp:http://localhost:8080`
+  Example (in .planck/config.json):
+  ```json
+  "models": [
+    {
+      "id":             "llama3.2",
+      "provider":       "ollama",
+      "base_url":       "http://localhost:11434",
+      "context_window": 128000,
+      "default_opts":   {"temperature": 0.7, "top_p": 0.9}
+    },
+    {
+      "id":             "mistral",
+      "provider":       "llama_cpp",
+      "base_url":       "http://localhost:8080",
+      "context_window": 32768,
+      "default_opts":   {"temperature": 0.5}
+    }
+  ]
+  ```
   """
-  app_env :local_servers, :planck, :local_servers,
-    type: LocalServers,
+  app_env :models, :planck, :models,
+    type: Models,
     default: [],
     binding_order: @json
 
@@ -243,7 +235,7 @@ defmodule Planck.Headless.Config do
       tools_dirs: tools_dirs!(),
       teams_dirs: teams_dirs!(),
       compactor: compactor!(),
-      local_servers: local_servers!()
+      models: models!()
     }
   end
 end

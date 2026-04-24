@@ -11,3 +11,6 @@ First release.
 - Local server support for Ollama and llama.cpp with runtime model discovery
 - JSON config loader (`Planck.AI.Config`)
 - Multimodal input: text, image, image_url, file, video_url
+- `Planck.AI.Config.parse_provider/1` — `String.to_existing_atom` →
+  `String.to_atom`; `@valid_providers` derived from `Planck.AI.list_providers()`
+  at compile time (single source of truth). Private function specs added.

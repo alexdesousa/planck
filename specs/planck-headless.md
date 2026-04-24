@@ -140,10 +140,11 @@ session crashing does not affect others.
 
 When the `planck_headless` application starts:
 
-1. **Config** — `Config.load/0` reads `.planck/config.json` and
-   `~/.planck/config.json` into the `:planck` application env; then
-   `Config.preload/0` caches all values; then `Config.validate!/0` fails fast
-   on invalid required values. (see *Config* below).
+1. **Config** — `Planck.AI.Model.providers()` is called first to ensure
+   provider atoms exist; then `Config.preload/0` caches all values (JSON
+   files are read via `JsonBinding` as part of the Skogsra binding chain);
+   then `Config.validate!/0` fails fast on invalid required values.
+   (see *Config* below).
 2. **Tools** — `Planck.Agent.ExternalTool.load_all(config.tools_dirs)`.
 3. **Skills** — `Planck.Agent.Skill.load_all(config.skills_dirs)`.
 4. **Teams** — scan `config.teams_dirs` and call `Planck.Agent.Team.load/1` on
@@ -242,11 +243,14 @@ Both return `{:error, :not_found}` if no matching file exists.
    - `team_alias` is an absolute path → `Team.load/1` on the fly.
    - `team_alias` is `nil` → the session was dynamic-only; start with a lone
      orchestrator built from config (same as `start_session(template: nil)`).
-3. **Reconstruct dynamic workers** — scan the orchestrator's message history for
-   `spawn_agent` tool calls. Each call contains the full `AgentSpec` as JSON
-   arguments. Any worker that was spawned at runtime but is not in the base team
-   is reconstructed from that call. New `agent_id`s are generated; the delegator
-   is the new orchestrator's id.
+3. **Reconstruct dynamic workers** — scan the *previous* orchestrator's message
+   history (identified by the agent whose messages contain orchestrator-specific
+   tool calls) for `spawn_agent` calls that *completed* (have a matching
+   `tool_result` in the history). Each such call contains the full `AgentSpec`
+   as JSON arguments. Workers are deduplicated against the base team by
+   `{type, name}` pair — not type alone, since a team may have multiple workers
+   of the same type with different names (e.g. two builders "Bob" and "Charlie").
+   New `agent_id`s are generated; the delegator is the new orchestrator's id.
 
 This gives a complete picture of the team as it existed at the time of
 interruption, without re-reading TEAM.json for workers that were spawned on the
@@ -296,8 +300,9 @@ history; it is included in the next LLM call as part of the conversation.
 - Interrupted resume: last orchestrator turn contained a `delegate_task` with no
   matching `agent_response`; recovery message lists the dangling delegation.
 - Multiple in-flight delegations: all are listed in the recovery message.
-- Dynamic worker reconstruction: `spawn_agent` calls in history recreate workers
-  with fresh `agent_id`s; they appear in `list_team` output after resume.
+- Dynamic worker reconstruction: completed `spawn_agent` calls (those with a
+  matching `tool_result`) recreate workers with fresh `agent_id`s deduped by
+  `{type, name}` against the base team; they appear in `list_team` after resume.
 - Static team on resume: `team_alias` from metadata reloads the same TEAM.json;
   if the file has changed since the session was created, the new definition is
   used (intentional — teams on disk are the source of truth).
@@ -334,24 +339,32 @@ Planck.Agent.Config* below).
 
 ### Sources and precedence
 
-Config is resolved from four sources, highest priority first:
+Config keys that can be set in `.planck/config.json` use
+`binding_order: [:system, JsonBinding, :config]`. Skogsra resolves each key
+by trying sources in order:
 
 1. **Environment variables** — `PLANCK_*` (see table below).
-2. **Project-local JSON** — `.planck/config.json` in `File.cwd!()`.
-3. **User-global JSON** — `~/.planck/config.json`.
-4. **Application config** — `config :planck, <key>, ...` from `config/*.exs`
+2. **JSON config files** — `~/.planck/config.json` (global) then
+   `.planck/config.json` (project-local, wins on collision), read by
+   `Planck.Headless.Config.JsonBinding` at resolution time and cached.
+3. **Application config** — `config :planck, <key>, ...` from `config/*.exs`
    or `config/runtime.exs`.
-5. **Hardcoded defaults** — built into each `app_env` declaration.
+4. **Hardcoded defaults** — built into each `app_env` declaration.
 
-At boot, `Application.start/2` runs in this order:
+API keys use the default Skogsra binding order (env vars → app config → default)
+and are never read from JSON files.
 
-1. `Config.load/0` — reads the JSON files and puts their values into the
-   `:planck` application env (project-local wins on collision).
-2. `Config.preload/0` — Skogsra caches the resolved values into persistent terms.
-3. `Config.validate!/0` — fails fast on any invalid required values.
+At boot, `Application.start/2`:
+
+1. Calls `Planck.AI.Model.providers()` to ensure provider atoms (`:llama_cpp`
+   etc.) exist before Skogsra preloads the `:models` key.
+2. `Config.preload/0` — Skogsra resolves and caches all values; JSON files are
+   read here via `JsonBinding`.
+3. `Config.validate!/0` — fails fast on invalid required values.
 
 Values are cached after `preload/0`; to change a value at runtime call
 `Application.put_env/3` and then `reload_<key>/0` to invalidate that key's cache.
+Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
 
 ### JSON file format
 
@@ -363,17 +376,35 @@ Values are cached after `preload/0`; to change a value at runtime call
   "skills_dirs":      ["~/.planck/skills"],
   "tools_dirs":       ["~/.planck/tools"],
   "teams_dirs":       ["~/.planck/teams"],
-  "local_servers": [
-    {"type": "ollama",    "base_url": "http://localhost:11434"},
-    {"type": "llama_cpp", "base_url": "http://localhost:8080"}
+  "models": [
+    {
+      "id":             "llama3.2",
+      "provider":       "ollama",
+      "base_url":       "http://localhost:11434",
+      "context_window": 128000
+    },
+    {
+      "id":             "mistral",
+      "provider":       "llama_cpp",
+      "base_url":       "http://localhost:8080",
+      "context_window": 32768
+    }
   ],
   "compactor": "~/.planck/compactor.exs"
 }
 ```
 
+The `models` list uses the same format as `Planck.AI.Config` — only `"id"`
+and `"provider"` are required. This replaces the old `local_servers` approach:
+models are **declared** (no network discovery at boot) and include full
+`Planck.AI.Model` fields (`context_window`, `max_tokens`, `base_url`, etc.).
+Cloud providers that have an API key still contribute their static LLMDB
+catalog on top.
+
 All keys are optional. Unknown keys are silently ignored. Arrays replace
 rather than merge — a project-local `skills_dirs` wholly supersedes the
-global one.
+global one. `:models` has no `PLANCK_*` env var equivalent — the format is
+too structured for a flat string.
 
 ### Struct
 
@@ -386,7 +417,7 @@ global one.
   tools_dirs:        [Path.t()],
   teams_dirs:        [Path.t()],
   compactor:         Path.t() | nil,
-  local_servers:     [%{type: atom(), base_url: String.t()}]
+  models:            [Planck.AI.Model.t()]
 }
 ```
 
@@ -403,13 +434,10 @@ global one.
 | `PLANCK_TOOLS_DIRS`       | `:tools_dirs`        | `.planck/tools:~/.planck/tools`   |
 | `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`   |
 | `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                             |
-| `PLANCK_LOCAL_SERVERS`    | `:local_servers`     | `[]`                              |
 | `PLANCK_CONFIG_FILES`     | `:config_files`      | `~/.planck/config.json:.planck/config.json` |
 
-`*_DIRS` env vars take a colon-separated list. `PLANCK_LOCAL_SERVERS` takes a
-comma-separated `type:base_url` list (e.g.
-`ollama:http://localhost:11434,llama_cpp:http://localhost:8080`). Both forms
-are parsed via inline Skogsra types (`PathList` and `LocalServers`).
+`*_DIRS` env vars take a colon-separated list, parsed via an inline
+`PathList` Skogsra type.
 
 #### Provider API keys
 
@@ -429,9 +457,6 @@ use the generated getters directly to avoid accidental exposure in logs.
 # Resolved config struct.
 @spec get() :: t()
 
-# Read JSON files into application env. Must be called before preload/0.
-@spec load() :: :ok
-
 # Generated by `use Skogsra`. Called at boot by Application.start/2.
 @spec preload() :: :ok
 @spec validate!() :: :ok
@@ -439,6 +464,10 @@ use the generated getters directly to avoid accidental exposure in logs.
 # For each key <name>, Skogsra also generates:
 #   <name>!()       — resolve, raise on missing-required
 #   reload_<name>() — invalidate the persistent-term cache for this key
+
+# Bust the JsonBinding persistent-term cache (call before reload_resources/0
+# when you want JSON file changes to take effect immediately).
+@spec Planck.Headless.Config.JsonBinding.invalidate() :: :ok
 ```
 
 ## Supervision tree
