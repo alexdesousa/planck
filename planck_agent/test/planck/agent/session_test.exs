@@ -1,6 +1,8 @@
 defmodule Planck.Agent.SessionTest do
   use ExUnit.Case, async: false
 
+  @moduletag :tmp_dir
+
   alias Planck.Agent.{Message, Session}
 
   defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
@@ -13,8 +15,9 @@ defmodule Planck.Agent.SessionTest do
 
   defp start_session(opts \\ []) do
     id = unique_id()
+    name = Keyword.get(opts, :name, "test-session")
     dir = Keyword.get(opts, :dir, tmp_dir())
-    {:ok, pid} = Session.start(id, dir: dir)
+    {:ok, pid} = Session.start(id, name: name, dir: dir)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -259,7 +262,7 @@ defmodule Planck.Agent.SessionTest do
   describe "persistence" do
     test "messages survive a GenServer restart" do
       dir = tmp_dir()
-      {id, pid} = start_session(dir: dir)
+      {id, pid} = start_session(name: "restart-test", dir: dir)
 
       msg = user_msg("before restart")
       Session.append(id, "a1", msg)
@@ -268,11 +271,94 @@ defmodule Planck.Agent.SessionTest do
       DynamicSupervisor.terminate_child(Planck.Agent.SessionSupervisor, pid)
       Process.sleep(50)
 
-      {:ok, _new_pid} = Session.start(id, dir: dir)
+      {:ok, _new_pid} = Session.start(id, name: "restart-test", dir: dir)
 
       {:ok, rows} = Session.messages(id)
       assert length(rows) == 1
       assert Enum.at(rows, 0).message == msg
+    end
+  end
+
+  describe "find_by_id/2 and find_by_name/2" do
+    test "find_by_id resolves path and name", %{tmp_dir: dir} do
+      {id, _pid} = start_session(name: "crazy-mango", dir: dir)
+
+      assert {:ok, path, "crazy-mango"} = Session.find_by_id(dir, id)
+      assert Path.basename(path) == "#{id}_crazy-mango.db"
+    end
+
+    test "find_by_name resolves path and id", %{tmp_dir: dir} do
+      {id, _pid} = start_session(name: "silent-papaya", dir: dir)
+
+      assert {:ok, path, ^id} = Session.find_by_name(dir, "silent-papaya")
+      assert Path.basename(path) == "#{id}_silent-papaya.db"
+    end
+
+    test "find_by_id returns :not_found for unknown id", %{tmp_dir: dir} do
+      assert {:error, :not_found} = Session.find_by_id(dir, "deadbeef")
+    end
+
+    test "find_by_name returns :not_found for unknown name", %{tmp_dir: dir} do
+      assert {:error, :not_found} = Session.find_by_name(dir, "no-such-name")
+    end
+  end
+
+  describe "save_metadata/2 and get_metadata/1" do
+    test "saves and retrieves metadata", %{tmp_dir: dir} do
+      {id, _pid} = start_session(dir: dir)
+
+      :ok = Session.save_metadata(id, %{"team_alias" => "elixir-team", "cwd" => "/app"})
+      {:ok, meta} = Session.get_metadata(id)
+
+      assert meta["team_alias"] == "elixir-team"
+      assert meta["cwd"] == "/app"
+    end
+
+    test "save_metadata merges — later call overwrites individual keys", %{tmp_dir: dir} do
+      {id, _pid} = start_session(dir: dir)
+
+      :ok = Session.save_metadata(id, %{"a" => "1", "b" => "2"})
+      :ok = Session.save_metadata(id, %{"b" => "updated", "c" => "3"})
+      {:ok, meta} = Session.get_metadata(id)
+
+      assert meta["a"] == "1"
+      assert meta["b"] == "updated"
+      assert meta["c"] == "3"
+    end
+
+    test "nil values are stored and returned as nil", %{tmp_dir: dir} do
+      {id, _pid} = start_session(dir: dir)
+
+      :ok = Session.save_metadata(id, %{"team_alias" => nil})
+      {:ok, meta} = Session.get_metadata(id)
+
+      assert meta["team_alias"] == nil
+    end
+
+    test "get_metadata returns empty map when no metadata saved", %{tmp_dir: dir} do
+      {id, _pid} = start_session(dir: dir)
+
+      {:ok, meta} = Session.get_metadata(id)
+      assert meta == %{}
+    end
+
+    test "metadata persists across restart", %{tmp_dir: dir} do
+      id = unique_id()
+      {:ok, pid} = Session.start(id, name: "persist-meta", dir: dir)
+
+      :ok = Session.save_metadata(id, %{"team_alias" => "my-team"})
+      Process.sleep(50)
+
+      DynamicSupervisor.terminate_child(Planck.Agent.SessionSupervisor, pid)
+      Process.sleep(50)
+
+      {:ok, _} = Session.start(id, name: "persist-meta", dir: dir)
+      {:ok, meta} = Session.get_metadata(id)
+
+      assert meta["team_alias"] == "my-team"
+
+      Session.stop(id)
+      File.rm_rf!(dir)
     end
   end
 end

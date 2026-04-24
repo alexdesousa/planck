@@ -61,6 +61,9 @@ defmodule Planck.Agent.AgentSpec do
   - `:tools` — tool names to resolve from a `tool_pool:` at start time (e.g. `["read", "bash"]`)
   - `:skills` — skill names to resolve from a `skill_pool:` at start time; when
     non-empty, their descriptions are appended to `system_prompt` in `to_start_opts/2`
+  - `:base_url` — base URL of the model server for local providers that run multiple
+    instances (e.g. `"http://localhost:11434"` for a specific Ollama server). When
+    `nil`, the provider's default URL is used.
   """
   @type t :: %__MODULE__{
           type: String.t(),
@@ -68,6 +71,7 @@ defmodule Planck.Agent.AgentSpec do
           description: String.t() | nil,
           provider: atom(),
           model_id: String.t(),
+          base_url: String.t() | nil,
           system_prompt: String.t(),
           opts: keyword(),
           tools: [String.t()],
@@ -81,6 +85,7 @@ defmodule Planck.Agent.AgentSpec do
     :description,
     :provider,
     :model_id,
+    :base_url,
     :system_prompt,
     opts: [],
     tools: [],
@@ -106,6 +111,7 @@ defmodule Planck.Agent.AgentSpec do
       description: Keyword.get(fields, :description),
       provider: Keyword.fetch!(fields, :provider),
       model_id: Keyword.fetch!(fields, :model_id),
+      base_url: Keyword.get(fields, :base_url),
       system_prompt: Keyword.fetch!(fields, :system_prompt),
       opts: Keyword.get(fields, :opts, []),
       tools: Keyword.get(fields, :tools, []),
@@ -167,6 +173,7 @@ defmodule Planck.Agent.AgentSpec do
          description: entry["description"],
          provider: provider,
          model_id: model_id,
+         base_url: entry["base_url"],
          system_prompt: system_prompt,
          opts: parse_opts(entry["opts"]),
          tools: parse_string_list(entry["tools"]),
@@ -210,7 +217,7 @@ defmodule Planck.Agent.AgentSpec do
   """
   @spec to_start_opts(t(), keyword()) :: keyword()
   def to_start_opts(%__MODULE__{} = spec, overrides \\ []) do
-    model = resolve_model!(spec.provider, spec.model_id)
+    model = resolve_model!(spec.provider, spec.model_id, spec.base_url)
     tools = resolve_tools(spec, overrides)
     system_prompt = assemble_system_prompt(spec, overrides)
 
@@ -323,11 +330,21 @@ defmodule Planck.Agent.AgentSpec do
   defp parse_string_list(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
   defp parse_string_list(_), do: []
 
-  @spec resolve_model!(atom(), String.t()) :: Planck.AI.Model.t()
-  defp resolve_model!(provider, model_id) do
+  @spec resolve_model!(atom(), String.t(), String.t() | nil) :: Planck.AI.Model.t()
+  defp resolve_model!(provider, model_id, nil) do
     case Planck.Agent.AIBehaviour.client().get_model(provider, model_id) do
       {:ok, model} -> model
       {:error, :not_found} -> raise ArgumentError, "model not found: #{provider}:#{model_id}"
+    end
+  end
+
+  defp resolve_model!(provider, model_id, base_url) do
+    case Planck.AI.get_model(provider, model_id, base_url: base_url) do
+      {:ok, model} ->
+        model
+
+      {:error, :not_found} ->
+        raise ArgumentError, "model not found: #{provider}:#{model_id} at #{base_url}"
     end
   end
 
