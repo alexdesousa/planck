@@ -23,11 +23,11 @@ called `planck`.
 | [`planck_ai`](./planck_ai) | LLM provider abstraction over `req_llm` | Hex |
 | [`planck_agent`](./planck_agent) | OTP-based agent runtime | Hex |
 | [`planck_headless`](./planck_headless) | Headless core — config, resources, session lifecycle | Hex |
-| [`planck_tui`](./planck_tui) | Terminal UI primitives (ratatui via NIF) | Hex |
-| [`planck_web`](./planck_web) | Phoenix LiveView chat components | Hex |
-| [`planck_cli`](./planck_cli) | Coding agent CLI | Burrito binary |
+| [`planck_cli`](./planck_cli) | Coding agent CLI — TUI + Web UI + Burrito binary | Burrito binary |
 
-Each package is a standalone Mix project. Users depend only on what they need.
+`planck_ai`, `planck_agent`, and `planck_headless` are standalone Hex libraries.
+The TUI and Web UI live inside `planck_cli` rather than as separate packages — they
+are rendering surfaces, not reusable components.
 
 A [`playground/`](./playground) directory provides a ready-to-run sandbox
 against a local llamacpp or Ollama server — useful for testing sessions end-to-end.
@@ -41,18 +41,19 @@ needed — it is just the BEAM.
 **OTP all the way down.** Supervision trees, fault tolerance, and process linking are
 not add-ons — they are the architecture. An agent crash does not take down the TUI.
 
-**Libraries on Hex, binary on GitHub.** `planck_ai`, `planck_agent`, `planck_tui`, and
-`planck_web` are usable by any Elixir developer. The coding agent is a self-contained
-Burrito binary that non-Elixir users can install without knowing Mix or Erlang.
+**Libraries on Hex, binary on GitHub.** `planck_ai`, `planck_agent`, and
+`planck_headless` are usable by any Elixir developer building AI-powered applications.
+The coding agent ships as a self-contained Burrito binary — non-Elixir users install
+and run it without knowing Mix or Erlang.
 
 **Extensions without compilation.** The primary extension path is a plain `.ex` source
 file loaded via `Code.compile_file/2` at startup — no build step required.
 
 ## Status
 
-Early development. `planck_ai` is the first package being built. See
-[`specs/`](./specs) for design decisions and [`specs/original-spec.md`](./specs/original-spec.md)
-for the full project roadmap.
+Active development. `planck_ai`, `planck_agent`, and `planck_headless` are built and
+tested. `planck_cli` (TUI + Web UI + Burrito binary) is next. See [`specs/`](./specs)
+for design decisions.
 
 ## Development
 

@@ -6,15 +6,16 @@
 |---|---|---|
 | `planck_ai` | Hex.pm | Standalone LLM library, no agent dep |
 | `planck_agent` | Hex.pm | Depends on `planck_ai` |
-| `planck_tui` | Hex.pm | Standalone; brings in ex_ratatui NIF |
-| `planck_web` | Hex.pm | Depends on Phoenix + LiveView |
-| `planck_cli` | Burrito binary + GitHub Releases | Depends on all of the above |
+| `planck_headless` | Hex.pm | Depends on `planck_agent` |
+| `planck_cli` | Burrito binary + GitHub Releases | Depends on all of the above; contains TUI + Web UI |
+
+The TUI and Web UI are not separate Hex packages. They live inside `planck_cli` as
+internal modules. Anyone wanting to build their own UI depends on `planck_headless`
+directly and writes their own rendering surface.
 
 ## planck_cli — Burrito binary
 
 Self-contained binary. Bundles the Erlang runtime. End users need no Elixir or Erlang.
-
-Follows the same per-target release pattern as edid-generator:
 
 ```elixir
 def releases do
@@ -36,9 +37,6 @@ def releases do
 end
 ```
 
-Individual per-target releases (e.g. `planck_macos_arm`) are also defined for CI
-cross-compilation jobs that build one target at a time.
-
 ## planck_cli — execution modes
 
 The binary detects its mode at startup — no separate binaries per mode.
@@ -46,34 +44,18 @@ The binary detects its mode at startup — no separate binaries per mode.
 ```sh
 planck                        # TUI mode (TTY detected)
 planck "fix the auth bug"     # print mode (argument provided, no TUI)
-planck --print "explain this" # explicit print mode
+planck --web                  # Web UI mode (starts Phoenix server)
 ```
 
 TTY detection at startup:
+
 ```elixir
-if :io.columns() == {:error, :enotsup} do
-  Planck.PrintMode.start()
-else
-  Planck.TUIMode.start()
+cond do
+  "--web" in argv               -> Planck.WebMode.start(argv)
+  :io.columns() == {:error, :enotsup} -> Planck.PrintMode.start(argv)
+  true                          -> Planck.TUIMode.start(argv)
 end
 ```
-
-## planck_web — execution modes
-
-`planck_web` is a Hex library for embedding LiveView chat components in any Phoenix app.
-It is not a Burrito binary.
-
-```sh
-# Development
-iex -S mix phx.server
-
-# Production (standard OTP release, not Burrito)
-mix release planck_web
-_build/prod/rel/planck_web/bin/planck_web start
-```
-
-The `planck_web/` folder contains a demo Phoenix app showing library usage. The library
-itself is the distributable artifact.
 
 ## Hex library releases
 
@@ -83,13 +65,12 @@ Each library is versioned and published independently:
 cd planck_ai && mix hex.publish
 ```
 
-Users depend only on what they need:
+Users who want to build on top of Planck depend only on what they need:
 
 ```elixir
-{:planck_ai, "~> 0.1"}       # LLM abstraction only
-{:planck_agent, "~> 0.1"}    # agent runtime (pulls planck_ai transitively)
-{:planck_tui, "~> 0.1"}      # TUI widgets
-{:planck_web, "~> 0.1"}      # Phoenix LiveView components
+{:planck_ai, "~> 0.1"}          # LLM abstraction only
+{:planck_agent, "~> 0.1"}       # agent runtime (pulls planck_ai transitively)
+{:planck_headless, "~> 0.1"}    # full headless stack (pulls planck_agent transitively)
 ```
 
 ## Version policy
