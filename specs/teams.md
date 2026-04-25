@@ -216,7 +216,7 @@ At boot, `planck_headless`:
 4. Project-local aliases overwrite global ones on collision.
 
 Invalid TEAM.json files are skipped with a warning; the rest load. Same rule
-as `ExternalTool.load_all/1` and `Skill.load_all/1`.
+as `Skill.load_all/1`.
 
 ### Resolution at session start
 

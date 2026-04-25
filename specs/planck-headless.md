@@ -18,9 +18,13 @@ as internal modules. They are rendering surfaces only — they never call
   Merges `.planck/config.json`, `~/.planck/config.json`, env vars, and
   application config via Skogsra; exposes a resolved `Planck.Headless.Config`
   struct.
-- **Startup orchestration** — load external tools, skills, teams, and the
-  custom compactor from the filesystem at application start; make them
-  available to all sessions via a `ResourceStore`.
+- **Startup orchestration** — load skills, teams, and models at application
+  start; optionally start the sidecar process (external tools and per-agent
+  compactors come from there); make everything available via a `ResourceStore`.
+- **Sidecar management** — if `config.sidecar` is set, spawn the sidecar OTP
+  application as a separate named node, inject connection env vars, wait for it
+  to connect, then discover tools and compactors from it via
+  `Planck.Agent.Sidecar` behaviour callbacks.
 - **Team registry** — scan `teams_dirs` at boot, parse each team directory via
   `Planck.Agent.Team.load/1`, store the results keyed by alias.
 - **Session lifecycle** — create, resume, and close named sessions; start the
@@ -146,17 +150,17 @@ When the `planck_headless` application starts:
    files are read via `JsonBinding` as part of the Skogsra binding chain);
    then `Config.validate!/0` fails fast on invalid required values.
    (see *Config* below).
-2. **Tools** — `Planck.Agent.ExternalTool.load_all(config.tools_dirs)`.
-3. **Skills** — `Planck.Agent.Skill.load_all(config.skills_dirs)`.
-4. **Teams** — scan `config.teams_dirs` and call `Planck.Agent.Team.load/1` on
+2. **Skills** — `Planck.Agent.Skill.load_all(config.skills_dirs)`.
+3. **Teams** — scan `config.teams_dirs` and call `Planck.Agent.Team.load/1` on
    each subdirectory; store in `ResourceStore.teams` keyed by alias. Project-
    local aliases overwrite global ones on collision.
-5. **Compactor** — `Planck.Agent.Compactor.load(config.compactor)` if set,
-   otherwise fall back to `Planck.Agent.Compactor.build/2` at session start
-   using the orchestrator's model.
-6. **Models** — detect providers with API keys set; build the filtered
-   `available_models` list.
-7. **ResourceStore** — populate the named GenServer with all of the above.
+4. **Models** — cloud providers filtered by API key; local models from
+   `Config.models!()`.
+5. **Sidecar** — if `Config.sidecar!()` is set, spawn the sidecar process,
+   wait for it to connect, then call `list_tools/0` to populate
+   `ResourceStore.sidecar_tools`. External tools and per-agent compactors
+   come exclusively from the sidecar; there is no `tools_dirs` filesystem scan.
+6. **ResourceStore** — populate the named GenServer with all of the above.
 
 From that point on, `start_session/1` uses the already-loaded resources — no
 per-session filesystem scanning.
@@ -375,8 +379,8 @@ Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
   "default_model":    "claude-sonnet-4-6",
   "sessions_dir":     ".planck/sessions",
   "skills_dirs":      ["~/.planck/skills"],
-  "tools_dirs":       ["~/.planck/tools"],
   "teams_dirs":       ["~/.planck/teams"],
+  "sidecar":          ".planck/sidecar",
   "models": [
     {
       "id":             "llama3.2",
@@ -390,10 +394,12 @@ Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
       "base_url":       "http://localhost:8080",
       "context_window": 32768
     }
-  ],
-  "compactor": "~/.planck/compactor.exs"
+  ]
 }
 ```
+
+`tools_dirs` and `compactor` keys are removed — external tools and per-agent
+compactors come from the sidecar. See `specs/sidecar.md`.
 
 The `models` list uses the same format as `Planck.AI.Config` — only `"id"`
 and `"provider"` are required. This replaces the old `local_servers` approach:
@@ -415,9 +421,8 @@ too structured for a flat string.
   default_model:     String.t() | nil,
   sessions_dir:      Path.t(),
   skills_dirs:       [Path.t()],
-  tools_dirs:        [Path.t()],
   teams_dirs:        [Path.t()],
-  compactor:         Path.t() | nil,
+  sidecar:           Path.t(),        # defaults to ".planck/sidecar"; skipped if absent on disk
   models:            [Planck.AI.Model.t()]
 }
 ```
@@ -432,9 +437,8 @@ too structured for a flat string.
 | `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                             |
 | `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                |
 | `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
-| `PLANCK_TOOLS_DIRS`       | `:tools_dirs`        | `.planck/tools:~/.planck/tools`   |
 | `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`   |
-| `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                             |
+| `PLANCK_SIDECAR`          | `:sidecar`           | `.planck/sidecar`                 |
 | `PLANCK_CONFIG_FILES`     | `:config_files`      | `~/.planck/config.json:.planck/config.json` |
 
 `*_DIRS` env vars take a colon-separated list, parsed via an inline

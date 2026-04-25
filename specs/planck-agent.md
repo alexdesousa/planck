@@ -50,7 +50,10 @@ has in its list.
   `system_prompt_section/1`
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination;
   caller supplies `dir:` explicitly (no built-in config; lives in `planck_headless`)
-- `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`
+- `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`;
+  used as fallback when no per-agent compactor is configured
+- `Planck.Agent.Sidecar` — behaviour for sidecar applications; defines `list_tools/0`
+  and `compactor_for/1`. See `specs/sidecar.md`.
 - `Planck.Agent.Team` — loads a team directory (TEAM.json + members/) and exposes
   `%Team{}` as the runtime representation; tools merged in programmatically by the
   caller. See `specs/teams.md`.
@@ -119,8 +122,10 @@ TEAM.json. The caller merges tools in before spawning.
   system_prompt: String.t(),            # already resolved from file path if applicable
   opts:          keyword(),
   tools:         [String.t()],          # tool names resolved from tool_pool: at start time
-  skills:        [String.t()]           # skill names resolved from skill_pool: at start time;
+  skills:        [String.t()],          # skill names resolved from skill_pool: at start time;
                                         # appended to system_prompt via system_prompt_section/1
+  compactor:     String.t() | nil       # sidecar module name for per-agent compaction,
+                                        # e.g. "MySidecar.Compactors.Builder"; nil = default
 }
 ```
 
@@ -381,8 +386,9 @@ The agent inserts the summary as a `{:custom, :summary}` checkpoint in `state.me
 and persists it to the session. Future LLM calls are built from the latest checkpoint
 onward — full history is retained in the session for audit and UI pagination.
 
-Custom compactors implement the `Planck.Agent.Compactor` behaviour and are loaded
-via `Compactor.load/1` from a `.exs` file.
+Custom compactors implement the `Planck.Agent.Compactor` behaviour and are
+referenced by module name in `AgentSpec.compactor`; the module lives in the
+sidecar application (see `specs/sidecar.md`).
 
 ```elixir
 on_compact = Planck.Agent.Compactor.build(model, ratio: 0.8, keep_recent: 10)
