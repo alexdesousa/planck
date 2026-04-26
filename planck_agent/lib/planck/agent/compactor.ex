@@ -4,49 +4,94 @@ defmodule Planck.Agent.Compactor do
 
   ## Behaviour
 
-  Implement this behaviour to supply a custom compaction strategy:
+  Use `use Planck.Agent.Compactor` to implement a custom compaction strategy.
+  The only required callback is `compact/2`; `compact_timeout/0` has a default
+  implementation of #{120_000} ms.
 
-      defmodule MyApp.Compactor do
-        @behaviour Planck.Agent.Compactor
+      defmodule MySidecar.Compactors.Builder do
+        use Planck.Agent.Compactor
 
         @impl true
-        def compact(messages) do
-          summary = summarise(messages)
+        def compact(_model, messages) do
+          summary = Message.new({:custom, :summary}, [{:text, summarise(messages)}])
           kept    = Enum.take(messages, -5)
           {:compact, summary, kept}
         end
 
-        defp summarise(messages), do: ...
+        # Optional — override to declare a custom RPC timeout.
+        @impl true
+        def compact_timeout, do: 60_000
       end
 
-  Load the module from a `.exs` file:
+  ## Building an on_compact function
 
-      {:ok, on_compact} = Planck.Agent.Compactor.load("my_compactor.exs")
+  `build/2` is the single entry point for both the local LLM-based compactor and
+  remote sidecar compactors. When `sidecar_node:` and `compactor:` options are
+  absent it runs locally; when both are present it calls the remote module via
+  `:rpc.call/5` and falls back to the local compactor if the RPC fails.
 
-  ## Default compactor
+      # Local (default):
+      on_compact = Planck.Agent.Compactor.build(model)
 
-  `build/2` returns a ready-to-use `on_compact` function backed by the LLM:
+      # Remote sidecar:
+      on_compact = Planck.Agent.Compactor.build(model,
+        sidecar_node: :planck_sidecar@localhost,
+        compactor:    "MySidecar.Compactors.Builder"
+      )
 
-      on_compact = Planck.Agent.Compactor.build(model, ratio: 0.8)
+  Both return a `fn messages ->` closure of arity 1, as expected by `Planck.Agent`.
 
-  ## Compaction strategy
+  ## Compaction strategy (local default)
 
   When triggered, the oldest messages (everything except the last `keep_recent`
-  messages) are summarized into a single `{:custom, :summary}` message. The
-  summary prompt instructs the LLM to:
-
-  - Describe completed work briefly
-  - State the current active goal and latest requests in full detail
-  - Retain key facts, file paths, decisions, and constraints still relevant
-
-  On failure the original message list is returned unchanged.
+  messages) are summarised into a single `{:custom, :summary}` message. On LLM
+  failure the local compactor falls back to the original message list unchanged
+  (`:skip`). On remote failure the local compactor is used as the fallback.
   """
+
+  require Logger
 
   alias Planck.Agent.{AIBehaviour, Message}
   alias Planck.AI.{Context, Model}
 
-  @callback compact(messages :: [Message.t()]) ::
+  @default_compact_timeout_ms 120_000
+
+  @doc """
+  Compact the message list.
+
+  Return `{:compact, summary_msg, kept}` to replace older messages with a summary,
+  or `:skip` to leave the list unchanged.
+
+  - `summary_msg` — a `{:custom, :summary}` `Message` containing the summary text
+  - `kept` — recent messages retained verbatim after the summary
+  """
+  @callback compact(model :: Model.t(), messages :: [Message.t()]) ::
               {:compact, summary :: Message.t(), kept :: [Message.t()]} | :skip
+
+  @doc """
+  RPC call timeout in milliseconds when this compactor is invoked remotely.
+
+  Defaults to #{@default_compact_timeout_ms} ms. Override to declare a custom
+  expected latency for the compactor — the module knows its own logic better
+  than any caller default.
+  """
+  @callback compact_timeout() :: pos_integer()
+
+  @doc false
+  defmacro __using__(_opts) do
+    quote do
+      @behaviour Planck.Agent.Compactor
+
+      @impl Planck.Agent.Compactor
+      def compact_timeout, do: Planck.Agent.Compactor.default_compact_timeout()
+
+      defoverridable compact_timeout: 0
+    end
+  end
+
+  @doc "Default RPC timeout used when a compactor module omits `compact_timeout/0`."
+  @spec default_compact_timeout() :: pos_integer()
+  def default_compact_timeout, do: @default_compact_timeout_ms
 
   @default_ratio 0.8
   @default_keep_recent 10
@@ -56,10 +101,17 @@ defmodule Planck.Agent.Compactor do
 
   - `:ratio` — fraction of `model.context_window` that triggers compaction
     (default `#{@default_ratio}`)
-  - `:keep_recent` — number of recent messages to keep verbatim, outside the
-    summary (default `#{@default_keep_recent}`)
+  - `:keep_recent` — number of recent messages to keep verbatim (default `#{@default_keep_recent}`)
+  - `:sidecar_node` — node name of a connected sidecar (enables remote compaction)
+  - `:compactor` — fully-qualified module name string in the sidecar,
+    e.g. `"MySidecar.Compactors.Builder"`. Required when `:sidecar_node` is set.
   """
-  @type opts :: [ratio: float(), keep_recent: pos_integer()]
+  @type opts :: [
+          ratio: float(),
+          keep_recent: pos_integer(),
+          sidecar_node: atom() | nil,
+          compactor: String.t() | nil
+        ]
 
   @summary_prompt """
   Summarize the conversation below to reduce context length.
@@ -73,79 +125,88 @@ defmodule Planck.Agent.Compactor do
   """
 
   @doc """
-  Load a custom compactor from a `.exs` file.
-
-  The file must define a module that implements the `Planck.Agent.Compactor`
-  behaviour (i.e. exports `compact/1`). Returns `{:error, reason}` if the file
-  is missing, fails to compile, or contains no module with a `compact/1`
-  function.
-  """
-  @spec load(Path.t()) :: {:ok, ([Message.t()] -> term())} | {:error, String.t()}
-  def load(path) do
-    expanded = Path.expand(path)
-    modules = Code.compile_file(expanded)
-
-    case Enum.find(modules, fn {mod, _binary} -> function_exported?(mod, :compact, 1) end) do
-      {mod, _binary} -> {:ok, &mod.compact/1}
-      nil -> {:error, "no module implementing Planck.Agent.Compactor found in #{path}"}
-    end
-  rescue
-    e -> {:error, "failed to load compactor #{path}: #{Exception.message(e)}"}
-  end
-
-  @doc """
   Build an `on_compact` function for the given model.
 
-  The returned function estimates the token count of the message list and
-  returns `:skip` when below the threshold, or `{:compact, summary_msg, kept}`
-  when compaction is triggered.
-
-  - `summary_msg` — a `{:custom, :summary}` `Message` wrapping the LLM summary
-  - `kept` — the last `keep_recent` messages that were not summarised
-
-  On LLM failure the function returns `:skip` (no-op).
+  Returns a `fn messages ->` closure of arity 1. When remote options are provided
+  (`sidecar_node:` and `compactor:`), the closure calls the remote module via RPC
+  and falls back to the local LLM-based compactor if the call fails.
 
   ## Examples
 
-      iex> on_compact = Planck.Agent.Compactor.build(model, ratio: 0.75)
-      iex> is_function(on_compact, 1)
-      true
+      # Local:
+      on_compact = Planck.Agent.Compactor.build(model, ratio: 0.75)
+
+      # Remote sidecar with local fallback:
+      on_compact = Planck.Agent.Compactor.build(model,
+        sidecar_node: :planck_sidecar@localhost,
+        compactor: "MySidecar.Compactors.Builder"
+      )
 
   """
   @spec build(Model.t(), opts()) ::
           ([Message.t()] -> :skip | {:compact, Message.t(), [Message.t()]})
   def build(%Model{} = model, opts \\ []) do
+    local = build_local(model, opts)
+
+    case {Keyword.get(opts, :sidecar_node), Keyword.get(opts, :compactor)} do
+      {nil, _} -> local
+      {_, nil} -> local
+      {node, name} -> build_remote(model, node, name, local)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
+
+  @spec build_local(Model.t(), opts()) ::
+          ([Message.t()] -> :skip | {:compact, Message.t(), [Message.t()]})
+  defp build_local(model, opts) do
     ratio = Keyword.get(opts, :ratio, @default_ratio)
     keep_recent = Keyword.get(opts, :keep_recent, @default_keep_recent)
     threshold = trunc(model.context_window * ratio)
 
     fn messages ->
       if estimate_tokens(messages) >= threshold do
-        compact(messages, model, keep_recent)
+        compact_local(messages, model, keep_recent)
       else
         :skip
       end
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Private helpers
-  # ---------------------------------------------------------------------------
+  @spec build_remote(Model.t(), atom(), String.t(), function()) ::
+          ([Message.t()] -> :skip | {:compact, Message.t(), [Message.t()]})
+  defp build_remote(model, sidecar_node, compactor_name, local_fallback) do
+    module = String.to_atom(compactor_name)
+    timeout = remote_compact_timeout(module, sidecar_node)
 
-  @spec estimate_tokens([Message.t()]) :: non_neg_integer()
-  defp estimate_tokens(messages) do
-    messages
-    |> Enum.flat_map(& &1.content)
-    |> Enum.reduce(0, fn
-      {:text, text}, acc -> acc + div(String.length(text), 4)
-      {:thinking, text}, acc -> acc + div(String.length(text), 4)
-      _other, acc -> acc
-    end)
+    fn messages ->
+      case :rpc.call(sidecar_node, module, :compact, [model, messages], timeout) do
+        {:badrpc, reason} ->
+          Logger.warning(
+            "[Planck.Agent.Compactor] sidecar RPC failed (#{compactor_name}): #{inspect(reason)}, falling back to local"
+          )
+
+          local_fallback.(messages)
+
+        result ->
+          result
+      end
+    end
   end
 
-  @spec compact([Message.t()], Model.t(), pos_integer()) ::
+  @spec remote_compact_timeout(module(), atom()) :: pos_integer()
+  defp remote_compact_timeout(module, sidecar_node) do
+    case :rpc.call(sidecar_node, module, :compact_timeout, [], 5_000) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _ -> @default_compact_timeout_ms
+    end
+  end
+
+  @spec compact_local([Message.t()], Model.t(), pos_integer()) ::
           :skip | {:compact, Message.t(), [Message.t()]}
-  defp compact(messages, model, keep_recent) do
+  defp compact_local(messages, model, keep_recent) do
     {old, kept} = Enum.split(messages, -keep_recent)
 
     case {old, summarize(old, model)} do
@@ -159,6 +220,17 @@ defmodule Planck.Agent.Compactor do
       {_, {:error, _}} ->
         :skip
     end
+  end
+
+  @spec estimate_tokens([Message.t()]) :: non_neg_integer()
+  defp estimate_tokens(messages) do
+    messages
+    |> Enum.flat_map(& &1.content)
+    |> Enum.reduce(0, fn
+      {:text, text}, acc -> acc + div(String.length(text), 4)
+      {:thinking, text}, acc -> acc + div(String.length(text), 4)
+      _other, acc -> acc
+    end)
   end
 
   @spec summarize([Message.t()], Model.t()) :: {:ok, String.t()} | {:error, term()}
