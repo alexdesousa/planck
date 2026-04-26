@@ -28,9 +28,8 @@ defmodule Planck.Headless.Config do
   | `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                             |
   | `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                |
   | `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
-  | `PLANCK_TOOLS_DIRS`       | `:tools_dirs`        | `.planck/tools:~/.planck/tools`   |
   | `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`   |
-  | `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                             |
+  | `PLANCK_SIDECAR`          | `:sidecar`           | `.planck/sidecar`                 |
 
   `*_DIRS` env vars take a colon-separated list; paths are expanded at runtime
   (`~` and relative paths resolved). The `:models` key has no env var
@@ -107,9 +106,8 @@ defmodule Planck.Headless.Config do
           default_model: String.t() | nil,
           sessions_dir: Path.t(),
           skills_dirs: [Path.t()],
-          tools_dirs: [Path.t()],
           teams_dirs: [Path.t()],
-          compactor: Path.t() | nil,
+          sidecar: Path.t(),
           models: [Planck.AI.Model.t()]
         }
 
@@ -117,9 +115,8 @@ defmodule Planck.Headless.Config do
             default_model: nil,
             sessions_dir: ".planck/sessions",
             skills_dirs: [".planck/skills", "~/.planck/skills"],
-            tools_dirs: [".planck/tools", "~/.planck/tools"],
             teams_dirs: [".planck/teams", "~/.planck/teams"],
-            compactor: nil,
+            sidecar: ".planck/sidecar",
             models: []
 
   @envdoc """
@@ -158,21 +155,20 @@ defmodule Planck.Headless.Config do
     default: [".planck/skills", "~/.planck/skills"],
     binding_order: @json
 
-  @envdoc "Colon-separated list of external-tool directories."
-  app_env :tools_dirs, :planck, :tools_dirs,
-    type: PathList,
-    default: [".planck/tools", "~/.planck/tools"],
-    binding_order: @json
-
   @envdoc "Colon-separated list of team directories."
   app_env :teams_dirs, :planck, :teams_dirs,
     type: PathList,
     default: [".planck/teams", "~/.planck/teams"],
     binding_order: @json
 
-  @envdoc "Path to a `.exs` file defining a custom compactor module."
-  app_env :compactor, :planck, :compactor,
-    default: nil,
+  @envdoc """
+  Path to the sidecar Mix project directory. planck_headless starts the sidecar
+  application from this path when it exists on disk. Set to a non-existent path
+  to disable sidecar startup.
+  """
+  app_env :sidecar, :planck, :sidecar,
+    os_env: "PLANCK_SIDECAR",
+    default: ".planck/sidecar",
     binding_order: @json
 
   @envdoc """
@@ -232,9 +228,8 @@ defmodule Planck.Headless.Config do
       default_model: default_model!(),
       sessions_dir: sessions_dir!(),
       skills_dirs: skills_dirs!(),
-      tools_dirs: tools_dirs!(),
       teams_dirs: teams_dirs!(),
-      compactor: compactor!(),
+      sidecar: sidecar!(),
       models: models!()
     }
   end

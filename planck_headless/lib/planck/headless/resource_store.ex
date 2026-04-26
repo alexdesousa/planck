@@ -1,8 +1,7 @@
 defmodule Planck.Headless.ResourceStore do
   @moduledoc """
   GenServer started at application boot that holds the loaded resources —
-  the single source of truth for tools, skills, teams, the compactor
-  function, and available models.
+  the single source of truth for skills, teams, and available models.
 
   Resources are loaded once at startup from the directories configured in
   `Planck.Headless.Config`. New sessions pick up whatever is in the store
@@ -13,25 +12,24 @@ defmodule Planck.Headless.ResourceStore do
       Planck.Headless.ResourceStore.reload()
 
   Triggers a synchronous reload of tools, skills, and teams from disk.
-  The compactor and available models are also re-resolved.
+  Available models are also re-resolved.
   """
 
   use GenServer
 
   require Logger
 
-  alias Planck.Agent.{Compactor, ExternalTool, Skill, Team}
+  alias Planck.Agent.{Skill, Team}
   alias Planck.Headless.Config
 
   @type t :: %__MODULE__{
           tools: [Planck.Agent.Tool.t()],
           skills: [Skill.t()],
           teams: %{String.t() => Team.t()},
-          on_compact: function() | nil,
           available_models: [Planck.AI.Model.t()]
         }
 
-  defstruct tools: [], skills: [], teams: %{}, on_compact: nil, available_models: []
+  defstruct tools: [], skills: [], teams: %{}, available_models: []
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -85,17 +83,13 @@ defmodule Planck.Headless.ResourceStore do
 
   @spec load_resources() :: t()
   defp load_resources do
-    tools = ExternalTool.load_all(Config.tools_dirs!())
     skills = Skill.load_all(Config.skills_dirs!())
     teams = load_teams(Config.teams_dirs!())
-    on_compact = load_compactor(Config.compactor!())
     available_models = detect_available_models()
 
     %__MODULE__{
-      tools: tools,
       skills: skills,
       teams: teams,
-      on_compact: on_compact,
       available_models: available_models
     }
   end
@@ -135,23 +129,6 @@ defmodule Planck.Headless.ResourceStore do
       end
     else
       []
-    end
-  end
-
-  @spec load_compactor(Path.t() | nil) :: function() | nil
-  defp load_compactor(nil), do: nil
-
-  defp load_compactor(path) do
-    case Compactor.load(path) do
-      {:ok, fun} ->
-        fun
-
-      {:error, reason} ->
-        Logger.warning(
-          "[Planck.Headless.ResourceStore] failed to load compactor #{path}: #{inspect(reason)}"
-        )
-
-        nil
     end
   end
 
