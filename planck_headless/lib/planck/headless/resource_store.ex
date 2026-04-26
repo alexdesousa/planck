@@ -58,6 +58,18 @@ defmodule Planck.Headless.ResourceStore do
     GenServer.call(__MODULE__, :reload)
   end
 
+  @doc "Replace the sidecar tool list. Called by SidecarManager on nodeup."
+  @spec put_tools([Planck.AI.Tool.t()]) :: :ok
+  def put_tools(tools) do
+    GenServer.call(__MODULE__, {:put_tools, tools})
+  end
+
+  @doc "Clear all sidecar tools. Called by SidecarManager on nodedown."
+  @spec clear_tools() :: :ok
+  def clear_tools do
+    GenServer.call(__MODULE__, :clear_tools)
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer callbacks
   # ---------------------------------------------------------------------------
@@ -75,6 +87,16 @@ defmodule Planck.Headless.ResourceStore do
   @impl true
   def handle_call(:reload, _from, _state) do
     {:reply, :ok, load_resources()}
+  end
+
+  @impl true
+  def handle_call({:put_tools, tools}, _from, state) do
+    {:reply, :ok, %{state | tools: tools}}
+  end
+
+  @impl true
+  def handle_call(:clear_tools, _from, state) do
+    {:reply, :ok, %{state | tools: []}}
   end
 
   # ---------------------------------------------------------------------------
