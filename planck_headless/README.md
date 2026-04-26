@@ -1,8 +1,9 @@
 # Planck.Headless
 
 Headless core of the [Planck](../README.md) coding agent. A long-running OTP
-application that owns configuration, loads resources (tools, skills, teams,
-compactor, models) at startup, and manages session lifecycles.
+application that owns configuration, loads resources (skills, teams, models)
+at startup, manages session lifecycles, and optionally starts and manages a
+sidecar OTP application that provides custom tools and compactors.
 
 UIs (`planck_tui`, `planck_web`) depend on this package; they are rendering
 surfaces only and never call `planck_agent` directly.
@@ -57,6 +58,39 @@ Planck.Headless.list_sessions()
 ```
 
 See the module docs on `Planck.Headless.Config` for the full env-var table.
+
+## Sidecars
+
+A sidecar is a separate OTP application that provides custom tools and
+compactors to planck_headless over distributed Erlang.
+
+Configure the sidecar directory:
+
+```json
+{ "sidecar": ".planck/sidecar" }
+```
+
+Or via env var: `PLANCK_SIDECAR=.planck/sidecar`.
+
+When the directory exists on disk, `Planck.Headless.SidecarManager` automatically:
+
+1. Runs `mix deps.get` and `mix compile` in the sidecar directory.
+2. Spawns the sidecar as a named Erlang node (`planck_sidecar@<host>`) via erlexec.
+3. Discovers the sidecar's tools via `Planck.Agent.Sidecar.list_tools/0` on nodeup.
+4. Makes those tools available to all new sessions through `ResourceStore`.
+
+Subscribe to lifecycle events:
+
+```elixir
+Planck.Headless.SidecarManager.subscribe()
+
+receive do
+  {:connected, node} -> IO.puts("Sidecar ready: #{node}")
+  {:disconnected, node} -> IO.puts("Sidecar gone: #{node}")
+end
+```
+
+See `specs/sidecar.md` for the full design.
 
 ## Development
 

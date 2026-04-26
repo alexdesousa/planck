@@ -6,7 +6,8 @@ defmodule Planck.Headless.Config.JsonBinding do
   # The merged map is cached in persistent_term after the first resolution.
   #
   # Set `config :planck_headless, :skip_json_config, true` in test envs to
-  # prevent reading real config files.
+  # skip this binding entirely: `init/1` returns `:error` so Skogsra bypasses
+  # the binding without emitting `:not_found` warnings for every key.
   #
   # Call invalidate/0 before ResourceStore.reload/0 to pick up file changes.
 
@@ -17,7 +18,11 @@ defmodule Planck.Headless.Config.JsonBinding do
   @cache_key {__MODULE__, :config}
 
   @impl true
-  def init(_env), do: {:ok, resolved_config()}
+  def init(_env) do
+    if Application.get_env(:planck_headless, :skip_json_config, false),
+      do: :error,
+      else: {:ok, cached_config()}
+  end
 
   @impl true
   def get_env(env, config) do
@@ -39,13 +44,6 @@ defmodule Planck.Headless.Config.JsonBinding do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
-
-  @spec resolved_config() :: map()
-  defp resolved_config do
-    if Application.get_env(:planck_headless, :skip_json_config, false),
-      do: %{},
-      else: cached_config()
-  end
 
   @spec cached_config() :: map()
   defp cached_config do
