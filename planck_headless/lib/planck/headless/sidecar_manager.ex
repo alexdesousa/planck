@@ -32,6 +32,7 @@ defmodule Planck.Headless.SidecarManager do
 
   require Logger
 
+  alias Planck.Agent.Tool
   alias Planck.Headless.{Config, ResourceStore}
 
   @pubsub Planck.Agent.PubSub
@@ -234,17 +235,53 @@ defmodule Planck.Headless.SidecarManager do
     |> String.starts_with?(@sname)
   end
 
-  @spec fetch_tools(atom()) :: [Planck.AI.Tool.t()]
+  @default_tool_timeout_ms 300_000
+
+  @spec fetch_tools(atom()) :: [Tool.t()]
   defp fetch_tools(node) do
     case :rpc.call(node, Planck.Agent.Sidecar, :list_tools, [], 10_000) do
       {:badrpc, reason} ->
         Logger.warning("[SidecarManager] list_tools RPC failed: #{inspect(reason)}")
         []
 
-      tools ->
-        tools
+      ai_tools ->
+        Enum.map(ai_tools, &wrap_tool(&1, node))
     end
   end
+
+  @timeout_param %{
+    "type" => "integer",
+    "description" =>
+      "Maximum milliseconds to wait for this tool call (default #{@default_tool_timeout_ms})."
+  }
+
+  @spec wrap_tool(Planck.AI.Tool.t(), atom()) :: Tool.t()
+  defp wrap_tool(ai_tool, node) do
+    Tool.new(
+      name: ai_tool.name,
+      description: ai_tool.description,
+      parameters: inject_timeout_param(ai_tool.parameters),
+      execute_fn: fn agent_id, args ->
+        timeout = Map.get(args, "timeout_ms", @default_tool_timeout_ms)
+
+        case :rpc.call(node, Planck.Agent.Sidecar, :execute_tool, [ai_tool.name, agent_id, args], timeout) do
+          {:badrpc, reason} -> {:error, reason}
+          result -> result
+        end
+      end
+    )
+  end
+
+  @spec inject_timeout_param(map()) :: map()
+  defp inject_timeout_param(%{"properties" => props} = parameters) do
+    if Map.has_key?(props, "timeout_ms") do
+      parameters
+    else
+      put_in(parameters, ["properties", "timeout_ms"], @timeout_param)
+    end
+  end
+
+  defp inject_timeout_param(parameters), do: parameters
 
   @spec broadcast(term()) :: :ok
   defp broadcast(event) do
