@@ -72,6 +72,16 @@ Commit messages use an emoji prefix:
 - Sidecar tools and compactors are loaded dynamically over distributed Erlang by `SidecarManager`
 - `ResourceStore` is the single source of truth for skills, teams, models, and sidecar tools
 
+## User-facing guides
+
+`docs/guides/` contains guides written for agents configuring a Planck
+environment. Read the relevant guide before implementing:
+
+- `docs/guides/configuration.md` — `.planck/config.json` keys and env vars
+- `docs/guides/teams.md` — TEAM.json structure, agent specs, inter-agent tools
+- `docs/guides/skills.md` — SKILL.md format and skill assignment
+- `docs/guides/sidecar.md` — sidecar scaffold, tools, compactors, PubSub events
+
 ## Specs
 
 Design decisions live in `specs/`. Read the relevant spec before making
