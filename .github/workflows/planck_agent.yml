@@ -3,9 +3,13 @@ name: Planck.Agent Checks
 on:
   push:
     branches: [main]
-    paths: ["planck_agent/**"]
+    paths:
+      - "planck_agent/**"
+      - "planck_ai/**"
   pull_request:
-    paths: ["planck_agent/**"]
+    paths:
+      - "planck_agent/**"
+      - "planck_ai/**"
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
