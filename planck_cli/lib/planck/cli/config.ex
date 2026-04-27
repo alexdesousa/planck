@@ -15,7 +15,7 @@ defmodule Planck.CLI.Config do
   use Skogsra
 
   @envdoc "Phoenix endpoint secret key base."
-  app_env(:secret_key_base, :planck_cli, ["Elixir.Planck.Web.Endpoint", :secret_key_base],
+  app_env :secret_key_base, :planck_cli, ["Elixir.Planck.Web.Endpoint", :secret_key_base],
     type: :binary,
     os_env: "SECRET_KEY_BASE",
     env_overrides: [
@@ -23,10 +23,9 @@ defmodule Planck.CLI.Config do
       test: [default: "vbREe4KPexSPleDG9tJVpfWcrTOPlKXXBDGS3+lU+a8H6t6NX5bJhC3waVBH8AH0"],
       prod: [required: true]
     ]
-  )
 
   @envdoc "HTTP port for the web UI."
-  app_env(:port, :planck_cli, ["Elixir.Planck.Web.Endpoint", :http, :port],
+  app_env :port, :planck_cli, ["Elixir.Planck.Web.Endpoint", :http, :port],
     type: :integer,
     os_env: "PORT",
     env_overrides: [
@@ -34,5 +33,4 @@ defmodule Planck.CLI.Config do
       test: [default: 4002],
       prod: [default: 4000]
     ]
-  )
 end
