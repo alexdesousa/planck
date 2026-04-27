@@ -14,6 +14,8 @@ defmodule Planck.CLI.MixProject do
       aliases: aliases(),
       dialyzer: dialyzer(),
       test_coverage: [tool: ExCoveralls],
+      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      listeners: [Phoenix.CodeReloader],
       name: "Planck CLI",
       description: @description,
       releases: releases()
@@ -42,6 +44,17 @@ defmodule Planck.CLI.MixProject do
   defp deps do
     [
       local_or_hex(:planck_headless, "~> 0.1"),
+      {:phoenix, "~> 1.8"},
+      {:phoenix_html, "~> 4.1"},
+      {:phoenix_live_view, "~> 1.1"},
+      {:phoenix_live_reload, "~> 1.2", only: :dev},
+      {:bandit, "~> 1.5"},
+      {:skogsra, "~> 2.5"},
+      {:telemetry_metrics, "~> 1.0"},
+      {:telemetry_poller, "~> 1.0"},
+      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
+      {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:burrito, "~> 1.0"},
       {:mox, "~> 1.2", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -65,6 +78,13 @@ defmodule Planck.CLI.MixProject do
         "compile --warnings-as-errors",
         "credo",
         "test"
+      ],
+      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.build": ["tailwind planck_cli", "esbuild planck_cli"],
+      "assets.deploy": [
+        "tailwind planck_cli --minify",
+        "esbuild planck_cli --minify",
+        "phx.digest"
       ]
     ]
   end
