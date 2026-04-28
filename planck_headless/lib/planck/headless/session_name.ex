@@ -1,4 +1,5 @@
 defmodule Planck.Headless.SessionName do
+  alias Planck.Agent.Session
   @moduledoc """
   Generates and sanitizes human-readable session names in `<adjective>-<noun>` format.
 
@@ -61,7 +62,7 @@ defmodule Planck.Headless.SessionName do
   def generate(sessions_dir, retries) do
     name = random_name()
 
-    case Planck.Agent.Session.find_by_name(sessions_dir, name) do
+    case Session.find_by_name(sessions_dir, name) do
       {:error, :not_found} -> {:ok, name}
       {:ok, _, _} -> generate(sessions_dir, retries - 1)
     end

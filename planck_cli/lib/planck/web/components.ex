@@ -72,6 +72,7 @@ defmodule Planck.Web.Components do
         ]} />
       </div>
       <p class="font-mono text-xs mt-1 opacity-75"><%= @agent.type %></p>
+      <p class="font-mono text-xs opacity-75 truncate"><%= @agent[:model] %></p>
       <p class="font-mono text-xs opacity-60"><%= format_usage(@agent.usage) %></p>
       <p class="font-mono text-xs opacity-60"><%= format_cost(@agent[:cost]) %></p>
     </div>
@@ -90,17 +91,12 @@ defmodule Planck.Web.Components do
   competing visually with them.
   """
   attr :agent, :map, required: true
-  attr :on_click, :string, default: "open_agent"
 
   def orchestrator_card(assigns) do
     ~H"""
     <div
-      class="border-2 border-black p-3 cursor-pointer transition-all duration-100
-             shadow-[4px_4px_0px_#000] hover:shadow-[6px_6px_0px_#000]
-             hover:-translate-x-0.5 hover:-translate-y-0.5 bg-card"
+      class="border-2 border-black p-3 bg-card"
       style="outline: 2px solid var(--primary); outline-offset: -2px;"
-      phx-click={@on_click}
-      phx-value-id={@agent.id}
     >
       <div class="flex items-center justify-between gap-2">
         <span class="font-bold font-mono text-sm text-primary truncate">
@@ -115,6 +111,7 @@ defmodule Planck.Web.Components do
         />
       </div>
       <p class="font-mono text-xs mt-1 text-muted-foreground">orchestrator</p>
+      <p class="font-mono text-xs text-muted-foreground truncate"><%= @agent[:model] %></p>
       <p class="font-mono text-xs text-muted-foreground"><%= format_usage(@agent.usage) %></p>
       <p class="font-mono text-xs text-muted-foreground"><%= format_cost(@agent[:cost]) %></p>
     </div>
@@ -237,7 +234,7 @@ defmodule Planck.Web.Components do
         <span class="opacity-50">v<%= @version %></span>
       </div>
       <div class="flex gap-4 items-center">
-        <span>↓<%= format_number(@usage[:input] || 0) %> ↑<%= format_number(@usage[:output] || 0) %></span>
+        <span>↓<%= format_number(@usage[:input_tokens] || 0) %> ↑<%= format_number(@usage[:output_tokens] || 0) %></span>
         <span><%= format_cost(@usage[:cost]) %></span>
         <.sidecar_status status={@sidecar} />
       </div>
@@ -274,6 +271,80 @@ defmodule Planck.Web.Components do
       <span class={["w-1.5 h-1.5 rounded-full", @dot_class]} />
       <span><%= @label %></span>
     </span>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # new_session_modal/1
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Modal dialog for creating a new session with an optional team and name.
+  Fires `create_session` with `%{team: team_alias | "", name: name | ""}`.
+  """
+  attr :teams, :list, required: true
+
+  def new_session_modal(assigns) do
+    ~H"""
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-80">
+        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-muted">
+          <span class="font-bold font-mono text-sm">New Session</span>
+          <button
+            class="font-mono text-sm hover:text-destructive"
+            phx-click="close_new_session"
+          >✕</button>
+        </div>
+        <form phx-submit="create_session" class="p-4 space-y-3">
+          <div>
+            <label class="font-mono text-xs text-muted-foreground block mb-1">Team</label>
+            <select
+              name="team"
+              class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                     bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+            >
+              <option value="">Dynamic (default)</option>
+              <%= for team <- @teams do %>
+                <option value={team}><%= team %></option>
+              <% end %>
+            </select>
+          </div>
+          <div>
+            <label class="font-mono text-xs text-muted-foreground block mb-1">
+              Name <span class="opacity-50">(optional)</span>
+            </label>
+            <input
+              type="text"
+              name="name"
+              class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                     bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                     placeholder:text-muted-foreground"
+              placeholder="my-session"
+            />
+          </div>
+          <div class="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+              phx-click="close_new_session"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     bg-primary text-primary-foreground"
+            >
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
     """
   end
 
@@ -323,6 +394,10 @@ defmodule Planck.Web.Components do
 
   @spec format_usage(nil | map()) :: String.t()
   defp format_usage(nil), do: "↓0 ↑0"
+
+  defp format_usage(%{input_tokens: i, output_tokens: o}),
+    do: "↓#{format_number(i)} ↑#{format_number(o)}"
+
   defp format_usage(%{input: i, output: o}), do: "↓#{format_number(i)} ↑#{format_number(o)}"
 
   @spec extract_text(list() | term()) :: String.t()

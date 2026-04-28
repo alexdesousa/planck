@@ -1,4 +1,5 @@
 @import "tailwindcss" source(none);
+@import "../node_modules/highlight.js/styles/atom-one-dark.min.css";
 @source "../css";
 @source "../js";
 @source "../../lib/planck/web";
@@ -73,6 +74,98 @@
 
 /* LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
+
+/* ── Chat markdown renderer ──────────────────────────────────────────────── */
+
+.chat-prose {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.chat-prose > *:first-child { margin-top: 0; }
+.chat-prose > *:last-child  { margin-bottom: 0; }
+
+.chat-prose p { margin: 0.35rem 0; }
+
+.chat-prose h1, .chat-prose h2, .chat-prose h3,
+.chat-prose h4, .chat-prose h5, .chat-prose h6 {
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0.75rem 0 0.25rem;
+}
+.chat-prose h1 { font-size: 1.2em; }
+.chat-prose h2 { font-size: 1.1em; }
+
+.chat-prose ul, .chat-prose ol {
+  margin: 0.35rem 0;
+  padding-left: 1.5rem;
+}
+.chat-prose ul  { list-style-type: disc; }
+.chat-prose ol  { list-style-type: decimal; }
+.chat-prose li  { margin: 0.1rem 0; }
+.chat-prose li > p { margin: 0; }
+
+.chat-prose a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-prose strong { font-weight: 700; }
+.chat-prose em     { font-style: italic; }
+
+.chat-prose blockquote {
+  border-left: 3px solid var(--primary);
+  padding: 0.1rem 0.75rem;
+  margin: 0.5rem 0;
+  color: var(--muted-foreground);
+}
+
+.chat-prose hr {
+  border: none;
+  border-top: 2px solid var(--border);
+  margin: 0.75rem 0;
+}
+
+.chat-prose table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
+.chat-prose th, .chat-prose td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+.chat-prose th { background: var(--muted); font-weight: 700; }
+
+/* Inline code */
+.chat-prose :not(pre) > code {
+  background: var(--muted);
+  color: var(--primary);
+  padding: 0.1em 0.35em;
+  font-size: 0.88em;
+  border: 1px solid var(--border);
+}
+
+/* Code blocks — always dark for readability, horizontal scroll on overflow */
+.chat-prose pre {
+  background: #1e2024;
+  color: #abb2bf;
+  border: 2px solid var(--border);
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.chat-prose pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border: none;
+  font-size: inherit;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 @utility auto-grow {
   field-sizing: content;
