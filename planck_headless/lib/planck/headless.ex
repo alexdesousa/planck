@@ -265,9 +265,10 @@ defmodule Planck.Headless do
         {:ok, team}
 
       {:error, :not_found} ->
-        # Try as a filesystem path
-        if File.dir?(alias) do
-          Team.load(alias)
+        expanded = Path.expand(alias)
+
+        if File.dir?(expanded) do
+          Team.load(expanded)
         else
           {:error, {:team_not_found, alias}}
         end
