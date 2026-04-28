@@ -4,7 +4,7 @@ defmodule Planck.Agent.AgentTest do
   import Mox
 
   alias Planck.Agent
-  alias Planck.Agent.{MockAI, Tool}
+  alias Planck.Agent.{Message, MockAI, Tool}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global
@@ -293,7 +293,7 @@ defmodule Planck.Agent.AgentTest do
     end
 
     test "compacted summary is inserted into messages and sent to LLM" do
-      summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, "Past summary."}])
+      summary_msg = Message.new({:custom, :summary}, [{:text, "Past summary."}])
 
       compact_fn = fn messages ->
         kept = Enum.take(messages, -1)
@@ -378,6 +378,74 @@ defmodule Planck.Agent.AgentTest do
       Agent.rewind(agent)
       assert Agent.get_state(agent).status == :streaming
       Agent.abort(agent)
+    end
+  end
+
+  # --- prompt queuing while busy ---
+
+  describe "prompt/2 queuing while busy" do
+    test "queued message is appended to history and triggers a second turn" do
+      # Use a slow stream so the GenServer is genuinely :streaming when the
+      # second prompt arrives, ensuring the busy queue-path is exercised.
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(200)
+        [{:text_delta, "response"}, {:done, %{}}]
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      # Give the task time to start so the agent is in :streaming status
+      Process.sleep(50)
+
+      assert Agent.get_state(agent).status == :streaming
+
+      # Queue a second message while the agent is busy — this hits the
+      # handle_call busy clause and appends without starting a new turn
+      Agent.prompt(agent, "second")
+
+      # Message must be in history immediately (not dropped)
+      user_messages =
+        Agent.get_state(agent).messages
+        |> Enum.filter(&(&1.role == :user))
+
+      assert length(user_messages) == 2
+
+      # First turn ends; the queued message re-triggers a second turn automatically
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "abort with pending queued message re-triggers a new turn" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(5_000)
+        []
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "slow task")
+      # Give the stream task time to start so the agent is :streaming
+      Process.sleep(50)
+
+      # Queue a message while streaming
+      Agent.prompt(agent, "queued message")
+
+      # Switch to a fast stub so the re-triggered turn completes quickly
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        [{:text_delta, "recovered"}, {:done, %{}}]
+      end)
+
+      # Abort — cancel_stream + reset_streaming, then maybe_turn_start detects
+      # the queued message and immediately starts a new turn
+      Agent.abort(agent)
+
+      # A fresh turn_start and turn_end must arrive after the abort
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
     end
   end
 

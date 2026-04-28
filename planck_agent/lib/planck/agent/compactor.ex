@@ -82,10 +82,10 @@ defmodule Planck.Agent.Compactor do
   @doc false
   defmacro __using__(_opts) do
     quote do
-      @behaviour Planck.Agent.Compactor
+      @behaviour unquote(__MODULE__)
 
-      @impl Planck.Agent.Compactor
-      def compact_timeout, do: Planck.Agent.Compactor.default_compact_timeout()
+      @impl unquote(__MODULE__)
+      def compact_timeout, do: unquote(__MODULE__).default_compact_timeout()
 
       defoverridable compact_timeout: 0
     end

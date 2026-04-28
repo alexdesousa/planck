@@ -210,10 +210,7 @@ defmodule Planck.Agent.CompactorTest do
     agent =
       start_supervised!(
         {Planck.Agent,
-         id: unique_id(),
-         model: @model,
-         system_prompt: "You are helpful.",
-         on_compact: compact_fn}
+         id: unique_id(), model: @model, system_prompt: "You are helpful.", on_compact: compact_fn}
       )
 
     messages = Enum.map(1..5, fn i -> text_message(:user, "message #{i}") end)

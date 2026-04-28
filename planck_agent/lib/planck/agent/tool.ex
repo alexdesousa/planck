@@ -69,7 +69,9 @@ defmodule Planck.Agent.Tool do
   """
   @spec to_ai_tool(t()) :: Planck.AI.Tool.t()
   def to_ai_tool(%__MODULE__{} = tool) do
-    Planck.AI.Tool.new(
+    alias Planck.AI.Tool, as: AITool
+
+    AITool.new(
       name: tool.name,
       description: tool.description,
       parameters: tool.parameters

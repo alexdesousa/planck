@@ -51,14 +51,71 @@ defmodule Planck.Agent do
 
   require Logger
 
-  alias Planck.Agent.{AIBehaviour, Message, Tool}
+  alias Planck.Agent.{AIBehaviour, Message, Session, Tool}
   alias Planck.AI.Context
 
+  @typedoc "A reference to a running agent — pid, registered name, or via-tuple."
   @type agent :: pid() | atom() | {:via, module(), term()}
 
   # ---------------------------------------------------------------------------
   # State
   # ---------------------------------------------------------------------------
+
+  @typedoc """
+  Internal GenServer state for an agent.
+
+  Public fields (readable via `get_state/1` or `get_info/1`):
+  - `id` — unique agent identifier
+  - `name` / `description` / `type` — display metadata set at start time
+  - `team_id` — registry namespace shared by all agents in the same team
+  - `session_id` — SQLite session this agent persists messages to; `nil` for
+    ephemeral agents
+  - `delegator_id` — id of the orchestrator that spawned this worker; `nil` for
+    orchestrators
+  - `role` — `:orchestrator` (has `spawn_agent` tool) or `:worker`
+  - `model` — the `Planck.AI.Model` the agent is configured to use
+  - `system_prompt` — prepended to every LLM context
+  - `messages` — full in-memory conversation history (`Message.t()` list)
+  - `tools` — map of tool name → `Tool.t()` available to this agent
+  - `status` — `:idle`, `:streaming`, or `:executing_tools`
+  - `turn_index` — monotonically increasing turn counter
+  - `usage` — accumulated `%{input_tokens, output_tokens}` for this session
+
+  Internal fields (not part of the public API):
+  - `stream_task` / `stream_ref` — in-flight async LLM stream
+  - `turn_checkpoints` — message-count stack for `rewind/2`
+  - `pending_tool_calls` — tool calls waiting for execution after stream end
+  - `text_buffer` / `thinking_buffer` — partial text accumulated during streaming
+  - `on_compact` — optional compaction callback
+  - `opts` — pass-through keyword options (e.g. `tool_timeout`)
+  - `available_models` — model catalog used by `list_models` and `spawn_agent`
+  """
+  @type t :: %__MODULE__{
+          id: String.t(),
+          name: String.t() | nil,
+          description: String.t() | nil,
+          type: String.t() | nil,
+          team_id: String.t() | nil,
+          session_id: String.t() | nil,
+          delegator_id: String.t() | nil,
+          role: :orchestrator | :worker,
+          model: Planck.AI.Model.t() | nil,
+          on_compact: ([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip) | nil,
+          system_prompt: String.t(),
+          messages: [Message.t()],
+          tools: %{String.t() => Tool.t()},
+          opts: keyword(),
+          available_models: [Planck.AI.Model.t()],
+          status: :idle | :streaming | :executing_tools,
+          stream_task: Task.t() | nil,
+          stream_ref: reference() | nil,
+          turn_index: non_neg_integer(),
+          turn_checkpoints: [non_neg_integer()],
+          pending_tool_calls: [map()],
+          text_buffer: String.t(),
+          thinking_buffer: String.t(),
+          usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()}
+        }
 
   defstruct [
     :id,
@@ -253,7 +310,7 @@ defmodule Planck.Agent do
     {:reply, info, state}
   end
 
-  def handle_call({:prompt, content, _opts}, _from, state) do
+  def handle_call({:prompt, content, _opts}, _from, %{status: :idle} = state) do
     parts = normalize_content(content)
     msg = Message.new(:user, parts)
     checkpoint = length(state.messages)
@@ -267,6 +324,17 @@ defmodule Planck.Agent do
     maybe_append_to_session(new_state, msg)
     broadcast(new_state, :turn_start, %{index: new_state.turn_index})
     {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
+  end
+
+  def handle_call({:prompt, content, _opts}, _from, state) do
+    # Agent is busy — append the message without starting a new turn.
+    # stream_done will detect the queued input and re-trigger after the
+    # current turn ends.
+    parts = normalize_content(content)
+    msg = Message.new(:user, parts)
+    new_state = %{state | messages: state.messages ++ [msg]}
+    maybe_append_to_session(new_state, msg)
+    {:reply, :ok, new_state}
   end
 
   @impl true
@@ -305,7 +373,8 @@ defmodule Planck.Agent do
 
   def handle_cast(:abort, state) do
     cancel_stream(state)
-    {:noreply, reset_streaming(state)}
+    new_state = reset_streaming(state)
+    maybe_turn_start(new_state)
   end
 
   def handle_cast({:add_tool, tool}, state) do
@@ -422,7 +491,7 @@ defmodule Planck.Agent do
     case pending do
       [] ->
         broadcast(new_state, :turn_end, %{message: assistant_msg, usage: new_state.usage})
-        {:noreply, new_state}
+        maybe_turn_start(new_state)
 
       calls ->
         {:noreply, %{new_state | status: :executing_tools}, {:continue, {:execute_tools, calls}}}
@@ -439,8 +508,14 @@ defmodule Planck.Agent do
     {:noreply, state}
   end
 
-  def handle_info({:agent_response, response}, state) do
-    msg = Message.new({:custom, :agent_response}, [{:text, response}])
+  def handle_info({:agent_response, response, sender}, state) do
+    metadata =
+      case sender do
+        %{id: id, name: name} -> %{sender_id: id, sender_name: name}
+        _ -> %{}
+      end
+
+    msg = Message.new({:custom, :agent_response}, [{:text, response}], metadata)
     new_state = %{state | messages: state.messages ++ [msg]}
     maybe_append_to_session(new_state, msg)
 
@@ -503,14 +578,14 @@ defmodule Planck.Agent do
   defp maybe_append_to_session(%{session_id: nil}, _msg), do: :ok
 
   defp maybe_append_to_session(%{session_id: sid, id: agent_id}, msg) do
-    Planck.Agent.Session.append(sid, agent_id, msg)
+    Session.append(sid, agent_id, msg)
   end
 
   @spec maybe_truncate_session(%__MODULE__{}, non_neg_integer()) :: :ok
   defp maybe_truncate_session(%{session_id: nil}, _count), do: :ok
 
   defp maybe_truncate_session(%{session_id: sid, id: agent_id}, count) do
-    Planck.Agent.Session.truncate_agent(sid, agent_id, count)
+    Session.truncate_agent(sid, agent_id, count)
   end
 
   @spec process_event(%__MODULE__{}, Planck.AI.Stream.t()) :: %__MODULE__{}
@@ -612,6 +687,37 @@ defmodule Planck.Agent do
         broadcast(new_state, :compacted, %{})
         {[summary_msg | kept], new_state}
     end
+  end
+
+  @spec maybe_turn_start(t()) ::
+          {:noreply, t()}
+          | {:noreply, t(), {:continue, :run_llm}}
+  defp maybe_turn_start(state)
+
+  defp maybe_turn_start(%__MODULE__{} = state) do
+    turn_start = List.first(state.turn_checkpoints, 0)
+
+    if has_pending_input?(state.messages, turn_start) do
+      broadcast(state, :turn_start, %{index: state.turn_index})
+      {:noreply, %{state | status: :streaming}, {:continue, :run_llm}}
+    else
+      {:noreply, state}
+    end
+  end
+
+  # Returns true if any :user or {:custom, :agent_response} message arrived
+  # AFTER the turn-starting message (identified by turn_start_idx, the index
+  # of the user message that began the current turn). Messages at or before
+  # that index were already visible to the LLM.
+  @spec has_pending_input?([Message.t()], non_neg_integer()) :: boolean()
+  defp has_pending_input?(messages, turn_start_idx) do
+    messages
+    |> Enum.drop(turn_start_idx + 1)
+    |> Enum.any?(fn
+      %{role: :user} -> true
+      %{role: {:custom, :agent_response}} -> true
+      _ -> false
+    end)
   end
 
   @spec messages_since_last_summary([Message.t()]) :: [Message.t()]

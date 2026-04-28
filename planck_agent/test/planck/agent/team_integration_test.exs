@@ -34,10 +34,10 @@ defmodule Planck.Agent.TeamIntegrationTest do
     pid
   end
 
-  defp start_worker(team_id, type, delegator_id, extra_opts \\ []) do
+  defp start_worker(team_id, type, delegator_id, extra_opts \\ [], sender \\ nil) do
     id = unique_id()
 
-    tools = Tools.worker_tools(team_id, delegator_id)
+    tools = Tools.worker_tools(team_id, delegator_id, sender)
 
     start_dynamic(
       [
@@ -211,6 +211,107 @@ defmodule Planck.Agent.TeamIntegrationTest do
       assert_receive {:agent_event, :turn_end,
                       %{message: %{content: [{:text, "Great work, builder!"}]}}},
                      5_000
+    end
+
+    test "worker with sender attribution — orchestrator re-triggered turn includes sender name in messages" do
+      team_id = unique_id()
+      {orch_id, orch_pid} = start_orchestrator(team_id)
+      builder_id = unique_id()
+      sender = %{id: builder_id, name: "builder"}
+
+      tools = Tools.worker_tools(team_id, orch_id, sender)
+
+      _builder_pid =
+        start_dynamic(
+          id: builder_id,
+          type: "builder",
+          model: @model,
+          system_prompt: "You are the builder.",
+          tools: tools,
+          team_id: team_id,
+          delegator_id: orch_id
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{system: system, messages: msgs}, _opts ->
+        has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
+
+        has_sender_response =
+          Enum.any?(msgs, fn msg ->
+            msg.role == :user &&
+              Enum.any?(msg.content, fn
+                {:text, text} -> String.starts_with?(text, "Response from builder:")
+                _ -> false
+              end)
+          end)
+
+        cond do
+          system =~ "orchestrator" and has_sender_response ->
+            [
+              {:text_delta, "Got sender attribution."},
+              {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
+            ]
+
+          system =~ "orchestrator" and has_tool_result ->
+            [
+              {:text_delta, "Task delegated."},
+              {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
+            ]
+
+          system =~ "orchestrator" ->
+            [
+              {:tool_call_complete,
+               %{
+                 id: "tc_d",
+                 name: "delegate_task",
+                 args: %{"type" => "builder", "task" => "Do the work."}
+               }},
+              {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
+            ]
+
+          system =~ "builder" and has_tool_result ->
+            [{:text_delta, "Done."}, {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}]
+
+          system =~ "builder" ->
+            [
+              {:tool_call_complete,
+               %{
+                 id: "tc_s",
+                 name: "send_response",
+                 args: %{"response" => "Work complete."}
+               }},
+              {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
+            ]
+
+          true ->
+            [{:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}]
+        end
+      end)
+
+      Agent.subscribe(orch_pid)
+      Agent.prompt(orch_pid, "Delegate work to the builder.")
+
+      # Wait for orchestrator to be re-triggered by the sender-attributed response.
+      # The orchestrator fires two turns: one after delegating and one after the
+      # builder's send_response arrives with sender metadata.
+      assert_receive {:agent_event, :turn_end,
+                      %{message: %{content: [{:text, "Task delegated."}]}}},
+                     5_000
+
+      assert_receive {:agent_event, :turn_end,
+                      %{message: %{content: [{:text, "Got sender attribution."}]}}},
+                     5_000
+
+      # Verify the orchestrator's message history contains a sender-attributed message
+      state = Agent.get_state(orch_pid)
+
+      sender_msg =
+        Enum.find(state.messages, fn msg ->
+          msg.role == {:custom, :agent_response} and
+            msg.metadata[:sender_name] == "builder"
+        end)
+
+      assert sender_msg != nil
+      assert sender_msg.metadata.sender_id == builder_id
     end
   end
 

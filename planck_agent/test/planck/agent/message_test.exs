@@ -41,17 +41,52 @@ defmodule Planck.Agent.MessageTest do
       assert Enum.all?(result, &match?(%Planck.AI.Message{}, &1))
     end
 
-    test "drops {:custom, _} role messages" do
+    test "drops unknown {:custom, _} role messages" do
       messages = [
         Message.new(:user, [{:text, "hello"}]),
-        Message.new({:custom, :compaction}, [{:text, "summary"}]),
-        Message.new({:custom, :agent_response}, [{:text, "response"}]),
+        Message.new({:custom, :compaction}, [{:text, "dropped"}]),
         Message.new(:assistant, [{:text, "hi"}])
       ]
 
       result = Message.to_ai_messages(messages)
       assert length(result) == 2
       assert Enum.all?(result, fn m -> m.role in [:user, :assistant, :tool_result] end)
+    end
+
+    test "converts {:custom, :agent_response} to :user so the orchestrator sees worker replies" do
+      messages = [
+        Message.new(:user, [{:text, "hello"}]),
+        Message.new({:custom, :agent_response}, [{:text, "Feature built."}]),
+        Message.new(:assistant, [{:text, "hi"}])
+      ]
+
+      result = Message.to_ai_messages(messages)
+      assert length(result) == 3
+      assert Enum.at(result, 1).role == :user
+      assert Enum.at(result, 1).content == [{:text, "Feature built."}]
+    end
+
+    test "{:custom, :agent_response} with sender metadata formats as 'Response from <name>: ...'" do
+      messages = [
+        Message.new({:custom, :agent_response}, [{:text, "Done!"}], %{
+          sender_id: "abc",
+          sender_name: "builder"
+        })
+      ]
+
+      [ai_msg] = Message.to_ai_messages(messages)
+      assert ai_msg.role == :user
+      assert ai_msg.content == [{:text, "Response from builder: Done!"}]
+    end
+
+    test "{:custom, :agent_response} without sender metadata passes text through unchanged" do
+      messages = [
+        Message.new({:custom, :agent_response}, [{:text, "Done!"}])
+      ]
+
+      [ai_msg] = Message.to_ai_messages(messages)
+      assert ai_msg.role == :user
+      assert ai_msg.content == [{:text, "Done!"}]
     end
 
     test "preserves content parts" do
