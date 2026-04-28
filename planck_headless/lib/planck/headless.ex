@@ -95,12 +95,54 @@ defmodule Planck.Headless do
     end
   end
 
+  @doc """
+  Close a session and permanently delete its SQLite file from disk.
+
+  Stops all running agents and the Session GenServer if active, then removes
+  the `.db` file. This operation is irreversible.
+  """
+  @spec delete_session(session_id()) :: :ok
+  def delete_session(session_id) do
+    # Stop running processes if active — best-effort, ignore any errors
+    try do
+      close_session(session_id)
+    rescue
+      _ -> :ok
+    end
+
+    sessions_dir = Config.sessions_dir!() |> Path.expand()
+
+    case Session.find_by_id(sessions_dir, session_id) do
+      {:ok, path, _name} ->
+        File.rm(path)
+        :ok
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
   @doc "Send a user prompt to the orchestrator of a session."
   @spec prompt(session_id(), String.t()) :: :ok | {:error, term()}
   def prompt(session_id, text) do
     with {:ok, team_id} <- read_team_id(session_id),
          {:ok, pid} <- find_orchestrator(team_id) do
       Agent.prompt(pid, text)
+    end
+  end
+
+  @doc """
+  Nudge the orchestrator to act on its existing message history without adding
+  a new user message. Used after session resume when a recovery context is
+  already present and just needs to be acted upon.
+
+  Returns `:ok` if the orchestrator was nudged, `{:error, reason}` otherwise.
+  """
+  @spec nudge(session_id()) :: :ok | {:error, term()}
+  def nudge(session_id) do
+    with {:ok, team_id} <- read_team_id(session_id),
+         {:ok, pid} <- find_orchestrator(team_id) do
+      Agent.nudge(pid)
     end
   end
 
@@ -116,6 +158,7 @@ defmodule Planck.Headless do
     sessions_dir
     |> Path.join("*.db")
     |> Path.wildcard()
+    |> Enum.sort_by(&File.stat!(&1).ctime, :desc)
     |> Enum.map(fn path ->
       [id, name] = path |> Path.basename(".db") |> String.split("_", parts: 2)
       %{session_id: id, name: name, active: session_active?(id)}
@@ -556,18 +599,32 @@ defmodule Planck.Headless do
       # tool calls (ask_agent, delegate_task, spawn_agent). We inject the
       # recovery message under the new orchestrator's id so it sees it first.
       prev_orch_id = find_previous_orchestrator(messages_by_agent, new_orch_id)
-      orch_messages = Map.get(messages_by_agent, prev_orch_id || new_orch_id, [])
+      orch_id = prev_orch_id || new_orch_id
+      orch_messages = Map.get(messages_by_agent, orch_id, [])
 
-      in_flight =
-        unresolved_asks(orch_messages) ++
-          unfinished_workers(messages_by_agent, prev_orch_id || new_orch_id)
+      # Don't inject if a recovery message is already the last thing the orchestrator sees.
+      unless last_message_is_recovery?(orch_messages) do
+        in_flight =
+          unresolved_asks(orch_messages) ++
+            unfinished_workers(messages_by_agent, orch_id, orch_messages)
 
-      if in_flight != [] do
-        Session.append(session_id, new_orch_id, build_recovery_message(in_flight))
+        if in_flight != [] do
+          Session.append(session_id, new_orch_id, build_recovery_message(in_flight))
+        end
       end
     end
 
     :ok
+  end
+
+  @recovery_marker "Session resumed after interruption."
+
+  @spec last_message_is_recovery?([Planck.Agent.Message.t()]) :: boolean()
+  defp last_message_is_recovery?(messages) do
+    case List.last(messages) do
+      %{role: :user, content: [{:text, text}]} -> String.starts_with?(text, @recovery_marker)
+      _ -> false
+    end
   end
 
   @orchestrator_tools ~w(ask_agent delegate_task spawn_agent)
@@ -597,11 +654,13 @@ defmodule Planck.Headless do
     lines = Enum.map_join(in_flight, "\n", fn {tool, desc} -> "- #{tool}: #{desc}" end)
 
     body = """
-    Session resumed after interruption. The following tasks were in progress when the session ended:
+    #{@recovery_marker} The following tasks were still in progress when the session ended:
 
     #{lines}
 
-    Review your message history and re-delegate or continue as appropriate.
+    The workers listed above are idle and waiting for instructions. Before re-delegating, \
+    you can ask each of them where they left off — they retain their context and can \
+    continue from that point if you see it fit.
     """
 
     Planck.Agent.Message.new(:user, [{:text, String.trim(body)}])
@@ -646,24 +705,77 @@ defmodule Planck.Headless do
 
   # Find workers (non-orchestrator agent_ids) whose last assistant message
   # does not end with a send_response tool call — they never finished their task.
-  @spec unfinished_workers(%{String.t() => [Planck.Agent.Message.t()]}, String.t()) ::
-          [{String.t(), String.t()}]
-  defp unfinished_workers(messages_by_agent, orch_id) do
+  # Cross-references the orchestrator's delegate_task calls to include the target
+  # label and task text in the report.
+  @spec unfinished_workers(
+          %{String.t() => [Planck.Agent.Message.t()]},
+          String.t(),
+          [Planck.Agent.Message.t()]
+        ) :: [{String.t(), String.t()}]
+  defp unfinished_workers(messages_by_agent, orch_id, orch_messages) do
+    delegations = extract_delegations(orch_messages)
+
     messages_by_agent
     |> Enum.reject(fn {id, _} -> id == orch_id end)
     |> Enum.flat_map(fn {_worker_id, msgs} ->
-      last_assistant =
-        msgs
-        |> Enum.filter(&(&1.role == :assistant))
-        |> List.last()
+      last_assistant = msgs |> Enum.filter(&(&1.role == :assistant)) |> List.last()
 
       if last_assistant && not ends_with_send_response?(last_assistant) do
-        # Try to find what task was delegated to this worker from the orchestrator.
-        [{"delegate_task", "worker did not send a response"}]
+        task_text = worker_task_text(msgs)
+        {target, task} = find_delegation(delegations, task_text)
+        [{"delegate_task", "#{target} did not complete: #{task}"}]
       else
         []
       end
     end)
+  end
+
+  # Extract all delegate_task calls from the orchestrator's messages as
+  # {target_label, task_text} pairs for cross-referencing with workers.
+  @spec extract_delegations([Planck.Agent.Message.t()]) :: [{String.t(), String.t()}]
+  defp extract_delegations(messages) do
+    messages
+    |> Enum.filter(&(&1.role == :assistant))
+    |> Enum.flat_map(fn msg ->
+      Enum.flat_map(msg.content, fn
+        {:tool_call, _, "delegate_task", args} ->
+          target = args["name"] || args["type"] || "worker"
+          [{target, args["task"] || ""}]
+        _ ->
+          []
+      end)
+    end)
+  end
+
+  # The worker's first :user message is the delegated task text.
+  @spec worker_task_text([Planck.Agent.Message.t()]) :: String.t()
+  defp worker_task_text(messages) do
+    case Enum.find(messages, &(&1.role == :user)) do
+      nil -> ""
+      msg ->
+        Enum.flat_map(msg.content, fn
+          {:text, t} -> [t]
+          _ -> []
+        end)
+        |> Enum.join("")
+    end
+  end
+
+  # Find the delegation whose task text matches the worker's task.
+  # Falls back to "worker" / the raw task text if no match is found.
+  @spec find_delegation([{String.t(), String.t()}], String.t()) :: {String.t(), String.t()}
+  defp find_delegation(delegations, worker_task) do
+    case Enum.find(delegations, fn {_target, task} -> task == worker_task end) do
+      {target, task} -> {target, truncate(task, 80)}
+      nil -> {"worker", truncate(worker_task, 80)}
+    end
+  end
+
+  @spec truncate(String.t(), non_neg_integer()) :: String.t()
+  defp truncate(text, max) do
+    if String.length(text) > max,
+      do: String.slice(text, 0, max) <> "…",
+      else: text
   end
 
   @spec ends_with_send_response?(Planck.Agent.Message.t()) :: boolean()
