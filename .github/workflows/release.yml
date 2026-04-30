@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+defaults:
+  run:
+    working-directory: planck_cli
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    env:
+      PLANCK_LOCAL: true
+      PLANCK_BUILD_ALL: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.3.2"
+
+      - name: Install Zig (required for Burrito cross-compilation)
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.15.2"
+
+      - name: Install xz-utils
+        run: sudo apt-get install -y xz-utils
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Build release binaries
+        run: mix release planck
+        env:
+          MIX_ENV: prod
+
+      - name: Extract version from mix.exs
+        id: mix_version
+        run: |
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          MIX="${{ steps.mix_version.outputs.version }}"
+          if [ "v$MIX" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $MIX"
+            exit 1
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: planck_cli/burrito_out/planck_*
+          draft: false
+          prerelease: false

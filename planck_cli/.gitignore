@@ -1,0 +1,13 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+planck_cli-*.tar
+/tmp/
+/priv/
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
+/burrito_out/
