@@ -4,11 +4,11 @@ defmodule Planck.Agent.Session do
 
   One GenServer per session, registered globally so any node in the cluster
   can append messages or query history via transparent GenServer calls.
-  Each session writes to `sessions_dir/session_id.db`.
+  Each session writes to `<dir>/session_id.db`.
 
   ## Usage
 
-      {:ok, _pid} = Planck.Agent.Session.start("my-session")
+      {:ok, _pid} = Planck.Agent.Session.start("my-session", dir: "/path/to/sessions")
 
       :ok = Planck.Agent.Session.append("my-session", "agent-1", message)
 
@@ -20,15 +20,14 @@ defmodule Planck.Agent.Session do
   Messages are serialized with `:erlang.term_to_binary/1` and read back with
   `:erlang.binary_to_term/2` (`:safe` — no new atoms created from DB content).
 
+  `start/2` requires an explicit `:dir` option — the sessions directory is
+  resolved by the caller (typically `Planck.Headless` from its config).
+
   ## Distribution
 
   Sessions are registered via `:global` as `{:session, session_id}`. Any node
   in the Erlang cluster can call `append/3` or `messages/2` — the call is routed
   transparently to the node that owns the session's SQLite file.
-
-  Configure the default storage directory via:
-
-      config :planck_agent, :sessions_dir, "/path/to/sessions"
 
   ## Pagination
 
@@ -185,7 +184,7 @@ defmodule Planck.Agent.Session do
   @impl true
   def init(opts) do
     id = Keyword.fetch!(opts, :id)
-    dir = Keyword.get(opts, :dir, sessions_dir())
+    dir = Keyword.fetch!(opts, :dir)
 
     File.mkdir_p!(dir)
     path = Path.join(dir, "#{id}.db")
@@ -415,17 +414,6 @@ defmodule Planck.Agent.Session do
 
       :done ->
         Enum.reverse(acc)
-    end
-  end
-
-  @spec sessions_dir() :: String.t()
-  defp sessions_dir do
-    dir = Planck.Agent.Config.sessions_dir!()
-
-    if Path.type(dir) == :absolute do
-      dir
-    else
-      Path.join(File.cwd!(), dir)
     end
   end
 end

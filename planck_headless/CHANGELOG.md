@@ -10,3 +10,7 @@
 - `Planck.Headless` top-level module with `config/0` entry point
 - Empty supervision tree; ResourceStore, team registry, and session lifecycle
   land in later phases
+- **Migration note**: this module is now the sole config home for the Planck
+  stack. `Planck.Agent.Config` has been removed from `planck_agent`; env vars
+  renamed from `PLANCK_AGENT_*` to `PLANCK_*`. Users upgrading should rename
+  their env vars and move to `~/.planck/config.json` for persistent settings.
