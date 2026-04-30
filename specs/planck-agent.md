@@ -23,7 +23,6 @@ has in its list.
 {:nimble_options, "~> 1.0"},
 {:phoenix_pubsub, "~> 2.1"},
 {:exqlite, "~> 0.23"},
-{:skogsra, "~> 2.5"},
 {:erlexec, "~> 2.0"}
 ```
 
@@ -49,8 +48,8 @@ has in its list.
   is backed by `erlexec` with `Task.yield/shutdown` timeout handling
 - `Planck.Agent.Skill` — filesystem-based skill loader; `load_all/1`, `from_file/1`,
   `system_prompt_section/1`
-- `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination
-- `Planck.Agent.Config` — Skogsra config for `sessions_dir`, `skills_dirs`, `tools_dirs`, and `compactor`
+- `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination;
+  caller supplies `dir:` explicitly (no built-in config; lives in `planck_headless`)
 - `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`
 - `Planck.Agent.Team` — loads a team directory (TEAM.json + members/) and exposes
   `%Team{}` as the runtime representation; tools merged in programmatically by the
@@ -347,9 +346,8 @@ API:
 @spec system_prompt_section([Skill.t()]) :: String.t() | nil
 ```
 
-Configured via `Planck.Agent.Config.skills_dirs!/0` (`PLANCK_AGENT_SKILLS_DIRS`,
-default `[".planck/skills", "~/.planck/skills"]`). The `PathList` Skogsra type
-accepts a colon-separated string or a list of strings.
+Configured via `PLANCK_SKILLS_DIRS` env var or `config :planck, :skills_dirs, [...]`
+in `planck_headless`. Callers pass the resolved dirs explicitly to `load_all/1`.
 
 ## Session
 
