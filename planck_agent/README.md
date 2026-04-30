@@ -83,7 +83,6 @@ set, `"session:#{session_id}"`.
 | `:usage_delta` | `delta`, `total` | Token usage from each LLM response |
 | `:tool_start` | `id`, `name`, `args` | Tool execution begins |
 | `:tool_end` | `id`, `name`, `result`, `error` | Tool finished |
-| `:rewind` | `message_count` | History rewound |
 | `:worker_exit` | `pid`, `reason` | Worker process exited (orchestrator only) |
 | `:error` | `reason` | Stream error; agent returns to `:idle` |
 
@@ -241,11 +240,13 @@ Start a session before starting any agents that should persist messages:
 ```elixir
 alias Planck.Agent.Session
 
-{:ok, _pid} = Session.start(session_id)
+{:ok, _pid} = Session.start(session_id, name: "my-session", dir: sessions_dir)
 ```
 
 Agents with a matching `session_id` append every message automatically.
-Messages are stored in a SQLite file at `sessions_dir/#{session_id}.db`.
+Each call to `append/3` is synchronous and returns the SQLite row id, which
+becomes `Message.id` — unifying the in-memory id with the DB primary key.
+Messages are stored in a SQLite file at `<sessions_dir>/<id>_<name>.db`.
 
 ### Retrieving messages
 
@@ -254,7 +255,7 @@ Messages are stored in a SQLite file at `sessions_dir/#{session_id}.db`.
 {:ok, rows} = Session.messages(session_id)
 {:ok, rows} = Session.messages(session_id, agent_id: "agent-1")
 
-# Each row: %{agent_id: String.t(), message: Message.t(), inserted_at: integer()}
+# Each row: %{db_id: pos_integer(), agent_id: String.t(), message: Message.t(), inserted_at: integer()}
 ```
 
 ### Checkpoint-based pagination
@@ -469,18 +470,18 @@ Agent.add_tool(agent, new_tool)
 Agent.remove_tool(agent, "tool_name")
 ```
 
-## Rewinding history
+## Editing history
 
-Remove the last `n` user turns from the agent's in-memory history. Ignored
-while the agent is streaming. Syncs the session store when a `session_id` is
-set.
+Truncate both the session and in-memory history to strictly before a given
+message. The message id is the SQLite row id (`Message.id == db_id` for
+persisted messages). A no-op for ephemeral agents.
 
 ```elixir
-Agent.rewind(agent)       # remove last turn
-Agent.rewind(agent, 3)    # remove last 3 turns
+Agent.rewind_to_message(agent, message_id)
 ```
 
-Subscribers receive `{:agent_event, :rewind, %{message_count: n}}`.
+Typically called via `Planck.Headless.rewind_to_message/3` which also
+re-prompts the orchestrator with the edited text.
 
 ## Configuration
 

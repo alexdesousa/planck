@@ -20,6 +20,14 @@ First release.
 - `Config.JsonBinding.init/1` returns `:error` (not `{:ok, %{}}`) when
   `skip_json_config: true` — Skogsra skips the binding without emitting warnings
 
+### Edit-message support
+
+- `Headless.rewind_to_message/3` — truncates the session to strictly before the
+  given DB row id (`Session.truncate_after/2`), rewinds the orchestrator's
+  in-memory history to before that same id (`Agent.rewind_to_message/2`, since
+  `Message.id == db_id` for persisted messages), then re-prompts with `new_text`;
+  powers the edit-message UI feature
+
 ### Session lifecycle
 
 - `Planck.Headless.start_session/1` — resolves team (alias, path, or nil for

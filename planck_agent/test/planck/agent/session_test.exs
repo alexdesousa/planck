@@ -66,8 +66,11 @@ defmodule Planck.Agent.SessionTest do
 
       {:ok, rows} = Session.messages(id)
       assert length(rows) == 2
-      assert Enum.at(rows, 0).message == m1
-      assert Enum.at(rows, 1).message == m2
+      # id is set to the db row id on reload; compare content only
+      assert Enum.at(rows, 0).message.content == m1.content
+      assert Enum.at(rows, 0).message.role == m1.role
+      assert Enum.at(rows, 1).message.content == m2.content
+      assert Enum.at(rows, 1).message.role == m2.role
     end
 
     test "messages round-trip losslessly through binary serialization" do
@@ -78,7 +81,10 @@ defmodule Planck.Agent.SessionTest do
       Process.sleep(50)
 
       {:ok, [row]} = Session.messages(id)
-      assert row.message == msg
+      # id is set to the db row id on reload; compare content/role
+      assert row.message.content == msg.content
+      assert row.message.role == msg.role
+      assert is_integer(row.message.id)
     end
 
     test "messages from multiple agents are stored together" do
@@ -108,57 +114,8 @@ defmodule Planck.Agent.SessionTest do
       assert {:error, :not_found} = Session.messages("ghost")
     end
 
-    test "append/3 silently no-ops for unknown session" do
-      assert :ok = Session.append("ghost", "a1", user_msg("hi"))
-    end
-  end
-
-  describe "truncate_agent/3" do
-    test "keeps first keep_count messages for that agent" do
-      {id, _} = start_session()
-      for i <- 1..5, do: Session.append(id, "a1", user_msg("msg #{i}"))
-      Process.sleep(50)
-
-      Session.truncate_agent(id, "a1", 3)
-      Process.sleep(50)
-
-      {:ok, rows} = Session.messages(id, agent_id: "a1")
-      assert length(rows) == 3
-      assert Enum.at(rows, 0).message.content == [text: "msg 1"]
-      assert Enum.at(rows, 2).message.content == [text: "msg 3"]
-    end
-
-    test "keep_count of 0 deletes all messages for that agent" do
-      {id, _} = start_session()
-      Session.append(id, "a1", user_msg("gone"))
-      Session.append(id, "a2", user_msg("stays"))
-      Process.sleep(50)
-
-      Session.truncate_agent(id, "a1", 0)
-      Process.sleep(50)
-
-      {:ok, rows_a1} = Session.messages(id, agent_id: "a1")
-      {:ok, rows_a2} = Session.messages(id, agent_id: "a2")
-      assert rows_a1 == []
-      assert length(rows_a2) == 1
-    end
-
-    test "does not affect other agents' messages" do
-      {id, _} = start_session()
-      Session.append(id, "a1", user_msg("a1 msg 1"))
-      Session.append(id, "a1", user_msg("a1 msg 2"))
-      Session.append(id, "a2", user_msg("a2 msg"))
-      Process.sleep(50)
-
-      Session.truncate_agent(id, "a1", 1)
-      Process.sleep(50)
-
-      {:ok, rows} = Session.messages(id)
-      assert length(rows) == 2
-    end
-
-    test "silently no-ops for unknown session" do
-      assert :ok = Session.truncate_agent("ghost", "a1", 0)
+    test "append/3 returns nil for unknown session" do
+      assert nil == Session.append("ghost", "a1", user_msg("hi"))
     end
   end
 
@@ -220,6 +177,71 @@ defmodule Planck.Agent.SessionTest do
     end
   end
 
+  describe "truncate_after/2" do
+    test "deletes all messages at and after the given db_id" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("first"))
+      Session.append(id, "a1", user_msg("second"))
+      Session.append(id, "a1", user_msg("third"))
+      Process.sleep(50)
+
+      {:ok, rows} = Session.messages(id)
+      assert length(rows) == 3
+
+      second_db_id = Enum.at(rows, 1).db_id
+
+      :ok = Session.truncate_after(id, second_db_id)
+
+      {:ok, rows_after} = Session.messages(id)
+      assert length(rows_after) == 1
+      assert Enum.at(rows_after, 0).message.content == [text: "first"]
+    end
+
+    test "rows include db_id as a positive integer" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("hello"))
+      Process.sleep(50)
+
+      {:ok, rows} = Session.messages(id)
+      assert is_integer(hd(rows).db_id) and hd(rows).db_id > 0
+    end
+
+    test "deletes across all agents, not just the target agent" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("a1 first"))
+      Session.append(id, "a2", user_msg("a2 first"))
+      Session.append(id, "a1", user_msg("a1 second"))
+      Process.sleep(50)
+
+      {:ok, rows} = Session.messages(id)
+      # db_id of a2's message — everything at and after it (including a1 second) should go
+      a2_db_id = Enum.find(rows, &(&1.agent_id == "a2")).db_id
+
+      :ok = Session.truncate_after(id, a2_db_id)
+
+      {:ok, rows_after} = Session.messages(id)
+      assert length(rows_after) == 1
+      assert hd(rows_after).agent_id == "a1"
+      assert hd(rows_after).message.content == [text: "a1 first"]
+    end
+
+    test "truncating at the first row leaves no messages" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("only"))
+      Process.sleep(50)
+
+      {:ok, [row]} = Session.messages(id)
+      :ok = Session.truncate_after(id, row.db_id)
+
+      {:ok, rows_after} = Session.messages(id)
+      assert rows_after == []
+    end
+
+    test "returns error for unknown session" do
+      assert {:error, :not_found} = Session.truncate_after("ghost-session", 1)
+    end
+  end
+
   describe "messages_before_checkpoint/3" do
     test "returns messages before a checkpoint with previous checkpoint as cursor" do
       {id, _} = start_session()
@@ -275,7 +297,8 @@ defmodule Planck.Agent.SessionTest do
 
       {:ok, rows} = Session.messages(id)
       assert length(rows) == 1
-      assert Enum.at(rows, 0).message == msg
+      assert Enum.at(rows, 0).message.content == msg.content
+      assert Enum.at(rows, 0).message.role == msg.role
     end
   end
 

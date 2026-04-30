@@ -1,5 +1,6 @@
 defmodule Planck.Headless.SessionName do
   alias Planck.Agent.Session
+
   @moduledoc """
   Generates and sanitizes human-readable session names in `<adjective>-<noun>` format.
 

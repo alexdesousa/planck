@@ -18,7 +18,9 @@ defmodule Planck.Agent.Session do
       {:ok, rows} = Planck.Agent.Session.messages("my-session")
       {:ok, rows} = Planck.Agent.Session.messages("my-session", agent_id: "agent-1")
 
-  Each row is `%{agent_id: String.t(), message: Message.t(), inserted_at: integer()}`.
+  Each row is `%{db_id: pos_integer(), agent_id: String.t(), message: Message.t(), inserted_at: integer()}`.
+  `db_id` is the SQLite autoincrement row id — use it with `truncate_after/2` to
+  anchor a truncation to a specific message.
 
   Messages are serialized with `:erlang.term_to_binary/1` and read back with
   `:erlang.binary_to_term/2` (`:safe` — no new atoms created from DB content).
@@ -54,6 +56,14 @@ defmodule Planck.Agent.Session do
 
   @type session_id :: String.t()
 
+  @typedoc "A row returned by `messages/2` and related query functions."
+  @type row :: %{
+          db_id: pos_integer(),
+          agent_id: String.t(),
+          message: Message.t(),
+          inserted_at: integer()
+        }
+
   defstruct [:id, :name, :conn]
 
   # ---------------------------------------------------------------------------
@@ -79,14 +89,14 @@ defmodule Planck.Agent.Session do
   end
 
   @doc """
-  Append a message to the session. Fire-and-forget — silently no-ops if the
-  session is not found.
+  Append a message and return its DB row id. Returns `nil` if the session is
+  not found (agent has no persistent session).
   """
-  @spec append(session_id(), String.t(), Message.t()) :: :ok
+  @spec append(session_id(), String.t(), Message.t()) :: pos_integer() | nil
   def append(session_id, agent_id, message) do
     case whereis(session_id) do
-      {:ok, pid} -> GenServer.cast(pid, {:append, agent_id, message})
-      _ -> :ok
+      {:ok, pid} -> GenServer.call(pid, {:append, agent_id, message})
+      _ -> nil
     end
   end
 
@@ -96,7 +106,7 @@ defmodule Planck.Agent.Session do
   Options:
   - `agent_id:` — filter to messages from a specific agent
   """
-  @spec messages(session_id(), keyword()) :: {:ok, [map()]} | {:error, :not_found}
+  @spec messages(session_id(), keyword()) :: {:ok, [row()]} | {:error, :not_found}
   def messages(session_id, opts \\ []) do
     case whereis(session_id) do
       {:ok, pid} -> GenServer.call(pid, {:messages, opts})
@@ -115,7 +125,7 @@ defmodule Planck.Agent.Session do
   - `agent_id:` — filter to a specific agent
   """
   @spec messages_from_latest_checkpoint(session_id(), keyword()) ::
-          {:ok, [map()], non_neg_integer() | nil} | {:error, :not_found}
+          {:ok, [row()], non_neg_integer() | nil} | {:error, :not_found}
   def messages_from_latest_checkpoint(session_id, opts \\ []) do
     case whereis(session_id) do
       {:ok, pid} -> GenServer.call(pid, {:messages_from_latest_checkpoint, opts})
@@ -134,7 +144,7 @@ defmodule Planck.Agent.Session do
   - `agent_id:` — filter to a specific agent
   """
   @spec messages_before_checkpoint(session_id(), non_neg_integer(), keyword()) ::
-          {:ok, [map()], non_neg_integer() | nil} | {:error, :not_found}
+          {:ok, [row()], non_neg_integer() | nil} | {:error, :not_found}
   def messages_before_checkpoint(session_id, checkpoint_id, opts \\ []) do
     case whereis(session_id) do
       {:ok, pid} -> GenServer.call(pid, {:messages_before_checkpoint, checkpoint_id, opts})
@@ -143,16 +153,16 @@ defmodule Planck.Agent.Session do
   end
 
   @doc """
-  Delete messages for `agent_id` beyond the first `keep_count`, in insertion order.
+  Delete all messages with a DB row id >= `db_id`, across all agents in the session.
 
-  Used by `Planck.Agent.Agent.rewind/2` to sync the store when the agent's
-  in-memory history is trimmed. Fire-and-forget cast.
+  Used when editing a previous message: truncates the session to strictly before
+  the given row, then the caller re-prompts with new text.
   """
-  @spec truncate_agent(session_id(), String.t(), non_neg_integer()) :: :ok
-  def truncate_agent(session_id, agent_id, keep_count) do
+  @spec truncate_after(session_id(), pos_integer()) :: :ok | {:error, :not_found}
+  def truncate_after(session_id, db_id) do
     case whereis(session_id) do
-      {:ok, pid} -> GenServer.cast(pid, {:truncate_agent, agent_id, keep_count})
-      _ -> :ok
+      {:ok, pid} -> GenServer.call(pid, {:truncate_after, db_id})
+      error -> error
     end
   end
 
@@ -224,12 +234,14 @@ defmodule Planck.Agent.Session do
   end
 
   @doc false
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     id = Keyword.fetch!(opts, :id)
     GenServer.start_link(__MODULE__, opts, name: {:global, {:session, id}})
   end
 
   @doc false
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: Keyword.fetch!(opts, :id),
@@ -258,34 +270,26 @@ defmodule Planck.Agent.Session do
   end
 
   @impl true
-  def handle_cast({:append, agent_id, message}, state) do
-    :ok = insert_message(state.conn, agent_id, message)
-    {:noreply, state}
+  def handle_call(message, from, state)
+
+  def handle_call({:append, agent_id, message}, _from, state) do
+    db_id = insert_message(state.conn, agent_id, message)
+    {:reply, db_id, state}
   end
 
-  @impl true
-  def handle_cast({:truncate_agent, agent_id, keep_count}, state) do
-    :ok = do_truncate_agent(state.conn, agent_id, keep_count)
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_call({:save_metadata, metadata}, _from, state) do
     :ok = do_save_metadata(state.conn, metadata)
     {:reply, :ok, state}
   end
 
-  @impl true
   def handle_call(:get_metadata, _from, state) do
     {:reply, {:ok, do_get_metadata(state.conn)}, state}
   end
 
-  @impl true
   def handle_call({:messages, opts}, _from, state) do
     {:reply, query_messages(state.conn, opts), state}
   end
 
-  @impl true
   def handle_call({:messages_from_latest_checkpoint, opts}, _from, state) do
     agent_id = Keyword.get(opts, :agent_id)
     checkpoint_id = find_latest_checkpoint(state.conn, agent_id)
@@ -293,7 +297,6 @@ defmodule Planck.Agent.Session do
     {:reply, {:ok, rows, checkpoint_id}, state}
   end
 
-  @impl true
   def handle_call({:messages_before_checkpoint, checkpoint_id, opts}, _from, state) do
     agent_id = Keyword.get(opts, :agent_id)
     prev_id = find_prev_checkpoint(state.conn, checkpoint_id, agent_id)
@@ -301,7 +304,19 @@ defmodule Planck.Agent.Session do
     {:reply, {:ok, rows, prev_id}, state}
   end
 
+  def handle_call({:truncate_after, db_id}, _from, state) do
+    {:ok, stmt} =
+      Exqlite.Sqlite3.prepare(state.conn, "DELETE FROM messages WHERE id >= ?1")
+
+    :ok = Exqlite.Sqlite3.bind(stmt, [db_id])
+    :done = Exqlite.Sqlite3.step(state.conn, stmt)
+    :ok = Exqlite.Sqlite3.release(state.conn, stmt)
+    {:reply, :ok, state}
+  end
+
   @impl true
+  def terminate(reason, state)
+
   def terminate(_reason, %{conn: conn}) when not is_nil(conn) do
     Exqlite.Sqlite3.close(conn)
     :ok
@@ -386,9 +401,15 @@ defmodule Planck.Agent.Session do
     id
   end
 
-  @spec insert_message(Exqlite.Sqlite3.db(), String.t(), Message.t()) :: :ok
+  @spec insert_message(Exqlite.Sqlite3.db(), String.t(), Message.t()) :: pos_integer()
   defp insert_message(conn, agent_id, message) do
-    data = :erlang.term_to_binary(message)
+    # Strip the id before serialising — it is redundant since the DB row id
+    # is authoritative and set on every read in collect_rows.
+    data =
+      message
+      |> Map.drop([:id])
+      |> :erlang.term_to_binary()
+
     now = System.system_time(:second)
     checkpoint = if match?({:custom, :summary}, message.role), do: 1, else: 0
 
@@ -400,30 +421,17 @@ defmodule Planck.Agent.Session do
     :ok = Exqlite.Sqlite3.bind(stmt, [agent_id, data, now, checkpoint])
     :done = Exqlite.Sqlite3.step(conn, stmt)
     :ok = Exqlite.Sqlite3.release(conn, stmt)
-    :ok
+
+    {:ok, row_id_stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT last_insert_rowid()")
+    {:row, [db_id]} = Exqlite.Sqlite3.step(conn, row_id_stmt)
+    :ok = Exqlite.Sqlite3.release(conn, row_id_stmt)
+    db_id
   end
 
-  @spec query_messages(Exqlite.Sqlite3.db(), keyword()) :: {:ok, [map()]}
+  @spec query_messages(Exqlite.Sqlite3.db(), keyword()) :: {:ok, [row()]}
   defp query_messages(conn, opts) do
     agent_id = Keyword.get(opts, :agent_id)
     {:ok, query_rows_from(conn, nil, agent_id)}
-  end
-
-  @spec do_truncate_agent(Exqlite.Sqlite3.db(), String.t(), non_neg_integer()) :: :ok
-  defp do_truncate_agent(conn, agent_id, keep_count) do
-    {:ok, stmt} =
-      Exqlite.Sqlite3.prepare(conn, """
-      DELETE FROM messages
-      WHERE agent_id = ?1
-      AND id NOT IN (
-        SELECT id FROM messages WHERE agent_id = ?1 ORDER BY id LIMIT ?2
-      )
-      """)
-
-    :ok = Exqlite.Sqlite3.bind(stmt, [agent_id, keep_count])
-    :done = Exqlite.Sqlite3.step(conn, stmt)
-    :ok = Exqlite.Sqlite3.release(conn, stmt)
-    :ok
   end
 
   @spec find_latest_checkpoint(Exqlite.Sqlite3.db(), String.t() | nil) ::
@@ -471,24 +479,24 @@ defmodule Planck.Agent.Session do
   end
 
   @spec query_rows_from(Exqlite.Sqlite3.db(), non_neg_integer() | nil, String.t() | nil) ::
-          [map()]
+          [row()]
   defp query_rows_from(conn, from_id, agent_id) do
     {sql, params} =
       cond do
         from_id && agent_id ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE id >= ?1 AND agent_id = ?2 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE id >= ?1 AND agent_id = ?2 ORDER BY id",
            [from_id, agent_id]}
 
         from_id ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE id >= ?1 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE id >= ?1 ORDER BY id",
            [from_id]}
 
         agent_id ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE agent_id = ?1 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE agent_id = ?1 ORDER BY id",
            [agent_id]}
 
         true ->
-          {"SELECT agent_id, data, inserted_at FROM messages ORDER BY id", []}
+          {"SELECT id, agent_id, data, inserted_at FROM messages ORDER BY id", []}
       end
 
     run_query(conn, sql, params)
@@ -499,31 +507,31 @@ defmodule Planck.Agent.Session do
           non_neg_integer() | nil,
           non_neg_integer(),
           String.t() | nil
-        ) :: [map()]
+        ) :: [row()]
   defp query_rows_between(conn, from_id, before_id, agent_id) do
     {sql, params} =
       cond do
         from_id && agent_id ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE id >= ?1 AND id < ?2 AND agent_id = ?3 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE id >= ?1 AND id < ?2 AND agent_id = ?3 ORDER BY id",
            [from_id, before_id, agent_id]}
 
         from_id ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE id >= ?1 AND id < ?2 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE id >= ?1 AND id < ?2 ORDER BY id",
            [from_id, before_id]}
 
         agent_id ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE id < ?1 AND agent_id = ?2 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE id < ?1 AND agent_id = ?2 ORDER BY id",
            [before_id, agent_id]}
 
         true ->
-          {"SELECT agent_id, data, inserted_at FROM messages WHERE id < ?1 ORDER BY id",
+          {"SELECT id, agent_id, data, inserted_at FROM messages WHERE id < ?1 ORDER BY id",
            [before_id]}
       end
 
     run_query(conn, sql, params)
   end
 
-  @spec run_query(Exqlite.Sqlite3.db(), String.t(), list()) :: [map()]
+  @spec run_query(Exqlite.Sqlite3.db(), String.t(), list()) :: [row()]
   defp run_query(conn, sql, params) do
     {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, sql)
     :ok = Exqlite.Sqlite3.bind(stmt, params)
@@ -532,14 +540,16 @@ defmodule Planck.Agent.Session do
     rows
   end
 
-  @spec collect_rows(Exqlite.Sqlite3.db(), Exqlite.Sqlite3.statement(), [map()]) :: [map()]
+  @spec collect_rows(Exqlite.Sqlite3.db(), Exqlite.Sqlite3.statement(), [row()]) :: [row()]
   defp collect_rows(conn, stmt, acc \\ []) do
     case Exqlite.Sqlite3.step(conn, stmt) do
-      {:row, [agent_id, data, inserted_at]} ->
-        message = :erlang.binary_to_term(data, [:safe])
+      {:row, [db_id, agent_id, data, inserted_at]} ->
+        # binary_to_term restores the %Message{} struct (Map.drop preserved __struct__);
+        # Map.put adds back the :id that was stripped before serialization.
+        %Message{} = message = data |> :erlang.binary_to_term([:safe]) |> Map.put(:id, db_id)
 
         collect_rows(conn, stmt, [
-          %{agent_id: agent_id, message: message, inserted_at: inserted_at} | acc
+          %{db_id: db_id, agent_id: agent_id, message: message, inserted_at: inserted_at} | acc
         ])
 
       :done ->

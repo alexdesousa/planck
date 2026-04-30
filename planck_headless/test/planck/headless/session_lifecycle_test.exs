@@ -326,6 +326,61 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- rewind_to_message/3 ---
+
+  describe "rewind_to_message/3" do
+    test "rewind_to_message truncates session and re-prompts", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "rewind-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      # Subscribe to the session PubSub topic to wait for turn_end events
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "hello"}, {:done, %{}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "first message")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # Get all session messages and find the first user message row
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      {:ok, rows} = Session.messages(session_id, agent_id: orch_id)
+      first_user_row = Enum.find(rows, &(&1.message.role == :user))
+      assert first_user_row != nil
+
+      db_id = first_user_row.db_id
+
+      # Stub stream again for the re-prompt after rewind
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "re-prompted"}, {:done, %{}}]
+      end)
+
+      :ok = Headless.rewind_to_message(session_id, db_id, "edited first message")
+
+      # Wait for the re-prompted turn to complete
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # The original message (and everything after it) is gone; only the new user
+      # message (and its assistant reply) should be present
+      {:ok, rows_after} = Session.messages(session_id, agent_id: orch_id)
+
+      texts =
+        Enum.flat_map(
+          rows_after,
+          &Enum.flat_map(&1.message.content, fn
+            {:text, t} -> [t]
+            _ -> []
+          end)
+        )
+
+      refute "first message" in texts
+      assert "edited first message" in texts
+    end
+  end
+
   # --- resume_session/1 ---
 
   describe "resume_session/1" do

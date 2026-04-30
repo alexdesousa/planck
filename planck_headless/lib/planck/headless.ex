@@ -127,6 +127,21 @@ defmodule Planck.Headless do
     end
   end
 
+  @doc """
+  Edit a previous user message: rewind the orchestrator to strictly before the
+  given DB row id (truncates both the SQLite session and in-memory history via
+  `Agent.rewind_to_message/2`), then re-prompt with `new_text`.
+  """
+  @spec rewind_to_message(session_id(), pos_integer(), String.t()) ::
+          :ok | {:error, term()}
+  def rewind_to_message(session_id, db_id, new_text) do
+    with {:ok, team_id} <- read_team_id(session_id),
+         {:ok, orch_pid} <- find_orchestrator(team_id) do
+      Agent.rewind_to_message(orch_pid, db_id)
+      Agent.prompt(orch_pid, new_text)
+    end
+  end
+
   @doc "Send a user prompt to the orchestrator of a session."
   @spec prompt(session_id(), String.t()) :: :ok | {:error, term()}
   def prompt(session_id, text) do
@@ -712,7 +727,11 @@ defmodule Planck.Headless do
   defp pending_interaction_entry(nil, _msgs), do: []
 
   defp pending_interaction_entry({"ask_agent", target, task}, msgs) do
-    if worker_answered_ask?(msgs), do: [], else: [{"ask_agent", "#{target}: #{truncate(task, 80)}"}]
+    if worker_answered_ask?(msgs) do
+      []
+    else
+      [{"ask_agent", "#{target}: #{truncate(task, 80)}"}]
+    end
   end
 
   defp pending_interaction_entry({"delegate_task", target, task}, msgs) do

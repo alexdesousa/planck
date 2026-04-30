@@ -35,8 +35,8 @@ timestamp (milliseconds since epoch).
 
 The SQLite file has two tables:
 
-- **`messages`** — one row per message: `agent_id`, `role`, `content`,
-  `checkpoint` (0 or 1), `inserted_at`.
+- **`messages`** — one row per message: `id` (autoincrement integer), `agent_id`,
+  `data` (Erlang term binary), `inserted_at` (milliseconds), `checkpoint` (0 or 1).
 - **`metadata`** — key-value pairs written at session creation time and read on
   resume. Used by `planck_headless` to reconstruct the team and detect in-flight
   work without scanning message history.
@@ -87,19 +87,23 @@ Full history stored in SQLite
 # Stop a session GenServer.
 @spec stop(session_id :: String.t()) :: :ok
 
-# Append a message. Called automatically by agents — rarely needed directly.
-@spec append(session_id :: String.t(), agent_id :: String.t(), Message.t()) :: :ok
+# Append a message and return its SQLite row id. Returns nil if the session is
+# not found. The returned id is set as Message.id by the agent, unifying the
+# two identifiers.
+@spec append(session_id :: String.t(), agent_id :: String.t(), Message.t()) ::
+        pos_integer() | nil
 
-# All messages in insertion order.
+# All messages in insertion order. Each row includes db_id (SQLite autoincrement id).
 @spec messages(session_id :: String.t()) ::
-        {:ok, [%{agent_id: String.t(), message: Message.t(), inserted_at: integer()}]}
+        {:ok, [%{db_id: pos_integer(), agent_id: String.t(), message: Message.t(), inserted_at: integer()}]}
 
 # Filter by agent.
 @spec messages(session_id :: String.t(), agent_id: String.t()) :: {:ok, [...]}
 
-# Remove messages after position `keep` for a specific agent. Used by rewind/2.
-@spec truncate_agent(session_id :: String.t(), agent_id :: String.t(),
-                     keep :: non_neg_integer()) :: :ok
+# Delete all messages at and after the given DB row id, across all agents.
+# Used by the edit-message feature to truncate the session before re-prompting.
+@spec truncate_after(session_id :: String.t(), db_id :: pos_integer()) ::
+        :ok | {:error, :not_found}
 
 # Pagination: latest checkpoint + all messages after it.
 @spec messages_from_latest_checkpoint(session_id :: String.t()) ::
@@ -154,12 +158,25 @@ alias Planck.Agent.Session
 ## Notes
 
 - Sessions are `restart: :temporary` — they do not restart after a crash.
-  Agents write to the session if it is alive; if it is not, messages are
-  silently dropped in memory only (the agents continue running).
+  `append/3` returns `nil` when the session is not found; the agent retains
+  the message in memory with a UUID id and flushes it to the session at the
+  start of the next LLM turn (via `flush_unpersisted_messages`).
 - The SQLite file persists on disk and can be re-opened by calling `Session.start/2`
   with the same `session_id`, `name:`, and `dir:`.
-- `truncate_agent/3` is called by `Planck.Agent.rewind/2` to keep the session
-  in sync with the in-memory message history.
+- `truncate_after/2` is called by `Planck.Headless.rewind_to_message/3` to cut
+  the session before a specific row when editing a previous user message.
+- `Message.id` is set to the SQLite row id after persistence. For messages
+  received while the agent is busy (streaming), persistence is deferred to the
+  start of the next LLM turn so the row id is always greater than the current
+  turn's assistant response, preserving insertion order. For ephemeral agents
+  (`session_id: nil`), `Message.id` retains the randomly generated UUID.
+- The `id` field is **not** stored in the message blob — it is stripped before
+  serialisation and set from the DB row `id` column on every read. This means
+  the row id is always authoritative, including for rows written before this
+  behaviour was introduced (which stored a UUID in the blob).
+- `truncate_after/2` and `rewind_to_message/2` only make sense for agents with a
+  `session_id`. Editing a message requires a persistent session — the UI only
+  exposes the edit button for entries that carry a `db_id`.
 - The `sessions_dir` is configured via `PLANCK_SESSIONS_DIR` in
   `Planck.Headless.Config`. `Session.start/2` takes an explicit `dir:` argument —
   it does not read config directly.
