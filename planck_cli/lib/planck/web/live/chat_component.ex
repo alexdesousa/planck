@@ -140,10 +140,9 @@ defmodule Planck.Web.Live.ChatComponent do
 
   defp handle_agent_event(socket, {:agent_event, :thinking_delta, %{text: text, agent_id: aid}}) do
     author = make_agent_author(aid, socket.assigns.agents)
-    think_id = "think-#{aid}-#{:erlang.unique_integer([:positive])}"
 
     append_or_update_streaming(socket, "think-#{aid}", fn
-      nil -> ChatEntries.new_thinking_entry(author, text, think_id)
+      nil -> ChatEntries.new_thinking_entry(author, text, "think-#{aid}")
       entry -> %{entry | text: entry.text <> text}
     end)
   end
