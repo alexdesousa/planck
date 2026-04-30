@@ -56,6 +56,14 @@ First release of the Planck Web UI.
 - `data-theme` attribute on `<html>`; Tailwind v4 custom variant `dark:`
 - Sidecar status hidden on desktop (already in agents sidebar footer)
 
+### Prompt input
+
+- Input active while streaming: textarea and Send remain enabled during
+  `:streaming` so users can queue a follow-up without waiting for the current
+  turn to finish. The agent enqueues it and processes it after the turn ends.
+  Only fully disabled during `:waiting` (before streaming starts) to prevent
+  double-submits. Stop / Stop All remain visible alongside Send while streaming.
+
 ### Infrastructure
 
 - `.mcp.json` added (gitignored) for Tidewave MCP server in dev
