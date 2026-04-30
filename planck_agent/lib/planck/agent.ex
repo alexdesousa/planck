@@ -1,4 +1,4 @@
-defmodule Planck.Agent.Agent do
+defmodule Planck.Agent do
   @moduledoc """
   OTP-based LLM agent.
 
@@ -36,15 +36,15 @@ defmodule Planck.Agent.Agent do
 
       {:ok, pid} = DynamicSupervisor.start_child(
         Planck.Agent.AgentSupervisor,
-        {Planck.Agent.Agent,
+        {Planck.Agent,
           id: "agent-1",
           model: model,
           system_prompt: "You are helpful.",
           tools: [read_tool]}
       )
 
-      Planck.Agent.Agent.subscribe(pid)
-      Planck.Agent.Agent.prompt(pid, "What is in lib/app.ex?")
+      Planck.Agent.subscribe(pid)
+      Planck.Agent.prompt(pid, "What is in lib/app.ex?")
   """
 
   use GenServer

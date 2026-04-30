@@ -27,6 +27,20 @@ defmodule Planck.Agent.Config do
     type: Planck.Agent.Config.PathList,
     default: [".planck/skills", "~/.planck/skills"]
 
+  @envdoc """
+  Colon-separated list of directories to search for external tools.
+  Paths are expanded at runtime (`~` and relative paths resolved).
+  """
+  app_env :tools_dirs, :planck_agent, :tools_dirs,
+    type: Planck.Agent.Config.PathList,
+    default: [".planck/tools", "~/.planck/tools"]
+
+  @envdoc """
+  Path to a `.exs` file that returns a custom compactor function (arity 1).
+  When set, replaces the default `Planck.Agent.Compactor`.
+  """
+  app_env :compactor, :planck_agent, :compactor, default: nil
+
   defmodule PathList do
     @moduledoc false
 

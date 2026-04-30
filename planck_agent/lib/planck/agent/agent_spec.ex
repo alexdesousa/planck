@@ -16,6 +16,7 @@ defmodule Planck.Agent.AgentSpec do
   - `:model_id` — model identifier within the provider (e.g. `"claude-sonnet-4-6"`)
   - `:system_prompt` — system prompt text sent to the model at the start of every turn
   - `:opts` — provider-specific options forwarded to the LLM call (e.g. `temperature:`)
+  - `:tools` — tool names to resolve from a `tool_pool:` at start time (e.g. `["read", "bash"]`)
   """
   @type t :: %__MODULE__{
           type: String.t(),
@@ -24,11 +25,21 @@ defmodule Planck.Agent.AgentSpec do
           provider: atom(),
           model_id: String.t(),
           system_prompt: String.t(),
-          opts: keyword()
+          opts: keyword(),
+          tools: [String.t()]
         }
 
   @enforce_keys [:type, :provider, :model_id, :system_prompt]
-  defstruct [:type, :name, :description, :provider, :model_id, :system_prompt, opts: []]
+  defstruct [
+    :type,
+    :name,
+    :description,
+    :provider,
+    :model_id,
+    :system_prompt,
+    opts: [],
+    tools: []
+  ]
 
   @doc """
   Build an `AgentSpec` from a keyword list of validated fields.
@@ -42,23 +53,43 @@ defmodule Planck.Agent.AgentSpec do
       provider: Keyword.fetch!(fields, :provider),
       model_id: Keyword.fetch!(fields, :model_id),
       system_prompt: Keyword.fetch!(fields, :system_prompt),
-      opts: Keyword.get(fields, :opts, [])
+      opts: Keyword.get(fields, :opts, []),
+      tools: Keyword.get(fields, :tools, [])
     }
   end
 
   @doc """
-  Convert an `AgentSpec` to keyword options suitable for `Planck.Agent.Agent.start_link/1`.
+  Convert an `AgentSpec` to keyword options suitable for `Planck.Agent.start_link/1`.
 
-  Accepts optional overrides: `tools:`, `team_id:`, `available_models:`, `on_compact:`.
+  Accepts optional overrides: `tools:`, `tool_pool:`, `team_id:`, `available_models:`,
+  `on_compact:`.
+
+  When `spec.tools` is non-empty, tool names are resolved against `tool_pool:` (a list
+  of `Tool.t()` structs). Unknown names are silently ignored. Any tools passed via
+  `tools:` are appended after the resolved ones.
+
+  When `spec.tools` is empty, `tools:` is used directly (the previous behaviour).
 
   ## Examples
 
-      iex> AgentSpec.to_start_opts(spec, tools: [read_tool], team_id: "team-1")
-      [id: "...", type: "builder", name: "Builder Joe", model: %Model{}, ...]
+      iex> AgentSpec.to_start_opts(spec, tool_pool: [read_tool, bash_tool], team_id: "team-1")
+      [id: "...", type: "builder", tools: [read_tool], ...]
   """
   @spec to_start_opts(t(), keyword()) :: keyword()
   def to_start_opts(%__MODULE__{} = spec, overrides \\ []) do
     model = resolve_model!(spec.provider, spec.model_id)
+
+    tools =
+      case spec.tools do
+        [] ->
+          Keyword.get(overrides, :tools, [])
+
+        names ->
+          pool = Keyword.get(overrides, :tool_pool, [])
+          pool_map = Map.new(pool, &{&1.name, &1})
+          resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
+          resolved ++ Keyword.get(overrides, :tools, [])
+      end
 
     [
       id: generate_id(),
@@ -68,7 +99,7 @@ defmodule Planck.Agent.AgentSpec do
       model: model,
       system_prompt: spec.system_prompt,
       opts: spec.opts,
-      tools: Keyword.get(overrides, :tools, []),
+      tools: tools,
       team_id: Keyword.get(overrides, :team_id),
       session_id: Keyword.get(overrides, :session_id),
       available_models: Keyword.get(overrides, :available_models, []),
