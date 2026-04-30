@@ -53,8 +53,8 @@ file loaded via `Code.compile_file/2` at startup — no build step required.
 
 Active development. All four packages are built and tested. The Web UI in
 `planck_cli` is functional — sessions, streaming, multi-agent teams, skills,
-sidecar integration, i18n (English + Spanish). HTTP API and Burrito binary
-distribution are next.
+sidecar integration, i18n (English + Spanish), HTTP API with OpenAPI/Swagger UI.
+Burrito binary distribution is next.
 
 See [`specs/`](./specs) for design decisions.
 

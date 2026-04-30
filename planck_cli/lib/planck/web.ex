@@ -55,6 +55,16 @@ defmodule Planck.Web do
     end
   end
 
+  def controller do
+    quote do
+      use Phoenix.Controller, formats: [:json]
+
+      import Plug.Conn
+
+      alias Planck.Headless
+    end
+  end
+
   def verified_routes do
     quote do
       use Phoenix.VerifiedRoutes,

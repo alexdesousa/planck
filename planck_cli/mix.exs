@@ -10,6 +10,7 @@ defmodule Planck.CLI.MixProject do
       version: @version,
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       aliases: aliases(),
       dialyzer: dialyzer(),
@@ -51,6 +52,7 @@ defmodule Planck.CLI.MixProject do
       {:bandit, "~> 1.5"},
       {:earmark, "~> 1.4"},
       {:gettext, "~> 0.26"},
+      {:open_api_spex, "~> 3.21"},
       {:skogsra, "~> 2.5"},
       {:tidewave, "~> 0.1", only: :dev},
       {:telemetry_metrics, "~> 1.0"},
@@ -65,6 +67,9 @@ defmodule Planck.CLI.MixProject do
       {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   defp local_or_hex(package, version) do
     if System.get_env("PLANCK_LOCAL") == "true" do

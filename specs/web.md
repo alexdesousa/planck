@@ -263,16 +263,68 @@ Workers cycle through an 8-color palette by spawn order:
 Worker cards show a solid white pulsing dot (`bg-white animate-pulse`) when
 `:streaming`. White is always visible against the saturated card backgrounds.
 
+## HTTP API
+
+A REST + SSE API served by the same Phoenix app at `/api`. All endpoints
+return JSON. An OpenAPI spec is served at `/api/openapi`; Swagger UI at
+`/api/swaggerui`.
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sessions` | List all sessions |
+| `POST` | `/api/sessions` | Start a session (`template?`, `name?`) |
+| `GET` | `/api/sessions/:id` | Session info + agent list |
+| `DELETE` | `/api/sessions/:id` | Close session (file retained) |
+| `POST` | `/api/sessions/:id/prompt` | Send prompt; auto-resumes if closed |
+| `POST` | `/api/sessions/:id/abort` | Abort all agents |
+| `GET` | `/api/sessions/:id/events` | SSE event stream |
+| `GET` | `/api/teams` | List registered teams |
+| `GET` | `/api/teams/:alias` | Team detail + members |
+| `GET` | `/api/models` | Available models |
+
+### SSE event stream
+
+`GET /api/sessions/:id/events` subscribes to all agents in the session.
+Add `?agent_id=<id>` to filter to a single agent — the frame shape is
+identical in both modes (`agent_id` is injected for the single-agent case
+since `"agent:#{id}"` PubSub payloads do not carry it).
+
+The connection stays open until the client disconnects. A `: keepalive`
+comment is sent every 25 seconds to prevent proxy timeouts. The controller
+handles a `:stop` message in tests to terminate the loop gracefully.
+
+### OpenAPI / Swagger
+
+`Planck.Web.API.Spec` builds the OpenAPI 3.0 spec via `open_api_spex`.
+Controllers declare `open_api_operation/1` callbacks; schemas live in
+`Planck.Web.API.Schemas`. The spec is cached by
+`OpenApiSpex.Plug.PutApiSpec` in the endpoint.
+
+### Module structure
+
+```
+planck_cli/lib/planck/web/api/
+  spec.ex               — OpenApiSpex spec builder
+  schemas.ex            — All request/response schema modules
+  session_controller.ex — Sessions resource + prompt/abort actions
+  event_controller.ex   — SSE stream (session scope + ?agent_id filter)
+  team_controller.ex    — Teams resource (read-only)
+  model_controller.ex   — Models list (read-only)
+```
+
 ## Dependencies
 
 ```elixir
-{:phoenix, "~> 1.7"},
+{:phoenix, "~> 1.8"},
 {:phoenix_live_view, "~> 1.1"},
 {:phoenix_html, "~> 4.0"},
 {:bandit, "~> 1.0"},
 {:earmark, "~> 1.4"},    # Markdown rendering for completed chat entries
 {:gettext, "~> 0.26"},   # i18n — pgettext/2 with msgctxt in .po files
 {:highlight_js, ...},    # Code block syntax highlighting via JS
+{:open_api_spex, "~> 3.21"},         # OpenAPI spec generation + Swagger UI
 {:tidewave, "~> 0.1", only: :dev}  # MCP server for live debugging
 ```
 

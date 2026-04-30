@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### HTTP API
+
+- REST + SSE API at `/api` served by the same Phoenix app as the Web UI
+- `GET /api/sessions` — list sessions; `POST` — start; `DELETE` — close
+- `POST /api/sessions/:id/prompt` — send prompt, auto-resumes closed sessions
+- `POST /api/sessions/:id/abort` — abort all agents
+- `GET /api/sessions/:id/events` — SSE stream; `?agent_id=` filters to a
+  single agent (subscribes to `"agent:#{id}"` PubSub topic, injects
+  `agent_id` into payloads to match the session-scoped frame shape)
+- `GET /api/teams`, `GET /api/teams/:alias`, `GET /api/models` — read-only
+  resource endpoints
+- `open_api_spex` (~> 3.21): OpenAPI spec at `/api/openapi`, Swagger UI at
+  `/api/swaggerui`; all controllers annotated with `open_api_operation/1`,
+  full schema definitions with examples in `Planck.Web.API.Schemas`
+- Payload sanitisation in SSE: non-JSON-serializable values (tuples, pids)
+  converted to their `inspect` string before encoding
+- `:stop` message in `event_loop` allows tests to terminate the SSE stream
+  gracefully via `Task.yield`
+
 ### Internationalisation (i18n)
 
 - Gettext backend (`Planck.Web.Gettext`) with English and Spanish translations

@@ -29,6 +29,7 @@ defmodule Planck.Web.Endpoint do
     plug Phoenix.CodeReloader
   end
 
+  plug OpenApiSpex.Plug.PutApiSpec, module: Planck.Web.API.Spec
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
