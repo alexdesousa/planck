@@ -3,8 +3,9 @@ defmodule Planck.Agent.CompactorTest do
 
   import Mox
 
+  alias Planck.Agent
   alias Planck.Agent.{Compactor, Message, MockAI}
-  alias Planck.AI.Model
+  alias Planck.AI.{Context, Model}
 
   setup :set_mox_global
   setup :verify_on_exit!
@@ -194,11 +195,76 @@ defmodule Planck.Agent.CompactorTest do
 
   # --- integration with Agent ---
 
-  describe "integration with Agent" do
-    alias Planck.Agent
-    alias Planck.AI.Context
+  defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
 
-    defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+  defp compacting_agent do
+    compact_fn = fn messages ->
+      summary_msg = text_message({:custom, :summary}, "Compacted.")
+      {:compact, summary_msg, Enum.take(messages, -1)}
+    end
+
+    stub(MockAI, :stream, fn _model, _context, _opts ->
+      [{:text_delta, "ok"}, {:done, %{}}]
+    end)
+
+    agent =
+      start_supervised!(
+        {Planck.Agent,
+         id: unique_id(),
+         model: @model,
+         system_prompt: "You are helpful.",
+         on_compact: compact_fn}
+      )
+
+    messages = Enum.map(1..5, fn i -> text_message(:user, "message #{i}") end)
+    :sys.replace_state(agent, fn s -> %{s | messages: messages} end)
+    agent
+  end
+
+  describe "integration with Agent" do
+    test "broadcasts :compacting before compaction runs" do
+      agent = compacting_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :compacting, _}, 1_000
+    end
+
+    test "broadcasts :compacted after compaction completes" do
+      agent = compacting_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :compacted, _}, 1_000
+    end
+
+    test ":compacting is broadcast before :compacted" do
+      agent = compacting_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :compacting, _}, 1_000
+      assert_receive {:agent_event, :compacted, _}, 1_000
+    end
+
+    test "no :compacting or :compacted broadcast when compaction is skipped" do
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      agent =
+        start_supervised!(
+          {Agent,
+           id: unique_id(),
+           model: @model,
+           system_prompt: "You are helpful.",
+           on_compact: fn _messages -> :skip end}
+        )
+
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      refute_received {:agent_event, :compacting, _}
+      refute_received {:agent_event, :compacted, _}
+    end
 
     test "compact hook is called and compacted messages are sent to LLM" do
       parent = self()

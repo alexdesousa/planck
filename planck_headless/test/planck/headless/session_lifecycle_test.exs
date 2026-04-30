@@ -432,6 +432,81 @@ defmodule Planck.Headless.SessionLifecycleTest do
                Registry.lookup(Planck.Agent.Registry, {team_id, "reviewer"})
     end
 
+    test "resume injects recovery message for unfinished delegate_task worker", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "recovery-delegate")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      old_orch_id = orchestrator_id_for(meta["team_id"])
+
+      # Orchestrator delegates a task to a worker by type.
+      delegate_msg =
+        Planck.Agent.Message.new(:assistant, [
+          {:tool_call, "d-1", "delegate_task",
+           %{"type" => "builder", "task" => "Implement the login endpoint"}}
+        ])
+
+      Session.append(session_id, old_orch_id, delegate_msg)
+
+      # Worker starts but never calls send_response.
+      worker_id = "worker-old-#{System.unique_integer()}"
+
+      worker_start =
+        Planck.Agent.Message.new(:user, [{:text, "Implement the login endpoint"}])
+
+      worker_partial =
+        Planck.Agent.Message.new(:assistant, [{:text, "I'll start with the route…"}])
+
+      Session.append(session_id, worker_id, worker_start)
+      Session.append(session_id, worker_id, worker_partial)
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      new_orch_id = orchestrator_id_for(new_meta["team_id"])
+
+      {:ok, rows} = Session.messages(session_id, agent_id: new_orch_id)
+      assert length(rows) == 1
+      text = rows |> hd() |> Map.get(:message) |> Map.get(:content) |> hd() |> elem(1)
+
+      # Target and task text are both present in the recovery message.
+      assert text =~ "builder"
+      assert text =~ "Implement the login endpoint"
+    end
+
+    test "resume does not inject a second recovery message if one already exists", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "recovery-dedup")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      old_orch_id = orchestrator_id_for(meta["team_id"])
+
+      ask_msg =
+        Planck.Agent.Message.new(:assistant, [
+          {:tool_call, "c-1", "ask_agent",
+           %{"type" => "builder", "question" => "Are you done?"}}
+        ])
+
+      Session.append(session_id, old_orch_id, ask_msg)
+
+      # First resume — injects recovery.
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      new_orch_id = orchestrator_id_for(new_meta["team_id"])
+      {:ok, rows_after_first} = Session.messages(session_id, agent_id: new_orch_id)
+      assert length(rows_after_first) == 1
+
+      # Second resume — must NOT inject another recovery message.
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta2} = Session.get_metadata(session_id)
+      new_orch_id2 = orchestrator_id_for(new_meta2["team_id"])
+      {:ok, rows_after_second} = Session.messages(session_id, agent_id: new_orch_id2)
+      assert length(rows_after_second) == 1
+    end
+
     test "returns error for non-existent session" do
       assert {:error, _} = Headless.resume_session("ghost-session")
     end
