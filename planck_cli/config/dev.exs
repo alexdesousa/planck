@@ -20,7 +20,7 @@ config :planck_cli, Planck.Web.Endpoint,
     ]
   ]
 
-config :planck_headless, :skip_json_config, true
+config :planck_cli, :dev_routes, true
 
 config :logger, :default_formatter, format: "[$level] $message\n"
 config :phoenix, :stacktrace_depth, 20

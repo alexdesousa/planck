@@ -7,10 +7,11 @@ defmodule Planck.Headless.SessionLifecycleTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
-  alias Planck.Agent.{MockAI, Session}
+  alias Planck.Agent
+  alias Planck.Agent.{Message, MockAI, Session}
   alias Planck.AI.Model
   alias Planck.Headless
-  alias Planck.Headless.Config
+  alias Planck.Headless.{Config, ResourceStore}
 
   @model %Model{
     id: "llama3.2",
@@ -117,7 +118,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).system_prompt
       assert String.starts_with?(system_prompt, "Project conventions go here.")
       assert system_prompt =~ "You coordinate."
     end
@@ -132,7 +133,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).system_prompt
       refute system_prompt =~ "Should not be loaded."
     end
 
@@ -147,7 +148,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).system_prompt
       assert String.starts_with?(system_prompt, "Root conventions.")
     end
 
@@ -159,7 +160,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).system_prompt
       assert system_prompt == "You coordinate."
     end
 
@@ -170,7 +171,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Planck.Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
 
       # Built-in file tools
       assert "read" in tool_names
@@ -191,14 +192,14 @@ defmodule Planck.Headless.SessionLifecycleTest do
     test "starts a dynamic team session when default model is configured", %{tmp_dir: _dir} do
       Application.put_env(:planck, :default_provider, :ollama)
       Application.put_env(:planck, :default_model, "llama3.2")
-      Planck.Headless.Config.reload_default_provider()
-      Planck.Headless.Config.reload_default_model()
+      Config.reload_default_provider()
+      Config.reload_default_model()
 
       on_exit(fn ->
         Application.delete_env(:planck, :default_provider)
         Application.delete_env(:planck, :default_model)
-        Planck.Headless.Config.reload_default_provider()
-        Planck.Headless.Config.reload_default_model()
+        Config.reload_default_provider()
+        Config.reload_default_model()
       end)
 
       assert {:ok, session_id} = Headless.start_session()
@@ -206,7 +207,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Planck.Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
 
       assert "read" in tool_names
       assert "write" in tool_names
@@ -219,12 +220,12 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       Application.put_env(:planck, :teams_dirs, [dir])
       Config.reload_teams_dirs()
-      Planck.Headless.ResourceStore.reload()
+      ResourceStore.reload()
 
       on_exit(fn ->
         Application.delete_env(:planck, :teams_dirs)
         Config.reload_teams_dirs()
-        Planck.Headless.ResourceStore.reload()
+        ResourceStore.reload()
       end)
 
       assert {:ok, session_id} = Headless.start_session(template: "my-alias-team")
@@ -365,14 +366,23 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       old_orch_id = orchestrator_id_for(meta["team_id"])
 
-      # Simulate an ask_agent call with no tool result (blocked, never resolved).
+      # Orchestrator issues an ask_agent (blocked, never got a tool result).
       ask_msg =
-        Planck.Agent.Message.new(:assistant, [
+        Message.new(:assistant, [
           {:tool_call, "call-1", "ask_agent",
            %{"type" => "builder", "question" => "What is 2+2?"}}
         ])
 
       Session.append(session_id, old_orch_id, ask_msg)
+
+      # The worker received the question but never replied (no send_response).
+      worker_id = "builder-#{System.unique_integer()}"
+
+      Session.append(
+        session_id,
+        worker_id,
+        Message.new(:user, [{:text, "What is 2+2?"}])
+      )
 
       Headless.close_session(session_id)
       {:ok, ^session_id} = Headless.resume_session(session_id)
@@ -400,7 +410,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       call_id = "spawn-1"
 
       spawn_msg =
-        Planck.Agent.Message.new(:assistant, [
+        Message.new(:assistant, [
           {:tool_call, call_id, "spawn_agent",
            %{
              "type" => "reviewer",
@@ -414,7 +424,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
         ])
 
       result_msg =
-        Planck.Agent.Message.new(:tool_result, [
+        Message.new(:tool_result, [
           {:tool_result, call_id, {:ok, "agent-id-abc"}}
         ])
 
@@ -429,7 +439,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       # The "reviewer" worker should be registered in the team registry.
       assert [{_pid, _meta} | _] =
-               Registry.lookup(Planck.Agent.Registry, {team_id, "reviewer"})
+               Registry.lookup(Agent.Registry, {team_id, "reviewer"})
     end
 
     test "resume injects recovery message for unfinished delegate_task worker", %{tmp_dir: dir} do
@@ -440,7 +450,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       # Orchestrator delegates a task to a worker by type.
       delegate_msg =
-        Planck.Agent.Message.new(:assistant, [
+        Message.new(:assistant, [
           {:tool_call, "d-1", "delegate_task",
            %{"type" => "builder", "task" => "Implement the login endpoint"}}
         ])
@@ -451,10 +461,10 @@ defmodule Planck.Headless.SessionLifecycleTest do
       worker_id = "worker-old-#{System.unique_integer()}"
 
       worker_start =
-        Planck.Agent.Message.new(:user, [{:text, "Implement the login endpoint"}])
+        Message.new(:user, [{:text, "Implement the login endpoint"}])
 
       worker_partial =
-        Planck.Agent.Message.new(:assistant, [{:text, "I'll start with the route…"}])
+        Message.new(:assistant, [{:text, "I'll start with the route…"}])
 
       Session.append(session_id, worker_id, worker_start)
       Session.append(session_id, worker_id, worker_partial)
@@ -481,11 +491,20 @@ defmodule Planck.Headless.SessionLifecycleTest do
       old_orch_id = orchestrator_id_for(meta["team_id"])
 
       ask_msg =
-        Planck.Agent.Message.new(:assistant, [
+        Message.new(:assistant, [
           {:tool_call, "c-1", "ask_agent", %{"type" => "builder", "question" => "Are you done?"}}
         ])
 
       Session.append(session_id, old_orch_id, ask_msg)
+
+      # Worker received the question but never replied.
+      worker_id = "builder-#{System.unique_integer()}"
+
+      Session.append(
+        session_id,
+        worker_id,
+        Message.new(:user, [{:text, "Are you done?"}])
+      )
 
       # First resume — injects recovery.
       Headless.close_session(session_id)
@@ -519,7 +538,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
   # ---------------------------------------------------------------------------
 
   defp find_orchestrator(team_id) do
-    case Registry.lookup(Planck.Agent.Registry, {team_id, "orchestrator"}) do
+    case Registry.lookup(Agent.Registry, {team_id, "orchestrator"}) do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :not_found}
     end
@@ -527,7 +546,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
   defp orchestrator_id_for(team_id) do
     {:ok, pid} = find_orchestrator(team_id)
-    Planck.Agent.get_info(pid).id
+    Agent.get_info(pid).id
   end
 
   defp message_count(session_id, agent_id) do

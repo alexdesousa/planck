@@ -11,3 +11,5 @@ planck_cli-*.tar
 /priv/plts/*.plt
 /priv/plts/*.plt.hash
 /burrito_out/
+/.planck/
+/assets/node_modules/

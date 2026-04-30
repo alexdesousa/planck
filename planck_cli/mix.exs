@@ -49,7 +49,9 @@ defmodule Planck.CLI.MixProject do
       {:phoenix_live_view, "~> 1.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:bandit, "~> 1.5"},
+      {:earmark, "~> 1.4"},
       {:skogsra, "~> 2.5"},
+      {:tidewave, "~> 0.1", only: :dev},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
@@ -79,7 +81,11 @@ defmodule Planck.CLI.MixProject do
         "credo",
         "test"
       ],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.setup": [
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing",
+        "cmd --cd assets npm install"
+      ],
       "assets.build": ["tailwind planck_cli", "esbuild planck_cli"],
       "assets.deploy": [
         "tailwind planck_cli --minify",
