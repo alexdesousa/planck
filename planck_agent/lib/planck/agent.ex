@@ -83,6 +83,8 @@ defmodule Planck.Agent do
 
   Internal fields (not part of the public API):
   - `stream_task` / `stream_ref` — in-flight async LLM stream
+  - `stream_start` — length of `messages` when the current stream began; used to
+    detect messages appended *during* streaming that the LLM did not see
   - `turn_checkpoints` — message-count stack for `rewind/2`
   - `pending_tool_calls` — tool calls waiting for execution after stream end
   - `text_buffer` / `thinking_buffer` — partial text accumulated during streaming
@@ -109,6 +111,7 @@ defmodule Planck.Agent do
           status: :idle | :streaming | :executing_tools,
           stream_task: Task.t() | nil,
           stream_ref: reference() | nil,
+          stream_start: non_neg_integer(),
           turn_index: non_neg_integer(),
           turn_checkpoints: [non_neg_integer()],
           pending_tool_calls: [map()],
@@ -136,6 +139,7 @@ defmodule Planck.Agent do
     status: :idle,
     stream_task: nil,
     stream_ref: nil,
+    stream_start: 0,
     turn_index: 0,
     turn_checkpoints: [],
     pending_tool_calls: [],
@@ -390,6 +394,7 @@ defmodule Planck.Agent do
 
   def handle_continue(:run_llm, state) do
     {messages, state} = apply_compact(state)
+    stream_start = length(state.messages)
     ai_tools = state.tools |> Map.values() |> Enum.map(&Tool.to_ai_tool/1)
 
     context = %Context{
@@ -414,6 +419,7 @@ defmodule Planck.Agent do
        state
        | stream_task: task,
          stream_ref: ref,
+         stream_start: stream_start,
          status: :streaming,
          turn_index: state.turn_index + 1
      }}
@@ -695,9 +701,7 @@ defmodule Planck.Agent do
   defp maybe_turn_start(state)
 
   defp maybe_turn_start(%__MODULE__{} = state) do
-    turn_start = List.first(state.turn_checkpoints, 0)
-
-    if has_pending_input?(state.messages, turn_start) do
+    if has_pending_input?(state.messages, state.stream_start) do
       broadcast(state, :turn_start, %{index: state.turn_index})
       {:noreply, %{state | status: :streaming}, {:continue, :run_llm}}
     else
@@ -706,13 +710,12 @@ defmodule Planck.Agent do
   end
 
   # Returns true if any :user or {:custom, :agent_response} message arrived
-  # AFTER the turn-starting message (identified by turn_start_idx, the index
-  # of the user message that began the current turn). Messages at or before
-  # that index were already visible to the LLM.
+  # after stream_start — those were appended during streaming and not seen
+  # by the LLM.
   @spec has_pending_input?([Message.t()], non_neg_integer()) :: boolean()
-  defp has_pending_input?(messages, turn_start_idx) do
+  defp has_pending_input?(messages, stream_start) do
     messages
-    |> Enum.drop(turn_start_idx + 1)
+    |> Enum.drop(stream_start)
     |> Enum.any?(fn
       %{role: :user} -> true
       %{role: {:custom, :agent_response}} -> true
