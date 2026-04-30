@@ -49,7 +49,7 @@ defmodule Planck.Headless do
     with {:ok, team} <- resolve_team(template),
          {:ok, session_name} <- resolve_name(user_name),
          {:ok, session_id} <- create_session(session_name, cwd),
-         {:ok, team_id} <- materialize_team(session_id, team),
+         {:ok, team_id} <- materialize_team(session_id, team, cwd),
          :ok <- save_metadata(session_id, template, session_name, cwd, team_id) do
       {:ok, session_id}
     end
@@ -67,7 +67,7 @@ defmodule Planck.Headless do
          {:ok, _pid} <- reopen_session(session_id, session_name, sessions_dir),
          {:ok, metadata} <- Session.get_metadata(session_id),
          {:ok, team} <- resolve_team(metadata["team_alias"]),
-         {:ok, team_id} <- materialize_team(session_id, team),
+         {:ok, team_id} <- materialize_team(session_id, team, metadata["cwd"] || File.cwd!()),
          :ok <-
            save_metadata(
              session_id,
@@ -313,8 +313,8 @@ defmodule Planck.Headless do
   # Private — team materialization
   # ---------------------------------------------------------------------------
 
-  @spec materialize_team(String.t(), Team.t()) :: {:ok, String.t()} | {:error, term()}
-  defp materialize_team(session_id, team) do
+  @spec materialize_team(String.t(), Team.t(), Path.t()) :: {:ok, String.t()} | {:error, term()}
+  defp materialize_team(session_id, team, cwd) do
     store = ResourceStore.get()
     team_id = generate_id()
 
@@ -323,7 +323,7 @@ defmodule Planck.Headless do
     orchestrator_id = generate_id()
 
     with {:ok, _} <-
-           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store),
+           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store, cwd),
          :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store) do
       {:ok, team_id}
     end
@@ -334,9 +334,10 @@ defmodule Planck.Headless do
           String.t(),
           String.t(),
           AgentSpec.t(),
-          ResourceStore.t()
+          ResourceStore.t(),
+          Path.t()
         ) :: {:ok, pid()} | {:error, term()}
-  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store) do
+  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd) do
     base_opts =
       AgentSpec.to_start_opts(spec,
         tool_pool: builtins() ++ store.tools,
@@ -359,10 +360,13 @@ defmodule Planck.Headless do
         Tools.worker_tools(team_id, nil) ++
         resolved
 
+    system_prompt = prepend_agents_md(base_opts[:system_prompt], cwd)
+
     opts =
       base_opts
       |> Keyword.put(:id, orchestrator_id)
       |> Keyword.put(:tools, full_tools)
+      |> Keyword.put(:system_prompt, system_prompt)
       |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
 
     start_agent(opts)
@@ -682,6 +686,28 @@ defmodule Planck.Headless do
 
   @spec builtin_tool_names() :: [String.t()]
   defp builtin_tool_names, do: Enum.map(builtins(), & &1.name)
+
+  @spec prepend_agents_md(String.t() | nil, Path.t()) :: String.t() | nil
+  defp prepend_agents_md(system_prompt, cwd) do
+    case find_agents_md(Path.expand(cwd)) do
+      nil -> system_prompt
+      content when system_prompt in [nil, ""] -> content
+      content -> content <> "\n\n" <> system_prompt
+    end
+  end
+
+  @spec find_agents_md(Path.t()) :: String.t() | nil
+  defp find_agents_md(dir) do
+    path = Path.join(dir, "AGENTS.md")
+    parent = Path.dirname(dir)
+
+    cond do
+      File.exists?(path) -> File.read!(path)
+      File.dir?(Path.join(dir, ".git")) -> nil
+      dir == parent -> nil
+      true -> find_agents_md(parent)
+    end
+  end
 
   @spec generate_id() :: String.t()
   defp generate_id do
