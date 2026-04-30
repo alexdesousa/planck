@@ -8,8 +8,9 @@ compactor) at startup, and manages session lifecycles. Any process — a TUI, a
 Phoenix controller, a test — can start a session and interact with it via a clean
 API; events flow over the `planck_agent` PubSub already in place.
 
-`planck_tui` and `planck_web` depend on `planck_headless`. They are rendering
-surfaces only — they never call `planck_agent` directly.
+`planck_cli` depends on `planck_headless` and contains both the TUI and Web UI
+as internal modules. They are rendering surfaces only — they never call
+`planck_agent` directly.
 
 ## What planck_headless owns
 

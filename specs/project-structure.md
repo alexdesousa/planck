@@ -13,17 +13,18 @@ planck/
 │       ├── planck_ai.yml
 │       ├── planck_agent.yml
 │       ├── planck_headless.yml
-│       ├── planck_tui.yml
-│       ├── planck_web.yml
 │       └── planck_cli.yml
 ├── planck_ai/        — LLM provider abstraction       → Hex library
 ├── planck_agent/     — OTP agent runtime              → Hex library
-├── planck_headless/  — Headless core: startup, sessions, resource loading → Hex library
-├── planck_tui/       — Terminal UI primitives         → Hex library
-├── planck_web/       — Phoenix LiveView components    → Hex library
-├── planck_cli/       — Coding agent CLI (TUI + Web)   → Burrito binary
+├── planck_headless/  — Headless core: config, sessions, resources → Hex library
+├── planck_cli/       — Coding agent CLI (TUI + Web UI) → Burrito binary
 └── specs/            — Design decisions (this folder)
 ```
+
+The TUI and Web UI live directly inside `planck_cli` rather than as separate Hex
+packages. They are rendering surfaces only — they never call `planck_agent` directly.
+The architectural boundary is enforced by convention: all UI code talks exclusively
+to `planck_headless`.
 
 ## Inter-package dependencies
 
@@ -51,21 +52,21 @@ planck_ai
 planck_agent
     ↑
 planck_headless
-    ↑         ↑
-planck_tui  planck_web
-    ↑         ↑
-       planck_cli
+    ↑
+planck_cli  (contains TUI + Web UI modules)
 ```
 
 `planck_ai` has no internal deps — safe to build and test in isolation first.
 
 `planck_headless` is the layer that owns startup orchestration, resource loading
-(tools, skills, compactor), session lifecycle, and model availability. TUI and WebUI
-are rendering surfaces that depend on it — they never talk to `planck_agent` directly.
+(tools, skills, teams, compactor), session lifecycle, and model availability. The TUI
+and Web UI in `planck_cli` are rendering surfaces — they depend on `planck_headless`
+and never talk to `planck_agent` directly.
 
-`planck_cli` bundles both `planck_tui` and `planck_web` into a single Burrito binary.
-Running `planck tui` starts headless with the ratatui interface; `planck web` starts
-headless with the Phoenix interface. Both share the same session store and tool config.
+`planck_cli` bundles the TUI (`planck_cli/lib/planck/tui/`) and Web UI
+(`planck_cli/lib/planck/web/`) alongside the Burrito packaging. Running
+`planck tui` starts headless with the ratatui interface; `planck web` starts
+headless with the Phoenix interface. Both share the same session store and config.
 
 ## Package roles
 
@@ -73,14 +74,11 @@ headless with the Phoenix interface. Both share the same session store and tool 
 |---|---|---|
 | `planck_ai` | LLM provider abstraction | Hex library |
 | `planck_agent` | OTP agent runtime | Hex library |
-| `planck_headless` | Startup, sessions, resource wiring | Hex library |
-| `planck_tui` | Terminal UI primitives | Hex library |
-| `planck_web` | Phoenix LiveView components | Hex library |
-| `planck_cli` | Coding agent CLI — bundles TUI + Web | Burrito binary |
+| `planck_headless` | Config, sessions, resource wiring | Hex library |
+| `planck_cli` | Coding agent CLI — TUI + Web UI + Burrito | Burrito binary |
 
-`planck_ai`, `planck_agent`, `planck_headless`, `planck_tui`, and `planck_web` are
-all usable independently as Hex libraries. Anyone can build their own UI on top of
-`planck_headless` without depending on either bundled interface.
+`planck_ai`, `planck_agent`, and `planck_headless` are published to Hex as reusable
+libraries. Anyone can build their own UI on top of `planck_headless`.
 
 ## CI per package
 
