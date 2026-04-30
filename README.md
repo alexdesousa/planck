@@ -51,9 +51,22 @@ file loaded via `Code.compile_file/2` at startup — no build step required.
 
 ## Status
 
-Active development. `planck_ai`, `planck_agent`, and `planck_headless` are built and
-tested. `planck_cli` (TUI + Web UI + Burrito binary) is next. See [`specs/`](./specs)
-for design decisions.
+Active development. All four packages are built and tested. The Web UI in
+`planck_cli` is functional — sessions, streaming, multi-agent teams, skills,
+sidecar integration. TUI and Burrito binary distribution are next.
+
+See [`specs/`](./specs) for design decisions.
+
+## Running
+
+```bash
+# Start the web UI
+PLANCK_LOCAL=true elixir --sname planck_cli -S mix run --no-halt
+# → http://localhost:4000
+```
+
+The `--sname` flag enables Erlang distribution so the optional sidecar can
+connect back. See [`planck_cli/README.md`](./planck_cli/README.md) for details.
 
 ## Development
 
@@ -66,6 +79,14 @@ mix test
 ```
 
 Set `PLANCK_LOCAL=true` to resolve sibling packages from disk instead of Hex.
+
+A `./check` script at the monorepo root runs format, compile, credo, tests, and
+dialyzer across all packages:
+
+```sh
+./check               # all packages
+./check planck_agent  # specific package
+```
 
 See [`specs/project-structure.md`](./specs/project-structure.md) for the full monorepo
 setup and [`specs/quality-and-tooling.md`](./specs/quality-and-tooling.md) for code

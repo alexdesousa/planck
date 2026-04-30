@@ -1,387 +1,236 @@
 # Planck Web UI
 
 The Web UI is a Phoenix LiveView application bundled inside `planck_cli`.
-It lives in `planck_cli/lib/planck/web/` and is a rendering surface only —
-all state comes from `planck_headless` via `Phoenix.PubSub`.
+It lives at `planck_cli/lib/planck/web/` and is a rendering surface only —
+all business state comes from `planck_headless` and `planck_agent` via
+`Phoenix.PubSub`.
 
-Accessed at `http://localhost:4000` when running `planck --web`.
+Accessed at `http://localhost:4000` when running:
 
-Supports **light and dark mode** via Tailwind's `dark:` variant and the
-CSS variable tokens defined above. Dark mode follows the system preference
-(`prefers-color-scheme`) automatically — no manual toggle needed.
+```bash
+PLANCK_LOCAL=true elixir --sname planck_cli -S mix run --no-halt
+```
+
+The `--sname` flag is required for the optional sidecar to connect back.
 
 ## Layout
 
 ```
 ┌──────────┬──────────────────────────────────┬───────────────┐
 │ Sessions │                                  │  orchestrator │
-│          │        Context / Chat            │  model: ...   │
-│ session1 │        (scrollable)              │  usage: ...   │
-│ session2 │                                  ├───────────────┤
-│ ...      │                                  │  planner      │
-│          │                                  │  model: ...   │
-│ [+ New]  │                                  │  usage: ...   │
-│          │                                  ├───────────────┤
-│          │                                  │  builder      │
-│          │                                  │  ...          │
-├──────────┼──────────────────────────────────┴───────────────┤
-│          │ > prompt input (Shift+Enter newline, Enter submit)│
+│          │        Chat / Context            │  ctx 12%      │
+│ sess1  × │        (scrollable)              │  ↓1.2k ↑0.3k │
+│ sess2  × │                                  ├───────────────┤
+│ ...      │                                  │  builder      │
+│          │                                  │  streaming ●  │
+│ [+ New]  │                                  │  ↓0.8k ↑0.1k │
+│          ├──────────────────────────────────┴───────────────┤
+│          │  prompt input (Shift+Enter = newline, Enter = submit) │
 │          ├───────────────────────────────────────────────────┤
-│          │ session-name  v0.1.0    total: 12k  .planck/sidecar│
+│          │ ☾ session-name v0.1.0    ↓12k ↑3k  $0.02        │
 └──────────┴───────────────────────────────────────────────────┘
 ```
 
-### Left sidebar — sessions
+Sidebars collapse to drawer overlays on mobile (`md` breakpoint).
 
-- Lists all sessions (active shown first, then stored on disk)
-- Active sessions have a green indicator; stored sessions are dimmed
-- Clicking a session switches the main view to that session's context
-- **[+ New]** button opens a new session dialog:
-  - Team selector (dropdown of available team aliases, or "Dynamic" for default)
-  - Optional session name field
-  - Confirm / Cancel
+## LiveComponent architecture
 
-### Context / chat panel (centre, main)
+`session_live.ex` is a thin event router. All stateful UI is owned by
+independent LiveComponents:
 
-- Displays the full message history of the active view
-- Scrollable with mouse wheel
-- Each message labelled by agent name and role
-- Tool calls rendered as **collapsible blocks** — collapsed by default, click
-  to expand:
+| Component | Module | State it owns |
+|---|---|---|
+| Sessions sidebar | `SessionsSidebar` | delete confirmation, new session modal |
+| Chat view | `ChatComponent` | streaming entries, agent author info |
+| Agents sidebar | `AgentsSidebar` | per-agent usage/cost/status, sidecar |
+| Prompt input | `PromptInput` | textarea text, streaming/waiting flags |
+| Status bar | `StatusBar` | total usage/cost, sidecar status |
+| Edit message modal | `EditMessageModal` | edited text |
 
-  ```
-  ▶ bash  [expand]
-  ```
+`SessionLive` subscribes to `"session:#{id}"` and `"planck:sidecar"` via
+PubSub and routes events to the right component via `send_update/3`.
 
-  Expanded:
+## Sessions sidebar — `SessionsSidebar`
 
-  ```
-  ▼ bash  [collapse]
-    $ mix test
-    ...30 tests, 0 failures
-  ```
+- Lists all sessions from disk; active ones show a green dot
+- Clicking switches to that session (resumes if inactive)
+- Red `×` delete button on each item with a confirmation modal before deleting
+- **[+ New]** opens the new session modal (team selector + optional name field)
+- All interaction is owned by the LiveComponent; results are forwarded to
+  `SessionLive` via `send(self(), ...)` messages for Headless calls
 
-- Streaming responses show a blinking cursor at the end of the active agent's
-  text
+## Chat — `ChatComponent`
 
-### Right sidebar — agents
+- Shows the full message history for the active session or agent perspective
+- Streaming text rendered as plain escaped text to avoid markdown flicker;
+  Earmark parses only when the entry's `:streaming` flag is false
+- Tool call blocks are collapsible (`▶`/`▼`); `toggle_entry` event handled locally
+- Thinking blocks collapse to a single block during streaming (stable id fix)
+- Scroll-to-bottom on new content; smart scroll preserves position when user
+  has scrolled up to read history or expand a tool call
+- **Edit button** on user messages (always visible per NeoBrutalism): clicking
+  opens `EditMessageModal` which calls `Headless.rewind_to_message/3` on confirm
+- Entries are classified by `ChatEntries` module into typed structs:
+  `:user`, `:text`, `:thinking`, `:tool`, `:inter_agent_in`, `:error`, `:summary`, `:agent_response`
 
-- One card per agent (orchestrator first, workers below in spawn order)
-- Each card shows: agent name, type, model, current usage, active/idle status
-- Cards have distinct colors per agent type
-- Sidecar status below the agent list (same as TUI)
-- **Clicking an agent card opens the agent context overlay**
+## Agents sidebar — `AgentsSidebar`
 
-### Prompt input
+- One card per agent (orchestrator neutral card, workers colored by spawn order)
+- Each card: name, type, model, `↓input ↑output` tokens, cost, `ctx X%`
+- `ctx X%` — estimated current context window usage (`Message.estimate_tokens`
+  chars/4 approximation against `model.context_window`)
+- Streaming indicator: solid white pulsing dot (visible against card color)
+- Live updates via `usage_delta` events — no polling required
+- Sidecar status in the footer (hidden on desktop, visible on mobile where the
+  sidebar is behind a drawer)
+- Clicking an agent card opens the agent context overlay (workers only; the
+  orchestrator's view is already chat-main)
+- Handles `:worker_spawned` events to add new dynamic agents without page reload
 
-- Multi-line textarea; Shift+Enter inserts a newline, Enter submits
-- Abort button (×) next to the input cancels the current turn
-- **↑ when the cursor is on the first line of an empty input** — loads the
-  most recent user message. Pressing ↑ again goes further back through user
-  messages (skipping agent responses and tool calls). ↓ moves forward again.
-- **Submitting an edited historical message** — truncates the session at that
-  point (all messages after the selected one are removed via `rewind/2`) then
-  submits the edited text. The conversation rewinds to that moment.
+## Status bar — `StatusBar`
 
-### Status bar (bottom)
+- Session name and version on the left; dark mode toggle (☾/☀) next to version
+- Total `↓input ↑output` tokens and cost (`$X.XX`) on the right
+- Sidecar status visible on mobile only (already shown in agents sidebar on desktop)
+- Accumulates usage via `usage_delta` deltas in real-time
 
-Same content as TUI: session name + version (left), total tokens + sidecar
-path (right).
+## Prompt input — `PromptInput`
 
-## Agent context overlay
+- Multi-line textarea; Shift+Enter inserts newline, Enter submits
+- **Stop** button cancels the current turn; **Stop All** cancels all agents
+- Firefox fallback: `CSS.supports("field-sizing", "content")` detected; if false,
+  sets 5-line height (desktop) / 3-line (mobile) with manual resize-on-input
+- `streaming` and `waiting` flags passed as template assigns from `SessionLive`
 
-Triggered by clicking an agent card. Opens a full-screen overlay over the
-entire layout showing that agent's complete message history. Scrollable with
-mouse wheel. **Close button (×)** in the top-right corner returns to the
-session view.
+## Dark mode
 
-Tool blocks inside the overlay are also collapsible.
+Manual toggle (☾/☀) in the status bar. `localStorage` persists the choice
+across sessions; system preference is used as fallback when no override is set.
+Implemented via `window.toggleTheme()` and a `data-theme` attribute on `<html>`.
 
-## Empty state / first launch
+## New session modal (inside `SessionsSidebar`)
 
-When planck starts with no existing sessions, it **automatically creates a
-new session** with the default dynamic team (single orchestrator). The user
-lands directly in the chat panel with the prompt ready — no welcome screen,
-no wizard.
+Team selector is a styled radio button list (not a `<select>`) so it follows
+the NeoBrutalism design system. Optional name field. Events are handled by the
+LiveComponent and forwarded to `SessionLive` via `send(self(), :create_session)`.
 
-The orchestrator's system prompt already includes the Planck guides
-(configuration, teams, skills, sidecars), so the user can immediately ask
-it to set up their project:
+## Edit message modal — `EditMessageModal`
 
-> "Create a team with a planner, builder, and reviewer for this project"
-> "Build a sidecar that sends Telegram notifications when a phase completes"
-> "Set up Planck to use my local Ollama server"
-
-The agent fetches the relevant guide and implements the configuration. Planck
-configures itself through itself.
-
-## New session dialog
-
-```
-┌─────────────────────────────┐
-│  New Session                │
-│                             │
-│  Team:  [Dynamic        ▼]  │
-│  Name:  [               ]   │
-│                             │
-│  [Cancel]        [Create]   │
-└─────────────────────────────┘
-```
-
-The team dropdown lists all loaded team aliases from `ResourceStore`.
-Selecting "Dynamic" uses the default single-orchestrator setup.
+Opens when the user clicks the edit button on a user message. Shows the message
+text in a 5-line min-height textarea. On confirm, calls
+`Headless.rewind_to_message/3` (synchronous — waits for truncation + re-prompt)
+then reloads `ChatComponent` from session. The modal is a LiveComponent with its
+own `phx-target`.
 
 ## Data flow
 
 ```
-planck_headless PubSub
-  "session:#{id}"  → chat messages, tool events, usage deltas
-  "agent:#{id}"    → per-agent events for sidebar card updates
-  "planck:sidecar" → sidecar lifecycle for status indicator
+planck_agent PubSub
+  "session:#{id}"  → :turn_start, :turn_end, :text_delta, :tool_start/end,
+                     :usage_delta, :worker_spawned, :compacting, :compacted
+  "planck:sidecar" → :building, :starting, :connected, :disconnected, :exited
         ↓
-Planck.Web.SessionLive (LiveView)
-  handle_info/2 receives PubSub events
-  assigns: messages, agents, usage, sidecar_status, active_overlay
+Planck.Web.SessionLive (thin router)
+  Dispatches events to components via send_update/3
         ↓
-Heex templates re-render on assign changes
+AgentsSidebar  ← :turn_start/end (status), :usage_delta (usage/cost/context)
+ChatComponent  ← :text_delta, :tool_start/end, :turn_end (reload), ...
+StatusBar      ← :usage_delta (totals), sidecar events
+PromptInput    ← streaming/waiting from SessionLive template assigns
 ```
 
-The LiveView never calls `planck_headless` for reads — all state arrives via
-PubSub. Writes go through `Planck.Headless.prompt/2` and
-`Planck.Agent.abort/1`.
+`SessionLive` never reads state from `planck_headless` reactively — all state
+arrives via PubSub. Writes go through `Planck.Headless.prompt/2`,
+`Planck.Agent.abort/1`, `Planck.Headless.rewind_to_message/3`, etc.
 
 ## Module structure
 
 ```
 planck_cli/lib/planck/web/
-  web.ex                — Phoenix application entry point
-  router.ex             — Routes: GET / → SessionLive
-  live/
-    session_live.ex     — Main LiveView: session context + agent sidebar
-    session_live.html.heex
-  components/
-    chat.ex             — Chat message list component
-    tool_block.ex       — Collapsible tool call/result component
-    agent_card.ex       — Agent sidebar card component
-    agent_overlay.ex    — Full-screen agent context overlay component
-    session_list.ex     — Left sidebar session list component
-    new_session_modal.ex — New session dialog component
-    status_bar.ex       — Bottom status bar component
+  web.ex                     — Phoenix app entry point (use :live_view, :html)
+  router.ex                  — GET / → SessionLive
   endpoint.ex
-  telemetry.ex
+  components.ex              — Function components: agent_card, orchestrator_card,
+                               tool_block, thinking_block, sidecar_status,
+                               format_number/cost/context helpers
+  live/
+    session_live.ex          — Event router; owns session switching, overlay state
+    session_live.html.heex
+    sessions_sidebar.ex      — LiveComponent: sessions list, new/delete modals
+    sessions_sidebar.html.heex
+    chat_component.ex        — LiveComponent: streaming chat entries
+    chat_component.html.heex
+    chat_entries.ex          — Pure entry classification (no LiveView deps)
+    agents_sidebar.ex        — LiveComponent: agent cards, real-time updates
+    agents_sidebar.html.heex
+    agents_sidebar.html.heex
+    prompt_input.ex          — LiveComponent: textarea + abort controls
+    prompt_input.html.heex
+    status_bar.ex            — LiveComponent: usage totals + dark mode toggle
+    status_bar.html.heex
+    edit_message_modal.ex    — LiveComponent: edit + rewind flow
+    edit_message_modal.html.heex
 ```
 
 ## Design system
 
-### Style: NeoBrutalism via Tailwind CSS
+### Style: NeoBrutalism via Tailwind CSS v4
 
-All components share a NeoBrutalism aesthetic — a nod to both brutalist design
-and Elixir's purple identity. Key traits:
+All components follow the NeoBrutalism aesthetic from RetroUI:
 
-- **Borders:** `border-2 border-black` everywhere. No shadows from Tailwind's
-  default scale — use arbitrary offset shadows instead.
-- **Shadows:** `shadow-[4px_4px_0px_#000]` at rest;
-  `hover:shadow-[6px_6px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5`
-  on interactive elements. `transition-all duration-100` for snap.
-- **Corners:** sharp — `rounded-none` or `rounded-sm` (2px) maximum.
-- **Typography:** monospace (`font-mono`) for code, tool output, model names,
-  and token counts. Bold sans-serif (`font-bold`) for headings and agent names.
-- **Backgrounds:** off-white (`bg-stone-50`) for the page; white (`bg-white`)
-  for panels; agent card colors from the purple palette.
-- **No gradients.** No blur. No opacity tricks. Flat and direct.
+- **Borders:** `border-2 border-black` everywhere
+- **Shadows:** `shadow-[2px_2px_0px_#000]` at rest;
+  `hover:shadow-[4px_4px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5`
+  on interactive elements; `transition-all` for snap
+- **Corners:** sharp — no rounding
+- **Typography:** `font-mono` for all data (tokens, model names, code);
+  `font-bold` for headings and labels
 
-### Color tokens — RetroUI palette
+### Color tokens — `data-theme` attribute
 
-We use the same CSS variables as RetroUI's design system, defined in
-`assets/css/app.css`. This gives us the exact NeoBrutalism purple aesthetic
-without installing any React library.
+Dark/light mode via `[data-theme="dark"]` on `<html>` (Tailwind v4 custom variant).
+CSS variables defined in `assets/css/app.css`:
 
 ```css
-:root {
-  --radius: 0;
-  --background: #f5f5f5;
-  --foreground: #1a1a1a;
-  --card: #FFFFFF;
-  --card-foreground: #f5f5f5;
-  --primary: #5F4FE6;
-  --primary-hover: #4938C2;
-  --primary-foreground: #fff;
-  --secondary: #3a3a3a;
-  --secondary-foreground: #f5f5f5;
-  --muted: #CFCCEA;
-  --muted-foreground: #5B5686;
-  --accent: #FED13B;
-  --accent-foreground: #000000;
-  --destructive: #EF4444;
-  --destructive-foreground: #fff;
-  --border: #3a3a3a;
-}
-
-.dark {
-  --background: #0f0f12;
-  --foreground: #f5f5f5;
-  --card: #1a1a1d;
-  --card-foreground: #eaeaea;
-  --primary: #7b6df5;
-  --primary-hover: #5F4FE6;
-  --primary-foreground: #fff;
-  --secondary: #2a2a2e;
-  --secondary-foreground: #eaeaea;
-  --muted: #3d395a;
-  --muted-foreground: #a49fce;
-  --accent: #FED13B;
-  --accent-foreground: #000;
-  --destructive: #EF4444;
-  --destructive-foreground: #fff;
-  --border: #2e2e32;
-}
-```
-
-Wired into Tailwind via `tailwind.config.js`:
-
-```js
-theme: {
-  extend: {
-    colors: {
-      background: "var(--background)",
-      foreground: "var(--foreground)",
-      card: "var(--card)",
-      primary: {
-        DEFAULT: "var(--primary)",
-        hover: "var(--primary-hover)",
-        foreground: "var(--primary-foreground)"
-      },
-      secondary: {
-        DEFAULT: "var(--secondary)",
-        foreground: "var(--secondary-foreground)"
-      },
-      muted: {
-        DEFAULT: "var(--muted)",
-        foreground: "var(--muted-foreground)"
-      },
-      accent: {
-        DEFAULT: "var(--accent)",
-        foreground: "var(--accent-foreground)"
-      },
-      destructive: "var(--destructive)",
-      border: "var(--border)"
-    },
-    borderRadius: { DEFAULT: "var(--radius)" }
-  }
-}
+:root { --background, --foreground, --card, --primary, --muted, --accent, --border, ... }
+[data-theme="dark"] { /* overrides */ }
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 ```
 
 ### Agent colors
 
-Agent cards cycle through a fixed palette derived from all RetroUI themes.
-Colors are assigned by spawn order — orchestrator always gets index 0, each
-new worker gets the next color in the list. The palette is chosen for maximum
-visual contrast and dark-mode legibility.
+Orchestrator: neutral `bg-card` with `var(--primary)` outline.
+Workers cycle through an 8-color palette by spawn order:
 
 ```elixir
-# In Planck.Web.Components — shared between Web UI and referenced by TUI
 @agent_colors [
-  # light bg          dark bg       text (both modes)
-  {"#EA435F",        "#EA435F",     "#ffffff"},  # red
-  {"#AAFC3D",        "#AAFC3D",     "#000000"},  # lime
-  {"#ffdb33",        "#ffdb33",     "#000000"},  # yellow
-  {"#C4A1FF",        "#C4A1FF",     "#000000"},  # lavender
-  {"#F07200",        "#F07200",     "#000000"},  # orange
-  {"#599D77",        "#599D77",     "#ffffff"},  # green
-  {"#5F4FE6",        "#7b6df5",     "#ffffff"},  # purple
-  {"#FE91E9",        "#FE91E9",     "#000000"},  # pink
+  %{bg: "#EA435F", text: "#ffffff"},  # red
+  %{bg: "#AAFC3D", text: "#000000"},  # lime
+  %{bg: "#ffdb33", text: "#000000"},  # yellow
+  %{bg: "#C4A1FF", text: "#000000"},  # lavender
+  %{bg: "#F07200", text: "#ffffff"},  # orange
+  %{bg: "#599D77", text: "#ffffff"},  # green
+  %{bg: "#5F4FE6", text: "#ffffff"},  # purple
+  %{bg: "#FE91E9", text: "#000000"},  # pink
 ]
-
-# Orchestrator always gets a neutral card — white with a purple border.
-# Saturated colors are reserved for workers who are doing the active work.
-@orchestrator_color {"#FFFFFF", "#1a1a1d", "#000000"}  # {light, dark, text}
 ```
 
-The orchestrator card uses white background + `var(--primary)` border (2px,
-offset shadow) to distinguish it as the coordinator without competing
-visually with active worker cards.
+### Streaming indicator
 
-Worker colors cycle through `@agent_colors` by spawn order — first worker
-gets index 0 (red), second gets index 1 (lime), etc. If a session has more
-than 8 workers, the list wraps.
+Worker cards show a solid white pulsing dot (`bg-white animate-pulse`) when
+`:streaming`. White is always visible against the saturated card backgrounds.
 
-Both TUI and Web UI use the same index-to-color mapping so agent colors
-feel consistent across interfaces.
-
-The accent yellow (`#FED13B`) is used for the active streaming indicator
-pulse and hover highlights on interactive elements.
-
-### Component library — `Planck.Web.Components`
-
-All UI elements are Phoenix function components in
-`planck_cli/lib/planck/web/components/`. Each component is self-contained:
-markup + Tailwind classes, no external CSS files.
-
-```elixir
-# Example — agent card
-attr :agent, :map, required: true
-attr :active, :boolean, default: false
-
-def agent_card(assigns) do
-  ~H"""
-  <div
-    class={[
-      "border-2 border-black p-3 cursor-pointer transition-all duration-100",
-      "shadow-[4px_4px_0px_#000] hover:shadow-[6px_6px_0px_#000]",
-      "hover:-translate-x-0.5 hover:-translate-y-0.5",
-      agent_bg(@agent.type)
-    ]}
-    phx-click="open_agent" phx-value-id={@agent.id}
-  >
-    <div class="flex justify-between items-center">
-      <span class="font-bold font-mono"><%= @agent.name %></span>
-      <span class={["w-2 h-2 rounded-full border border-black",
-                    if(@active, do: "bg-purple-500", else: "bg-stone-300")]} />
-    </div>
-    <p class="text-xs font-mono mt-1"><%= @agent.model %></p>
-    <p class="text-xs font-mono"><%= @agent.usage %> tokens</p>
-  </div>
-  """
-end
-```
-
-Components to implement:
-
-| Component | Description |
-|---|---|
-| `agent_card/1` | Agent sidebar card with color, status dot, click handler |
-| `chat_message/1` | Single message with agent label and role badge |
-| `tool_block/1` | Collapsible tool call — header always visible, output toggled |
-| `prompt_input/1` | Textarea with submit on Enter, newline on Shift+Enter, abort button |
-| `status_bar/1` | Bottom bar with session info and sidecar status |
-| `session_item/1` | Session list entry with active indicator |
-| `new_session_modal/1` | Team selector + name input dialog |
-| `agent_overlay/1` | Full-screen overlay with close button and scrollable chat |
-| `sidecar_status/1` | Pill indicator: `● connected`, `○ building…`, etc. |
-
-### Typography scale
-
-| Element | Classes |
-|---|---|
-| Page heading | `text-xl font-bold font-mono` |
-| Agent name | `text-sm font-bold font-mono` |
-| Model / metadata | `text-xs font-mono text-stone-600` |
-| Chat message body | `text-sm leading-relaxed` |
-| Tool output | `text-xs font-mono whitespace-pre-wrap` |
-| Status bar | `text-xs font-mono` |
-
-## Dependencies (added to planck_cli)
+## Dependencies
 
 ```elixir
 {:phoenix, "~> 1.7"},
-{:phoenix_live_view, "~> 1.0"},
+{:phoenix_live_view, "~> 1.1"},
 {:phoenix_html, "~> 4.0"},
-{:bandit, "~> 1.0"}
+{:bandit, "~> 1.0"},
+{:earmark, "~> 1.4"},    # Markdown rendering for completed chat entries
+{:highlight_js, ...},    # Code block syntax highlighting via JS
+{:tidewave, "~> 0.1", only: :dev}  # MCP server for live debugging
 ```
 
-Tailwind CSS is configured via `mix phx.new --tailwind` (already part of the
-standard Phoenix generator). No external component libraries — everything is
-implemented as function components using utility classes.
-
 No Ecto — the Web UI is a rendering surface only. All persistence goes through
-`planck_headless`.
+`planck_headless` and `planck_agent`.

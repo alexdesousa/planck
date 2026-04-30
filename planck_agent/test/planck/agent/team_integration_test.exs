@@ -37,7 +37,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
   defp start_worker(team_id, type, delegator_id, extra_opts \\ [], sender \\ nil) do
     id = unique_id()
 
-    tools = Tools.worker_tools(team_id, delegator_id, sender)
+    tools = Tools.worker_tools(team_id, delegator_id, id, sender)
 
     start_dynamic(
       [
@@ -68,11 +68,12 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
     tools =
       Tools.orchestrator_tools(session_id, team_id, id, [@model]) ++
-        Tools.worker_tools(team_id, nil)
+        Tools.worker_tools(team_id, nil, id)
 
     pid =
       start_dynamic(
         id: id,
+        type: "orchestrator",
         model: @model,
         system_prompt: "You are the orchestrator.",
         tools: tools,
@@ -155,6 +156,68 @@ defmodule Planck.Agent.TeamIntegrationTest do
       [{:tool_result, _id, value}] = tool_msg.content
       assert value =~ "not found"
     end
+
+    test "returns a deadlock error when ask_agent would create a circular wait" do
+      team_id = unique_id()
+      {orch_id, orch_pid} = start_orchestrator(team_id)
+      builder_id = unique_id()
+
+      _builder_pid =
+        start_worker(team_id, "builder", orch_id, [], %{id: builder_id, name: "builder"})
+
+      # The orchestrator asks the builder; before the builder responds it asks
+      # the orchestrator back. The second ask_agent must detect the cycle and
+      # return an error instead of deadlocking.
+      stub(MockAI, :stream, fn _model, %Context{system: system, messages: msgs}, _opts ->
+        has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
+
+        cond do
+          system =~ "orchestrator" and has_tool_result ->
+            [{:text_delta, "Got result."}, {:done, %{}}]
+
+          system =~ "orchestrator" ->
+            [
+              {:tool_call_complete,
+               %{
+                 id: "tc-orch",
+                 name: "ask_agent",
+                 args: %{"type" => "builder", "question" => "ping"}
+               }},
+              {:done, %{}}
+            ]
+
+          # Builder tries to ask the orchestrator back (circular)
+          system =~ "builder" and not has_tool_result ->
+            [
+              {:tool_call_complete,
+               %{
+                 id: "tc-builder",
+                 name: "ask_agent",
+                 args: %{"type" => "orchestrator", "question" => "pong"}
+               }},
+              {:done, %{}}
+            ]
+
+          system =~ "builder" and has_tool_result ->
+            [{:text_delta, "ok"}, {:done, %{}}]
+        end
+      end)
+
+      Agent.subscribe(orch_pid)
+      Agent.prompt(orch_pid, "Ask the builder.")
+
+      # The orchestrator should complete its turn — the circular ask returns
+      # an error to the builder, not a deadlock.
+      assert_receive {:agent_event, :turn_end, _}, 3_000
+
+      # Verify the builder received a deadlock error, not a hung response
+      builder_pid = elem(Registry.lookup(Planck.Agent.Registry, {team_id, "builder"}) |> hd(), 0)
+      messages = Agent.get_state(builder_pid).messages
+      tool_result = Enum.find(messages, &(&1.role == :tool_result))
+      assert tool_result != nil
+      [{:tool_result, _id, value}] = tool_result.content
+      assert value =~ "Deadlock"
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -219,7 +282,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       builder_id = unique_id()
       sender = %{id: builder_id, name: "builder"}
 
-      tools = Tools.worker_tools(team_id, orch_id, sender)
+      tools = Tools.worker_tools(team_id, orch_id, builder_id, sender)
 
       _builder_pid =
         start_dynamic(

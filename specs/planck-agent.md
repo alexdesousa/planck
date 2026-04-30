@@ -277,10 +277,16 @@ used internally for context management.
 
 **`ask_agent`** — blocking. Sends a prompt to an existing agent in the same team and
 waits for its `:turn_end` before returning. The tool runs in a `Task`, not the
-GenServer itself, so blocking is safe. Blocks indefinitely — there is no `timeout_ms`.
-The target process is monitored; if it crashes, the tool returns
-`{:error, "Agent terminated: ..."}`. The subscription is established before
-`Agent.prompt/3` is called to avoid a race with fast completions.
+GenServer itself, so blocking is safe and the caller's GenServer loop stays free.
+Blocks indefinitely — there is no `timeout_ms`; callers should abort the agent
+to break a stuck wait. The target process is monitored; if it crashes, the tool
+returns `{:error, "Agent terminated: ..."}`.
+
+**Deadlock detection** — before blocking, `ask_agent` checks whether the target
+is (transitively) waiting for the caller by walking the `{:waiting, agent_id}`
+entries in `Planck.Agent.Registry`. If a cycle is found it returns
+`{:error, "Deadlock detected: ..."}` immediately instead of blocking. The waiting
+entry is automatically removed from the registry when the task exits.
 
 **`delegate_task`** — non-blocking. Sends a task and returns immediately. The delegatee
 calls `send_response` when done.
@@ -292,24 +298,26 @@ delegator's `agent_response` message is tagged with `:sender_id` and `:sender_na
 in its metadata.
 
 **`list_team`** — returns all agents in the team with type, name, description, status,
-and turn index.
+and turn index. Pass `verbose: true` to also include tool names and model for each
+member — useful when reasoning about which worker to delegate a task to.
 
 ### Available to orchestrators only
 
 **`spawn_agent`** — creates a new worker under the same `team_id` and `session_id`.
-Returns the new agent's id.
-
-Accepts an optional `"tools"` JSON array. The orchestrator grants a subset of its
-own `grantable_tools` list to the spawned worker by name. Names not in
-`grantable_tools` are silently ignored (no privilege escalation). Workers always
-receive the standard `worker_tools` in addition to any granted tools.
+Returns the new agent's id. Accepts optional `"tools"` and `"skills"` JSON arrays;
+the orchestrator grants a subset of its `grantable_tools` / `grantable_skills` to
+the spawned worker by name (no privilege escalation). Workers always receive the
+standard `worker_tools` in addition to granted tools. The spawned worker emits a
+`:worker_spawned` PubSub event on the session topic on startup.
 
 **`destroy_agent`** — terminates a worker permanently.
 
 **`interrupt_agent`** — aborts a worker's current turn; worker stays alive.
 
-**`list_models`** — returns the `available_models` list passed at orchestrator start
-time. No network call.
+**`list_models`** — returns the configured and connected models available for
+spawning agents. Each entry includes `provider`, `id`, `name`, `context_window`,
+and `base_url`. Pass the returned `base_url` to `spawn_agent` to ensure the model
+is resolved correctly regardless of provider configuration.
 
 ## Built-in file and shell tools
 

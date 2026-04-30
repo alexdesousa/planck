@@ -103,6 +103,10 @@ defmodule Planck.Web.SessionLive do
     {:noreply, socket}
   end
 
+  def handle_info({:agent_event, :worker_spawned, _}, socket) do
+    {:noreply, do_refresh_agents(socket)}
+  end
+
   def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
 
   # ---------------------------------------------------------------------------
@@ -223,6 +227,29 @@ defmodule Planck.Web.SessionLive do
   # ---------------------------------------------------------------------------
   # Private events
   # ---------------------------------------------------------------------------
+
+  @spec do_refresh_agents(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_refresh_agents(socket) do
+    session_id = socket.assigns.active_session
+
+    if session_id do
+      {agents, agent_order, orchestrator_id} = load_agents(session_id)
+
+      send_update(AgentsSidebar,
+        id: "agents-sidebar",
+        action: :refresh_agents,
+        agents: agents,
+        agent_order: agent_order
+      )
+
+      socket
+      |> assign(:agents, agents)
+      |> assign(:agent_order, agent_order)
+      |> assign(:orchestrator_id, orchestrator_id)
+    else
+      socket
+    end
+  end
 
   @spec do_turn_start(String.t(), tuple(), Phoenix.LiveView.Socket.t()) ::
           Phoenix.LiveView.Socket.t()
@@ -422,6 +449,10 @@ defmodule Planck.Web.SessionLive do
 
   @spec load_session(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   defp load_session(socket, session_id) do
+    if prev = socket.assigns[:active_session] do
+      Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "session:#{prev}")
+    end
+
     Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
 
     {agents, agent_order, orchestrator_id} = load_agents(session_id)
@@ -526,7 +557,10 @@ defmodule Planck.Web.SessionLive do
       maybe_route_delegation_to_overlay(socket, event)
     end
 
-    if socket.assigns.overlay == agent_id do
+    # Only route to the overlay for workers — the orchestrator's view is already
+    # covered by chat-main (full session), so routing to both would show the
+    # same streaming text twice.
+    if socket.assigns.overlay == agent_id and agent_id != socket.assigns.orchestrator_id do
       send_update(ChatComponent, id: "chat-overlay", action: :event, event: event)
     end
 

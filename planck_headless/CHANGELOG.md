@@ -2,6 +2,23 @@
 
 ## v0.1.0
 
+### Inter-agent tools — orchestrator improvements
+
+- `orchestrator_tools/6` — added `grantable_skills` parameter; orchestrators
+  can now grant skills to dynamically spawned workers via `spawn_agent`.
+- `start_orchestrator` passes `store.skills` as `grantable_skills` so all
+  available skills are grantable by default.
+- `start_workers` and `start_dynamic_worker` pass the worker's own id as
+  `own_id` to `worker_tools/4` for deadlock detection in `ask_agent`.
+- `list_models` tool now includes `base_url` in its output so the LLM can
+  pass the correct base_url when calling `spawn_agent` for non-default servers.
+
+### Session — agent usage persistence
+
+- `start_orchestrator` and `start_workers` read `agent_usage:#{id}` from
+  session metadata and pass `:usage` and `:cost` init options to each agent so
+  token counts and cost are restored on session resume.
+
 ### Skills — `list_skills` opt-in tool
 
 - `list_skills` tool added to the agent tool pool when skills are available.

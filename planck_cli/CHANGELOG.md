@@ -1,0 +1,64 @@
+# Changelog
+
+## v0.1.0
+
+First release of the Planck Web UI.
+
+### Architecture — LiveComponent decomposition
+
+- `SessionLive` is a thin event router; all stateful UI lives in LiveComponents
+- `SessionsSidebar` — owns sessions list, delete confirmation modal, new session
+  modal; forwards Headless calls to `SessionLive` via `send(self(), ...)`
+- `ChatComponent` — owns streaming entries, agent author info, entry toggling
+- `AgentsSidebar` — owns per-agent usage/cost/context/status in real-time via
+  `usage_delta` events; handles `:worker_spawned` for dynamic agent appearance
+- `PromptInput` — owns textarea text, stop/stop-all controls
+- `StatusBar` — owns total usage/cost and sidecar status; updates via deltas
+- `EditMessageModal` — owns edit textarea, calls `Headless.rewind_to_message/3`
+
+### Chat
+
+- `ChatEntries` module classifies session rows into typed entry structs:
+  `:user`, `:text`, `:thinking`, `:tool`, `:inter_agent_in`, `:error`,
+  `:summary`, `:agent_response`
+- Streaming text rendered as plain escaped text; Earmark parses only when
+  streaming ends (avoids markdown flicker on incomplete syntax)
+- Thinking blocks fixed: stable id `"think-#{agent_id}"` so all deltas update
+  a single block instead of creating new ones
+- Smart scroll: auto-scroll only when near the bottom; `initialLoad` flag forces
+  scroll on initial content load
+- Tool call blocks collapsible; expanding no longer hijacks scroll position
+- Edit button always visible on user messages (NeoBrutalism — no hover-hide)
+- Agent context overlay only opens for workers; orchestrator events already
+  in chat-main (fixes text appearing doubled when overlay was open)
+- PubSub subscription cleaned up on session switch (fixes doubled text after
+  switching back to a previous session)
+
+### Agent cards
+
+- Real-time updates via `usage_delta` events — no polling
+- Shows: `↓input ↑output` tokens, `$cost`, `ctx X%` (estimated context usage)
+- `ctx X%` uses `Message.estimate_tokens/1` (chars/4) against model context window
+- Streaming indicator changed to solid white dot (always visible on colored cards)
+- `list_skills` added to tool list display in verbose `list_team`
+
+### Sessions sidebar
+
+- Delete confirmation modal before removing a session
+- NeoBrutalism `×` delete button (red, always visible)
+- New session team selector uses radio button list (not OS `<select>`)
+- Session items styled with `border-2 border-black` and hover shadow
+
+### Status bar + dark mode
+
+- Manual dark mode toggle (☾/☀) with `localStorage` persistence;
+  system preference used as fallback
+- `data-theme` attribute on `<html>`; Tailwind v4 custom variant `dark:`
+- Sidecar status hidden on desktop (already in agents sidebar footer)
+
+### Infrastructure
+
+- `.mcp.json` added (gitignored) for Tidewave MCP server in dev
+- `planck_cli/README.md` documents `--sname` requirement for sidecar support
+- `check` script at monorepo root: runs format + compile + credo + test +
+  dialyzer across all `planck_*` packages; supports `./check [package...]`

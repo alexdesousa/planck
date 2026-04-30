@@ -15,6 +15,37 @@
 - `AgentSpec.resolve_tools/2` updated: automatically appends `load_skill_tool`
   when `skill_pool:` is non-empty, regardless of `spec.skills`.
 
+### Inter-agent tools — deadlock detection + improvements
+
+- `ask_agent/2` — now accepts `own_id` for deadlock detection; before blocking,
+  registers `{:waiting, own_id} → target_id` in `Planck.Agent.Registry` (auto-
+  cleared on task exit) and checks for a circular wait chain; returns a clear
+  error instead of deadlocking if a cycle is detected.
+- `worker_tools/4` — added `own_id` parameter (passed to `ask_agent` for cycle
+  detection); callers must now supply the agent's own id.
+- `orchestrator_tools/6` — added `grantable_skills` parameter so skills can be
+  granted to dynamically spawned workers via `spawn_agent`.
+- `spawn_agent` — spawned workers now receive a `sender` identity so the
+  orchestrator knows which worker replied via `send_response`.
+- `list_team/1` — added `verbose: boolean` parameter; verbose mode includes tool
+  names and model for each team member.
+- `list_models/1` — output now includes `base_url` for each model so the LLM
+  can pass the correct base_url when calling `spawn_agent`.
+- Agent `init` broadcasts `:worker_spawned` on the session PubSub topic when
+  a worker with a `delegator_id` starts, enabling UIs to refresh the agent list.
+- Non-blocking tool execution: `handle_continue({:execute_tools})` now spawns
+  each tool as a supervised fire-and-forget task; results collected via
+  `handle_info({:tool_done})`; the GenServer loop stays free for abort/prompt
+  during tool execution.
+- `abort/1` changed from cast to call; blocks until the agent is idle, closing
+  the race condition between abort and subsequent prompt/rewind calls.
+- `cost: float()` added to agent state; accumulated from model rates on each
+  `:done` event; persisted to session metadata; broadcast in `:usage_delta`.
+- `Message.estimate_tokens/1` — public character-based token estimator.
+- `Agent.estimate_tokens/1` — public API that computes current context size.
+- `running_tools` / `tool_results_acc` added to agent state for non-blocking
+  tool tracking.
+
 ### Prior entries
 
 First release.

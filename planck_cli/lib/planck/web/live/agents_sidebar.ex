@@ -48,6 +48,13 @@ defmodule Planck.Web.Live.AgentsSidebar do
     {:ok, handle_agent_event(socket, event)}
   end
 
+  def update(%{action: :refresh_agents} = assigns, socket) do
+    {:ok,
+     socket
+     |> assign(:agents, assigns.agents)
+     |> assign(:agent_order, assigns.agent_order)}
+  end
+
   def update(assigns, socket) do
     {:ok,
      socket
