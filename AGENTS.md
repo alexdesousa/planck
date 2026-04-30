@@ -12,7 +12,7 @@ Monorepo of four independent Mix projects (no umbrella):
 | `planck_ai/` | LLM provider abstraction — streaming, tool calling, model catalog |
 | `planck_agent/` | OTP agent runtime — GenServer per agent, teams, sessions, compactors, sidecar |
 | `planck_headless/` | Headless core — config, resources, session lifecycle, SidecarManager |
-| `planck_cli/` | CLI binary (TUI + Web UI, Burrito-packaged) |
+| `planck_cli/` | CLI binary (Web UI + HTTP API, Burrito-packaged) |
 
 Dependency order: `planck_ai` ← `planck_agent` ← `planck_headless` ← `planck_cli`.
 UI code never calls `planck_agent` directly — always through `planck_headless`.

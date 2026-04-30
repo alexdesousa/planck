@@ -10,8 +10,8 @@ AI-powered applications. It is a full Elixir reimagining of the
 [pi-mono](https://github.com/badlogic/pi-mono) coding agent ecosystem.
 
 Agents are BEAM processes. Subagents are spawned processes. Inter-agent communication
-is message passing. The TUI and Web UI are published to Hex as libraries any Elixir
-developer can use independently. The coding agent ships as a self-contained binary
+is message passing. `planck_ai`, `planck_agent`, and `planck_headless` are published
+to Hex as reusable libraries. The coding agent ships as a self-contained binary
 called `planck`.
 
 ---
@@ -23,11 +23,11 @@ called `planck`.
 | [`planck_ai`](./planck_ai) | LLM provider abstraction over `req_llm` | Hex |
 | [`planck_agent`](./planck_agent) | OTP-based agent runtime | Hex |
 | [`planck_headless`](./planck_headless) | Headless core — config, resources, session lifecycle | Hex |
-| [`planck_cli`](./planck_cli) | Coding agent CLI — TUI + Web UI + Burrito binary | Burrito binary |
+| [`planck_cli`](./planck_cli) | Coding agent CLI — Web UI + HTTP API + Burrito binary | Burrito binary |
 
 `planck_ai`, `planck_agent`, and `planck_headless` are standalone Hex libraries.
-The TUI and Web UI live inside `planck_cli` rather than as separate packages — they
-are rendering surfaces, not reusable components.
+The Web UI and HTTP API live inside `planck_cli` — rendering surface and external
+integration layer on top of `planck_headless`.
 
 A [`playground/`](./playground) directory provides a ready-to-run sandbox
 against a local llamacpp or Ollama server — useful for testing sessions end-to-end.
@@ -39,7 +39,7 @@ processes supervised under a `DynamicSupervisor`. No special subagent abstractio
 needed — it is just the BEAM.
 
 **OTP all the way down.** Supervision trees, fault tolerance, and process linking are
-not add-ons — they are the architecture. An agent crash does not take down the TUI.
+not add-ons — they are the architecture. An agent crash does not take down the UI.
 
 **Libraries on Hex, binary on GitHub.** `planck_ai`, `planck_agent`, and
 `planck_headless` are usable by any Elixir developer building AI-powered applications.
@@ -53,7 +53,8 @@ file loaded via `Code.compile_file/2` at startup — no build step required.
 
 Active development. All four packages are built and tested. The Web UI in
 `planck_cli` is functional — sessions, streaming, multi-agent teams, skills,
-sidecar integration. TUI and Burrito binary distribution are next.
+sidecar integration, i18n (English + Spanish). HTTP API and Burrito binary
+distribution are next.
 
 See [`specs/`](./specs) for design decisions.
 
