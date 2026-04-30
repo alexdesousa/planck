@@ -377,14 +377,14 @@ defmodule Planck.Headless.SessionLifecycleTest do
       Headless.close_session(session_id)
       {:ok, ^session_id} = Headless.resume_session(session_id)
 
-      # Recovery is injected under the NEW orchestrator's id so it sees it first.
+      # Agent IDs are preserved across resumes.
       {:ok, new_meta} = Session.get_metadata(session_id)
       new_orch_id = orchestrator_id_for(new_meta["team_id"])
-      assert new_orch_id != old_orch_id
+      assert new_orch_id == old_orch_id
 
+      # Recovery is appended as the last message under the (stable) orchestrator id.
       {:ok, rows} = Session.messages(session_id, agent_id: new_orch_id)
-      assert length(rows) == 1
-      recovery = hd(rows).message
+      recovery = List.last(rows).message
       assert recovery.role == :user
       assert hd(recovery.content) |> elem(1) =~ "ask_agent"
       assert hd(recovery.content) |> elem(1) =~ "What is 2+2?"
@@ -464,10 +464,10 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       {:ok, new_meta} = Session.get_metadata(session_id)
       new_orch_id = orchestrator_id_for(new_meta["team_id"])
+      assert new_orch_id == old_orch_id
 
       {:ok, rows} = Session.messages(session_id, agent_id: new_orch_id)
-      assert length(rows) == 1
-      text = rows |> hd() |> Map.get(:message) |> Map.get(:content) |> hd() |> elem(1)
+      text = List.last(rows).message.content |> hd() |> elem(1)
 
       # Target and task text are both present in the recovery message.
       assert text =~ "builder"
@@ -482,8 +482,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       ask_msg =
         Planck.Agent.Message.new(:assistant, [
-          {:tool_call, "c-1", "ask_agent",
-           %{"type" => "builder", "question" => "Are you done?"}}
+          {:tool_call, "c-1", "ask_agent", %{"type" => "builder", "question" => "Are you done?"}}
         ])
 
       Session.append(session_id, old_orch_id, ask_msg)
@@ -494,8 +493,11 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       {:ok, new_meta} = Session.get_metadata(session_id)
       new_orch_id = orchestrator_id_for(new_meta["team_id"])
+      assert new_orch_id == old_orch_id
+
       {:ok, rows_after_first} = Session.messages(session_id, agent_id: new_orch_id)
-      assert length(rows_after_first) == 1
+      count_after_first = length(rows_after_first)
+      assert List.last(rows_after_first).message.role == :user
 
       # Second resume — must NOT inject another recovery message.
       Headless.close_session(session_id)
@@ -504,7 +506,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, new_meta2} = Session.get_metadata(session_id)
       new_orch_id2 = orchestrator_id_for(new_meta2["team_id"])
       {:ok, rows_after_second} = Session.messages(session_id, agent_id: new_orch_id2)
-      assert length(rows_after_second) == 1
+      assert length(rows_after_second) == count_after_first
     end
 
     test "returns error for non-existent session" do

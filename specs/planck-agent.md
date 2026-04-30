@@ -90,9 +90,14 @@ Extends `Planck.AI.Tool` with an execution function. Converted to `Planck.AI.Too
 ### `Planck.Agent.Message`
 
 Agent-side message with metadata. Messages with a `{:custom, atom()}` role are
-filtered out before the context is sent to the LLM, **except** `{:custom, :summary}`
-which is converted to a `:user` message — summary checkpoints must be visible to the
-model.
+filtered out before the context is sent to the LLM, with two exceptions:
+
+- `{:custom, :summary}` is converted to a `:user` message — summary checkpoints
+  must be visible to the model.
+- `{:custom, :agent_response}` is converted to a `:user` message — worker responses
+  must be visible so the orchestrator can react to them. When `metadata` contains
+  `:sender_name`, the text is prefixed with `"Response from <name>: "` so the LLM
+  knows which worker replied.
 
 ```elixir
 %Planck.Agent.Message{
@@ -174,7 +179,10 @@ used by `rewind/2`.
 # Start an agent (standalone or under DynamicSupervisor).
 @spec start_link(keyword()) :: GenServer.on_start()
 
-# Send a user message and kick off the agent loop (async).
+# Send a user message and kick off the agent loop.
+# Synchronous — returns :ok once the agent has set status to :streaming.
+# If the agent is already busy (streaming or executing tools), the message is
+# appended to history and processed automatically after the current turn ends.
 @spec prompt(agent(), String.t() | [content_part()], keyword()) :: :ok
 
 # Cancel in-flight streaming and tool execution. Agent returns to :idle.
@@ -226,35 +234,38 @@ used by `rewind/2`.
 ## Agent loop — state machine
 
 ```
-                   prompt/3
-   idle ───────────────────────────► streaming
-    ▲                                    │
-    │                             stream events
-    │                                    │ accumulate text / tool calls
-    │                                    ▼
-    │                             stream done
-    │                            /            \
-    │                   no tool calls        tool calls pending
-    │                        │                      │
-    │◄───────────────────────┘                      ▼
-    │                                       executing_tools
-    │                                              │
-    │                                   Task.async_stream
-    │                                   (parallel execution)
-    │                                              │
-    │                                   all tools complete
-    │                                              │
-    │                                   append tool_result message
-    │                                              ▼
-    │                                          streaming  ──► (loop)
+                   prompt/3 (when idle)
+   idle ───────────────────────────────────► streaming
+    ▲                                            │
+    │                                     stream events
+    │                                            │ accumulate text / tool calls
+    │                                            ▼
+    │                                     stream done
+    │                                    /            \
+    │                           no tool calls        tool calls pending
+    │                                │                      │
+    │◄───────────────────────────────┘                      ▼
+    │       (unless pending input*)             executing_tools
+    │                                                  │
+    │                                       Task.async_stream
+    │                                       (parallel execution)
+    │                                                  │
+    │                                       all tools complete
+    │                                                  │
+    │                                       append tool_result message
+    │                                                  ▼
+    │                                              streaming  ──► (loop)
     │
     │   abort/1 (any status)
-    │◄──────────────────────────────────────────────
+    │◄──────────────────────────────────────────────────
+    │       (unless pending input*)
     │
-    │   send_response received (inter-agent)
-    └◄──────────────────────────────────────────────
-        inject {:custom, :agent_response} message
-        re-trigger via {:continue, :run_llm}
+    │   send_response / ask_agent / delegate_task arrives while busy
+    │       message appended to history; re-triggers after current turn *
+    │
+    └◄── (*) maybe_turn_start/1 fires when pending input detected:
+             any :user or {:custom, :agent_response} message that arrived
+             after the turn-starting message (identified via turn_checkpoints)
 ```
 
 ## Built-in tools
@@ -263,13 +274,19 @@ used by `rewind/2`.
 
 **`ask_agent`** — blocking. Sends a prompt to an existing agent in the same team and
 waits for its `:turn_end` before returning. The tool runs in a `Task`, not the
-GenServer itself, so blocking is safe. Accepts optional `timeout_ms` (default 300 000).
+GenServer itself, so blocking is safe. Blocks indefinitely — there is no `timeout_ms`.
+The target process is monitored; if it crashes, the tool returns
+`{:error, "Agent terminated: ..."}`. The subscription is established before
+`Agent.prompt/3` is called to avoid a race with fast completions.
 
 **`delegate_task`** — non-blocking. Sends a task and returns immediately. The delegatee
 calls `send_response` when done.
 
 **`send_response`** — non-blocking. Routes a result back to `delegator_id`. Re-triggers
 the delegator if idle; injects a `{:custom, :agent_response}` message if active.
+Carries sender attribution (`%{id, name}` captured at worker start time) so the
+delegator's `agent_response` message is tagged with `:sender_id` and `:sender_name`
+in its metadata.
 
 **`list_team`** — returns all agents in the team with type, name, description, status,
 and turn index.
@@ -410,6 +427,8 @@ All events are `{:agent_event, type, payload}` broadcast via Phoenix.PubSub.
 | `:rewind` | `message_count` | History rewound |
 | `:worker_exit` | `pid`, `reason` | Worker process exited (orchestrator only) |
 | `:error` | `reason` | Stream or tool error; agent returns to `:idle` |
+| `:compacting` | — | Context compaction started (before LLM summary call) |
+| `:compacted` | — | Context compaction finished; summary checkpoint written |
 
 ## Supervision tree
 

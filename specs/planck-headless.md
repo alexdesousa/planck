@@ -187,6 +187,8 @@ per-session filesystem scanning.
    - `team_alias` — the alias string, path, or `nil` for dynamic-only sessions.
    - `session_name` — the resolved name (mirrors the filename component).
    - `cwd` — from `opts[:cwd]` (default `File.cwd!()`).
+   - `agent_ids` — JSON map of `display_name → agent_id` for all team members,
+     used to preserve agent IDs across subsequent resumes.
 5. For each member in the team, call `AgentSpec.to_start_opts/2` with:
    - `tool_pool:` from `ResourceStore.tools`
    - `skill_pool:` from `ResourceStore.skills`
@@ -248,14 +250,16 @@ Both return `{:error, :not_found}` if no matching file exists.
    - `team_alias` is an absolute path → `Team.load/1` on the fly.
    - `team_alias` is `nil` → the session was dynamic-only; start with a lone
      orchestrator built from config (same as `start_session(template: nil)`).
-3. **Reconstruct dynamic workers** — scan the *previous* orchestrator's message
-   history (identified by the agent whose messages contain orchestrator-specific
-   tool calls) for `spawn_agent` calls that *completed* (have a matching
-   `tool_result` in the history). Each such call contains the full `AgentSpec`
-   as JSON arguments. Workers are deduplicated against the base team by
-   `{type, name}` pair — not type alone, since a team may have multiple workers
-   of the same type with different names (e.g. two builders "Bob" and "Charlie").
-   New `agent_id`s are generated; the delegator is the new orchestrator's id.
+3. **Restore agent IDs** — session metadata stores a `agent_ids` map
+   (`%{display_name => agent_id}`) written when the session was first created or
+   last resumed. `materialize_team` and `start_workers` use this map to restart
+   each agent with its original ID. This keeps the session rows, UI, and
+   recovery logic consistent across resumes without any ID-reconciliation code.
+4. **Reconstruct dynamic workers** — scan the orchestrator's message history
+   (now stable-ID, so no disambiguation needed) for `spawn_agent` calls that
+   *completed* (have a matching `tool_result`). Each such call contains the full
+   `AgentSpec` as JSON arguments. Workers are deduplicated against the base team
+   by `{type, name}` pair. The original IDs are reused via the `agent_ids` map.
 
 This gives a complete picture of the team as it existed at the time of
 interruption, without re-reading TEAM.json for workers that were spawned on the
@@ -263,16 +267,19 @@ fly.
 
 ### In-flight detection
 
-An in-flight delegation is a `delegate_task` tool call in the orchestrator's
-message history that has no corresponding `agent_response` before the next user
-turn (or before the history ends). Concretely:
+A worker is considered unfinished when their most recent `:user` message (the
+task that was last assigned to them) has no `send_response` tool call in any
+`:assistant` message that follows it in the worker's history. The full session
+history is scanned — not just in-memory context — so compacted history is still
+checked correctly.
 
-- After `delegate_task(type: "builder", task: "...")`, the orchestrator's
-  history should contain an `agent_response` injected via `handle_info`.
-- If no such response appears before the turn boundary, the delegation was
-  in-flight at interruption time.
-
-`resume_session/1` collects the list of such dangling delegations.
+`resume_session/1` builds the in-flight list by:
+1. Identifying all non-orchestrator agents in the session rows.
+2. For each, calling `worker_unfinished?/1`: find the last `:user` message;
+   if any subsequent `:assistant` message calls `send_response`, the worker is
+   done; otherwise it is unfinished.
+3. Cross-referencing the orchestrator's `delegate_task` calls (matched by task
+   text) to surface the target name and task in the recovery message.
 
 ### Recovery context injection
 

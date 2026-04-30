@@ -8,16 +8,18 @@ defmodule Planck.Agent.SidecarTest do
   defmodule TestSidecar do
     use Planck.Agent.Sidecar
 
+    alias Planck.Agent.Tool
+
     @impl true
     def tools do
       [
-        Planck.Agent.Tool.new(
+        Tool.new(
           name: "echo",
           description: "Echo the input.",
           parameters: %{"type" => "object", "properties" => %{}},
           execute_fn: fn _id, args -> {:ok, inspect(args)} end
         ),
-        Planck.Agent.Tool.new(
+        Tool.new(
           name: "fail",
           description: "Always fails.",
           parameters: %{"type" => "object", "properties" => %{}},

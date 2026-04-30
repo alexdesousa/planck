@@ -42,22 +42,37 @@ defmodule Planck.Agent.Message do
   """
   @spec to_ai_messages([t()]) :: [Planck.AI.Message.t()]
   def to_ai_messages(messages) do
-    Enum.flat_map(messages, fn %__MODULE__{role: role, content: content} ->
-      cond do
-        match?({:custom, :summary}, role) ->
-          [%Planck.AI.Message{role: :user, content: content}]
+    Enum.flat_map(messages, fn
+      %__MODULE__{role: {:custom, :summary}, content: content} ->
+        [%Planck.AI.Message{role: :user, content: content}]
 
-        match?({:custom, _}, role) ->
-          []
+      %__MODULE__{role: {:custom, :agent_response}, content: content, metadata: metadata} ->
+        [%Planck.AI.Message{role: :user, content: agent_response(content, metadata)}]
 
-        true ->
-          [%Planck.AI.Message{role: role, content: content}]
-      end
+      %__MODULE__{role: {:custom, _}} ->
+        []
+
+      %__MODULE__{role: role, content: content} ->
+        [%Planck.AI.Message{role: role, content: content}]
     end)
   end
 
   @spec generate_id() :: String.t()
   defp generate_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+  end
+
+  @spec agent_response([Planck.AI.Message.content_part()], map()) :: [Planck.AI.Message.t()]
+  defp agent_response(content, metadata)
+
+  defp agent_response(content, %{sender_name: name}) when not is_nil(name) do
+    Enum.map(content, fn
+      {:text, text} -> {:text, "Response from #{name}: #{text}"}
+      part -> part
+    end)
+  end
+
+  defp agent_response(content, _metadata) do
+    content
   end
 end
