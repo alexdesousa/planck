@@ -251,10 +251,10 @@ as `Skill.load_all/1`.
 and skills. In-flight sessions keep the team they were started with — same
 contract as other resources.
 
-## Slash commands (TUI / Web UI)
+## Web UI commands
 
-The UI exposes two commands for team selection. Rendering surfaces implement
-these; `planck_headless` just provides the data and the session-start hook.
+The Web UI exposes two commands for team selection via the new session modal.
+`planck_headless` provides the data and the session-start hook.
 
 ### `/team [alias]`
 
@@ -323,9 +323,8 @@ now accepts an alias in addition to a path.
 - `planck_headless` owns the registry (boot-time scan, alias lookup, reload).
   Collections of teams are a `planck_headless` concern, same pattern as tools
   and skills.
-- `planck_cli` owns the slash commands and the team-selection UI (both TUI
-  and Web UI live there). They call `Planck.Headless.list_teams/0` and
-  `Planck.Headless.start_session(template: alias)`.
+- `planck_cli` owns the team-selection UI (Web UI new session modal). It calls
+  `Planck.Headless.list_teams/0` and `Planck.Headless.start_session(template: alias)`.
 
 ## Testing strategy
 

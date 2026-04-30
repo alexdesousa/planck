@@ -7,11 +7,11 @@
 | `planck_ai` | Hex.pm | Standalone LLM library, no agent dep |
 | `planck_agent` | Hex.pm | Depends on `planck_ai` |
 | `planck_headless` | Hex.pm | Depends on `planck_agent` |
-| `planck_cli` | Burrito binary + GitHub Releases | Depends on all of the above; contains TUI + Web UI |
+| `planck_cli` | Burrito binary + GitHub Releases | Depends on all of the above; contains Web UI + HTTP API |
 
-The TUI and Web UI are not separate Hex packages. They live inside `planck_cli` as
-internal modules. Anyone wanting to build their own UI depends on `planck_headless`
-directly and writes their own rendering surface.
+The Web UI and HTTP API are not separate Hex packages. They live inside `planck_cli`
+as internal modules. Anyone wanting to build their own interface depends on
+`planck_headless` directly.
 
 ## planck_cli — Burrito binary
 
@@ -39,28 +39,24 @@ end
 
 ## planck_cli — execution modes
 
-The binary detects its mode at startup — no separate binaries per mode.
-
 ```sh
-planck                        # TUI mode (TTY detected)
-planck "fix the auth bug"     # print mode (argument provided, no TUI)
-planck --web                  # Web UI mode (starts Phoenix server)
+planck web                    # Start the Phoenix server (Web UI + HTTP API)
+planck sidecar                # Headless mode — sidecar drives all interaction
+planck "fix the auth bug"     # Print mode — single prompt, output to stdout
 ```
-
-TTY detection at startup:
 
 ```elixir
 cond do
-  "--web" in argv                     -> Planck.WebMode.start(argv)
-  "sidecar" in argv                   -> Planck.SidecarMode.start(argv)
-  :io.columns() == {:error, :enotsup} -> Planck.PrintMode.start(argv)
-  true                                -> Planck.TUIMode.start(argv)
+  "web"     in argv -> Planck.WebMode.start(argv)
+  "sidecar" in argv -> Planck.SidecarMode.start(argv)
+  argv != []        -> Planck.PrintMode.start(argv)
+  true              -> Planck.WebMode.start(argv)   # default
 end
 ```
 
 **`planck sidecar`** starts planck_headless (which starts the sidecar from
-config) and blocks indefinitely. No TUI or Web UI — all interaction is driven
-by the sidecar. Useful for CI pipelines or external integrations (e.g. N8N).
+config) and blocks indefinitely. No Web UI — all interaction is driven by the
+sidecar. Useful for CI pipelines or external integrations.
 See `specs/sidecar.md`.
 
 ## Hex library releases

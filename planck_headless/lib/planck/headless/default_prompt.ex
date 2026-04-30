@@ -37,6 +37,11 @@ defmodule Planck.Headless.DefaultPrompt do
     - **Sidecars** (custom tools and compactors via a separate OTP application,
       external service integrations, PubSub event subscriptions, scaffold):
       https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/sidecar.md
+
+    - **HTTP API** (manage sessions and stream events from external agents,
+      scripts, or CI pipelines via REST + SSE; building a Planck skill for
+      the API):
+      https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/api.md
     """
     |> String.trim()
   end

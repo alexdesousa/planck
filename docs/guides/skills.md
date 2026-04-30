@@ -37,9 +37,9 @@ Reference the rubric at resources/rubric.md for scoring criteria.
 The frontmatter `name` and `description` fields are required. Everything after
 the `---` separator is the skill body injected into the system prompt.
 
-## Assigning skills to agents
+## Assigning skills in TEAM.json
 
-In `TEAM.json`, add a `"skills"` array to any agent spec:
+Add a `"skills"` array to any agent spec to inject skill content at session start:
 
 ```json
 {
@@ -56,9 +56,58 @@ Skill names are resolved from the configured `skills_dirs`
 - `~/.planck/skills/` — available across all projects
 - `.planck/skills/` — project-local; overrides global on name collision
 
+## Runtime skill tools
+
+Two tools are available for working with skills during a session.
+
+### `load_skill` — on-demand loading
+
+`load_skill` is **automatically injected** into every agent when skills are
+available. No TEAM.json declaration needed. Agents call it to pull a skill's
+content into their context during a session — useful for large skills that
+are only needed for specific tasks, or to inspect a skill's contents.
+
+```
+load_skill("code_review")
+→ returns the full skill body as a string
+```
+
+### `list_skills` — discovery
+
+`list_skills` is **opt-in**. Add `"list_skills"` to an agent's `tools` array
+to enable it:
+
+```json
+{ "type": "builder", "tools": ["read", "write", "edit", "bash", "list_skills"] }
+```
+
+Returns all available skill names and their one-line descriptions. Useful for
+agents that need to autonomously discover and load relevant skills.
+
+## Granting skills to dynamically spawned workers
+
+When the orchestrator calls `spawn_agent`, it can attach skills to the new
+worker via the `"skills"` parameter. The skill content is appended to the
+worker's system prompt at spawn time — no TEAM.json entry needed:
+
+```json
+{
+  "type":          "reviewer",
+  "name":          "Reviewer",
+  "skills":        ["code_review"],
+  "system_prompt": "Review the changes made by the builder.",
+  ...
+}
+```
+
+Only skills the orchestrator itself has access to can be granted.
+
 ## Example use cases
 
 - **Coding conventions** — inject style rules for a language or framework
 - **Domain knowledge** — describe the business domain, data models, or API contracts
 - **Review rubrics** — structured criteria for a reviewer agent
 - **Output templates** — instruct an agent to follow a specific output format
+
+For team configuration, see:
+https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/teams.md
