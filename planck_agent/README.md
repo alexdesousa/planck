@@ -13,11 +13,9 @@ broadcasting at every step.
 {:planck_agent, "~> 0.1"}
 ```
 
-Set the sessions directory (optional, defaults to `.planck/sessions`):
-
-```bash
-export PLANCK_AGENT_SESSIONS_DIR=/var/data/planck/sessions
-```
+`planck_agent` is a pure library — it has no runtime config module. Callers
+pass paths (sessions dir, skills/tools dirs) explicitly. `planck_headless`
+owns config resolution for the full Planck stack.
 
 ## Quick start
 
@@ -440,17 +438,13 @@ Load skills and inject them into an agent's system prompt:
 ```elixir
 alias Planck.Agent.Skill
 
-dirs   = Planck.Agent.Config.skills_dirs!()
-skills = Skill.load_all(dirs)
+skills = Skill.load_all(["~/.planck/skills"])
 
-system_prompt =
-  [base_prompt, Skill.system_prompt_section(skills)]
-  |> Enum.reject(&is_nil/1)
-  |> Enum.join("\n\n")
+# Per-agent skill scoping is driven by spec.skills and skill_pool: in
+# AgentSpec.to_start_opts/2 — see the Teams section.
 ```
 
-`system_prompt_section/1` returns `nil` when there are no skills, so it composes
-cleanly. Each skill entry includes the path to its `SKILL.md` file and its
+Each skill entry includes the path to its `SKILL.md` file and its
 `resources` directory.
 
 ## Dynamic tool management
@@ -477,20 +471,12 @@ Subscribers receive `{:agent_event, :rewind, %{message_count: n}}`.
 
 ## Configuration
 
-| Env var | Config key | Default | Description |
-|---|---|---|---|
-| `PLANCK_AGENT_SESSIONS_DIR` | `:sessions_dir` | `.planck/sessions` | Directory for SQLite session files |
-| `PLANCK_AGENT_SKILLS_DIRS` | `:skills_dirs` | `.planck/skills:~/.planck/skills` | Colon-separated list of skill directories |
-| `PLANCK_AGENT_TOOLS_DIRS` | `:tools_dirs` | `.planck/tools:~/.planck/tools` | Colon-separated list of external tool directories |
-| `PLANCK_AGENT_COMPACTOR` | `:compactor` | `nil` | Path to a `.exs` file returning a custom `on_compact` function/1 |
-
-```elixir
-# config/runtime.exs
-config :planck_agent, :sessions_dir, "/var/data/planck/sessions"
-config :planck_agent, :skills_dirs, ["/app/skills", "~/.planck/skills"]
-config :planck_agent, :tools_dirs, ["/app/tools", "~/.planck/tools"]
-config :planck_agent, :compactor, "/app/config/compactor.exs"
-```
+`planck_agent` has no runtime configuration module. Every function that reads
+from disk (`Session.start/2`, `Skill.load_all/1`, `ExternalTool.load_all/1`,
+`Compactor.load/1`) takes its path(s) as an explicit argument. Applications
+using this library should resolve those paths themselves — or depend on
+`planck_headless`, which exposes `Planck.Headless.Config` for the full Planck
+stack.
 
 ## Supervision tree
 

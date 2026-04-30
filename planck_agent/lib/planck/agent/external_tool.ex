@@ -36,8 +36,7 @@ defmodule Planck.Agent.ExternalTool do
 
   ## Usage
 
-      dirs  = Planck.Agent.Config.tools_dirs!()
-      tools = Planck.Agent.ExternalTool.load_all(dirs)
+      tools = Planck.Agent.ExternalTool.load_all(["~/.planck/tools"])
 
   Pass the returned `Tool.t()` structs alongside inter-agent tools when starting
   an agent or building the `grantable_tools` list for an orchestrator.

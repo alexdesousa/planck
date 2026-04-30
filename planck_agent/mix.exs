@@ -50,7 +50,6 @@ defmodule Planck.Agent.MixProject do
       {:nimble_options, "~> 1.0"},
       {:phoenix_pubsub, "~> 2.1"},
       {:exqlite, "~> 0.23"},
-      {:skogsra, "~> 2.5"},
       {:erlexec, "~> 2.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

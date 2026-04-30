@@ -38,14 +38,12 @@ defmodule Planck.Agent.Skill do
 
   ## Usage
 
-      skills = Planck.Agent.Skill.load_all(Planck.Agent.Config.skills_dirs!())
+      skills = Planck.Agent.Skill.load_all(["~/.planck/skills"])
 
-      system_prompt = base_prompt <> Planck.Agent.Skill.system_prompt_section(skills)
-
-      {Planck.Agent,
-       id: ...,
-       system_prompt: system_prompt,
-       tools: [BuiltinTools.read(), BuiltinTools.bash()]}
+      # Skills are typically threaded through AgentSpec.to_start_opts/2 via
+      # skill_pool:, which resolves spec.skills names and appends the skill
+      # section to system_prompt for the relevant agent.
+      start_opts = Planck.Agent.AgentSpec.to_start_opts(spec, skill_pool: skills)
 
   The agent discovers skills from the system prompt index and loads `SKILL.md`
   via the `read` tool when a skill is relevant. Scripts are run via `bash`.
