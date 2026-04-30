@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### AGENTS.md prepending for all agents
+
+- `Tools.prepend_agents_md/2` is now public — walks up from `cwd` to the
+  nearest `.git` root, reads `AGENTS.md` if found, and prepends its content to
+  the given system prompt. Returns the prompt unchanged when no file is found or
+  `cwd` is empty.
+- `orchestrator_tools/7` — added `cwd` parameter (default `""`); passed into
+  the `spawn_agent` closure so dynamically spawned workers inherit the same
+  project context.
+- `spawn_agent` tool — prepends `AGENTS.md` to the worker's system prompt before
+  starting the agent process; `cwd` is stored in the new agent's state.
+- `Agent.t` — added `cwd: String.t()` field (default `""`); set from start opts.
+
 ## v0.1.0
 
 ### Skills — explicit `load_skill` / `list_skills` tools

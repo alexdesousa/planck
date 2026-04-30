@@ -75,6 +75,7 @@ defmodule Planck.Agent do
   - `role` — `:orchestrator` (has `spawn_agent` tool) or `:worker`
   - `model` — the `Planck.AI.Model` the agent is configured to use
   - `system_prompt` — prepended to every LLM context
+  - `cwd` — working directory for the session; used to locate `AGENTS.md`
   - `messages` — full in-memory conversation history (`Message.t()` list)
   - `tools` — map of tool name → `Tool.t()` available to this agent
   - `status` — `:idle`, `:streaming`, or `:executing_tools`
@@ -104,6 +105,7 @@ defmodule Planck.Agent do
           role: :orchestrator | :worker,
           model: Planck.AI.Model.t() | nil,
           on_compact: ([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip) | nil,
+          cwd: String.t(),
           system_prompt: String.t(),
           messages: [Message.t()],
           tools: %{String.t() => Tool.t()},
@@ -135,6 +137,7 @@ defmodule Planck.Agent do
     :role,
     :model,
     :on_compact,
+    cwd: "",
     system_prompt: "",
     messages: [],
     tools: %{},
@@ -293,6 +296,7 @@ defmodule Planck.Agent do
       delegator_id: Keyword.get(opts, :delegator_id),
       role: role,
       model: Keyword.fetch!(opts, :model),
+      cwd: Keyword.get(opts, :cwd, ""),
       system_prompt: Keyword.get(opts, :system_prompt, ""),
       tools: tool_map,
       opts: Keyword.get(opts, :opts, []),

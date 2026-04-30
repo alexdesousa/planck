@@ -210,9 +210,16 @@ per-session filesystem scanning.
 7. Record `session_id → team_id` in `SessionRegistry`.
 8. Return `{:ok, session_id}`.
 
-The system-prompt assembly (appending the skills section) already happens inside
-`AgentSpec.to_start_opts/2` via the `skill_pool:` resolver — `planck_headless`
-does not touch prompts directly.
+The system-prompt assembly has two layers:
+
+1. **Skills** — `AgentSpec.to_start_opts/2` appends the skill descriptions via
+   `skill_pool:`. This happens for every agent.
+2. **AGENTS.md** — `planck_headless` calls `Tools.prepend_agents_md/2` for both
+   the orchestrator and every static worker, walking up from `cwd` to the nearest
+   `.git` root to find the file. If found, its content is prepended to the
+   agent's system prompt so all agents start with the same project context.
+   Dynamic workers spawned later via `spawn_agent` use the `cwd` captured in the
+   tool closure at team-materialisation time — the same file is prepended there.
 
 ## Default team
 
