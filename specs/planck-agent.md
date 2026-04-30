@@ -23,7 +23,8 @@ has in its list.
 {:nimble_options, "~> 1.0"},
 {:phoenix_pubsub, "~> 2.1"},
 {:exqlite, "~> 0.23"},
-{:skogsra, "~> 2.5"}
+{:skogsra, "~> 2.5"},
+{:erlexec, "~> 2.0"}
 ```
 
 ## What planck_agent does (and doesn't do)
@@ -44,8 +45,12 @@ has in its list.
 - Built-in inter-agent tools: `ask_agent`, `delegate_task`, `send_response`, `list_team`
 - Built-in orchestrator-only tools: `spawn_agent`, `destroy_agent`, `interrupt_agent`,
   `list_models`
+- `Planck.Agent.BuiltinTools` — `read`, `write`, `edit`, `bash` tool factories; `bash`
+  is backed by `erlexec` with `Task.yield/shutdown` timeout handling
+- `Planck.Agent.Skill` — filesystem-based skill loader; `load_all/1`, `from_file/1`,
+  `system_prompt_section/1`
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination
-- `Planck.Agent.Config` — Skogsra config for `sessions_dir`
+- `Planck.Agent.Config` — Skogsra config for `sessions_dir` and `skills_dirs`
 - `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`
 - `Planck.Agent.TeamTemplate` — loads static agent definitions from JSON; tools merged
   in programmatically by the caller
@@ -258,12 +263,81 @@ and turn index.
 **`spawn_agent`** — creates a new worker under the same `team_id` and `session_id`.
 Returns the new agent's id.
 
+Accepts an optional `"tools"` JSON array. The orchestrator grants a subset of its
+own `grantable_tools` list to the spawned worker by name. Names not in
+`grantable_tools` are silently ignored (no privilege escalation). Workers always
+receive the standard `worker_tools` in addition to any granted tools.
+
 **`destroy_agent`** — terminates a worker permanently.
 
 **`interrupt_agent`** — aborts a worker's current turn; worker stays alive.
 
 **`list_models`** — returns the `available_models` list passed at orchestrator start
 time. No network call.
+
+## Built-in file and shell tools
+
+`Planck.Agent.BuiltinTools` provides four factory functions. Each returns a
+`Planck.Agent.Tool` struct ready to be passed in a tool list.
+
+| Function | Tool name | Key args |
+|---|---|---|
+| `read/0`  | `read`  | `path` (required), `offset`, `limit` |
+| `write/0` | `write` | `path`, `content` |
+| `edit/0`  | `edit`  | `path`, `old_string`, `new_string` |
+| `bash/0`  | `bash`  | `command` (required), `cwd`, `timeout` |
+
+**`read`** streams the file line-by-line with `File.stream!(:line)`. `offset` and
+`limit` select a window without loading the whole file into memory. Expands `~` in
+paths.
+
+**`edit`** splits on `old_string` using `String.split(content, old, parts: 3)`:
+one part → not found; two parts → unique match; three+ → ambiguous.
+
+**`bash`** passes the command as a binary string to `erlexec`, which routes it
+through `/bin/sh -c`. Both stdout and stderr are captured; stderr is appended under a
+`STDERR:` header. Timeout is implemented via `Task.yield/2 || Task.shutdown/1` so no
+orphaned process is left linked to the GenServer. Exit status is decoded from the raw
+`waitpid()` value (`status * 256` → `status`).
+
+## Skills
+
+`Planck.Agent.Skill` loads skills from directories on the filesystem. A skill is a
+subdirectory with a `SKILL.md` file:
+
+```
+<skills_dir>/
+  code_review/
+    SKILL.md       # required — name + description frontmatter
+    resources/     # optional — any extra files the LLM may reference
+```
+
+`SKILL.md` frontmatter (YAML-style, CRLF-safe):
+
+```markdown
+---
+name: code_review
+description: Reviews code for correctness, style, and performance.
+---
+```
+
+API:
+
+```elixir
+# Load all skills from a list of directories; missing dirs are skipped silently.
+@spec load_all([Path.t()]) :: [Skill.t()]
+
+# Load a single skill from its SKILL.md path.
+@spec from_file(Path.t()) :: {:ok, Skill.t()} | {:error, String.t()}
+
+# Build a system-prompt snippet listing skills with file and resources paths.
+# Returns nil when the list is empty.
+@spec system_prompt_section([Skill.t()]) :: String.t() | nil
+```
+
+Configured via `Planck.Agent.Config.skills_dirs!/0` (`PLANCK_AGENT_SKILLS_DIRS`,
+default `[".planck/skills", "~/.planck/skills"]`). The `PathList` Skogsra type
+accepts a colon-separated string or a list of strings.
 
 ## Session
 
@@ -394,6 +468,13 @@ end)
 - `AgentSpec.new/1` / `to_start_opts/2` — field merging, model resolution
 - `Session` — append, messages, truncate, checkpoint pagination, persistence across restart
 - `Compactor` — threshold check, summary generation, fallback on LLM error, keep_recent
+- `BuiltinTools` — each of the four tools exercised directly via `tool.execute_fn`:
+  - `read`: exists, missing, `~` expansion, offset, limit, offset+limit, offset beyond EOF
+  - `write`: creates, overwrites, missing parents, error when parent is a file
+  - `edit`: replaces, not found, more than once, missing file
+  - `bash`: stdout, stderr, non-zero exit, `cwd` arg, timeout
+- `Skill` — `from_file/1`, `load_all/1`, `system_prompt_section/1`; checks `resources dir:`
+  label in prompt output
 
 ### Integration tests (Mox)
 
@@ -415,3 +496,7 @@ application config. Tests assert broadcast sequences and final `get_state/1` out
 - Team teardown — orchestrator exit terminates all workers in same team
 - `destroy_agent` — worker process goes down; registry entry removed
 - `interrupt_agent` — worker returns to `:idle`; stays alive
+- `spawn_agent` grantable tools — orchestrator grants `read`; worker receives it and
+  unknown names are ignored; worker without grant cannot use the tool
+- Built-in tools via spawned worker — each of `read`, `write`, `edit`, `bash` exercised
+  end-to-end through a real spawned agent to confirm tool wiring
