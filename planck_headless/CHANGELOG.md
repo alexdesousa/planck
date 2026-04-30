@@ -88,3 +88,21 @@ First release.
 - Fixed in-flight detection and completed spawn_agent matching to use
   `MapSet.member?/2` instead of `is_map_key/2` guard (MapSet is a struct,
   not a plain map; the guard silently never matched).
+
+### Session resume improvements
+
+- Stable agent IDs across session resumes: `save_metadata` now persists an `agent_ids`
+  map (name→id JSON) and `resume_session` loads it, passing previous IDs to
+  `materialize_team`, `start_workers`, and `start_dynamic_worker` so processes restart
+  with the same IDs they had in the original session
+- `maybe_inject_recovery` simplified: no longer needs `find_previous_orchestrator` since
+  IDs are stable across resumes
+
+### Worker lifecycle
+
+- `unfinished_workers` rewrite: uses `worker_unfinished?/1` — a worker is considered
+  unfinished when their most recent `:user` message (last assigned task) has no
+  `send_response` in any assistant message that follows it
+- `send_response` sender attribution threaded through: `start_workers` and
+  `start_dynamic_worker` now build a `sender = %{id, name}` map and pass it to
+  `worker_tools/3`, so every response reaches the orchestrator with full sender metadata

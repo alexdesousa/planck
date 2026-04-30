@@ -40,6 +40,23 @@ First release.
 - `spawn_agent` tool accepts a `"skills"` parameter and a `grantable_skills` closure arg, symmetric with `grantable_tools`
 - `Planck.AI.Model.providers/0` — valid provider atoms
 - Pluggable `on_compact` hook — `Compactor.build/2` returns a ready-to-use function
+- `@type agent` and `@type t` now have full `@typedoc` documentation with all fields typed
+
+### Agent API
+
+- `Agent.prompt/3` is now a synchronous `call` (was a `cast`) — returns `:ok` once the agent
+  has set its status to `:streaming`; if the agent is already busy the message is queued
+  (appended to history) and re-triggered automatically after the current turn ends via
+  `maybe_turn_start/1`
+- `send_response` tool now carries sender attribution: orchestrator receives
+  `{:agent_response, response, %{id, name}}` and stores `sender_id`/`sender_name` in the
+  message metadata
+- `to_ai_messages/1` converts `{:custom, :agent_response}` messages to `:user` role, prefixed
+  with `"Response from <name>: "` when `sender_name` metadata is present
+- `ask_agent` no longer accepts a `timeout_ms` parameter — blocks indefinitely; monitors the
+  target process and returns `{:error, "Agent terminated: ..."}` if it crashes; subscribes
+  before prompting to close the race condition
+- `delegate_task` tool result now includes guidance to end the turn
 
 ### Notes
 

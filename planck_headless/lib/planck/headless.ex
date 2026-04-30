@@ -50,7 +50,8 @@ defmodule Planck.Headless do
          {:ok, session_name} <- resolve_name(user_name),
          {:ok, session_id} <- create_session(session_name, cwd),
          {:ok, team_id} <- materialize_team(session_id, team, cwd),
-         :ok <- save_metadata(session_id, template, session_name, cwd, team_id) do
+         :ok <-
+           save_metadata(session_id, template, session_name, cwd, team_id, agent_ids(team_id)) do
       {:ok, session_id}
     end
   end
@@ -67,14 +68,17 @@ defmodule Planck.Headless do
          {:ok, _pid} <- reopen_session(session_id, session_name, sessions_dir),
          {:ok, metadata} <- Session.get_metadata(session_id),
          {:ok, team} <- resolve_team(metadata["team_alias"]),
-         {:ok, team_id} <- materialize_team(session_id, team, metadata["cwd"] || File.cwd!()),
+         prev_ids = decode_agent_ids(Map.get(metadata, "agent_ids")),
+         {:ok, team_id} <-
+           materialize_team(session_id, team, metadata["cwd"] || File.cwd!(), prev_ids),
          :ok <-
            save_metadata(
              session_id,
              metadata["team_alias"],
              session_name,
              metadata["cwd"] || File.cwd!(),
-             team_id
+             team_id,
+             agent_ids(team_id)
            ),
          :ok <- reconstruct_dynamic_workers(session_id, team_id, team),
          :ok <- maybe_inject_recovery(session_id, team_id) do
@@ -256,8 +260,8 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec save_metadata(String.t(), term(), String.t(), Path.t(), String.t()) :: :ok
-  defp save_metadata(session_id, template, session_name, cwd, team_id) do
+  @spec save_metadata(String.t(), term(), String.t(), Path.t(), String.t(), map()) :: :ok
+  defp save_metadata(session_id, template, session_name, cwd, team_id, agent_id_map) do
     team_alias =
       case template do
         nil -> nil
@@ -268,8 +272,27 @@ defmodule Planck.Headless do
       "team_alias" => team_alias,
       "team_id" => team_id,
       "session_name" => session_name,
-      "cwd" => cwd
+      "cwd" => cwd,
+      "agent_ids" => Jason.encode!(agent_id_map)
     })
+  end
+
+  # Build a name → id map for all agents in a team, keyed by their display name.
+  # Used to preserve agent IDs across session resumes.
+  @spec agent_ids(String.t()) :: %{String.t() => String.t()}
+  defp agent_ids(team_id) do
+    Registry.lookup(Planck.Agent.Registry, {team_id, :member})
+    |> Map.new(fn {_pid, meta} -> {meta.name || meta.type, meta.id} end)
+  end
+
+  @spec decode_agent_ids(String.t() | nil) :: %{String.t() => String.t()}
+  defp decode_agent_ids(nil), do: %{}
+
+  defp decode_agent_ids(json) do
+    case Jason.decode(json) do
+      {:ok, map} -> map
+      _ -> %{}
+    end
   end
 
   @spec read_team_id(String.t()) :: {:ok, String.t()} | {:error, term()}
@@ -357,18 +380,21 @@ defmodule Planck.Headless do
   # Private — team materialization
   # ---------------------------------------------------------------------------
 
-  @spec materialize_team(String.t(), Team.t(), Path.t()) :: {:ok, String.t()} | {:error, term()}
-  defp materialize_team(session_id, team, cwd) do
+  @spec materialize_team(String.t(), Team.t(), Path.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  @spec materialize_team(String.t(), Team.t(), Path.t(), map()) ::
+          {:ok, String.t()} | {:error, term()}
+  defp materialize_team(session_id, team, cwd, prev_ids \\ %{}) do
     store = ResourceStore.get()
     team_id = generate_id()
 
     orch_spec = Enum.find(team.members, &(&1.type == "orchestrator"))
     workers = Enum.reject(team.members, &(&1.type == "orchestrator"))
-    orchestrator_id = generate_id()
+    orchestrator_id = Map.get(prev_ids, orch_spec.name || orch_spec.type, generate_id())
 
     with {:ok, _} <-
            start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store, cwd),
-         :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store) do
+         :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids) do
       {:ok, team_id}
     end
   end
@@ -421,9 +447,10 @@ defmodule Planck.Headless do
           String.t(),
           String.t(),
           [AgentSpec.t()],
-          ResourceStore.t()
+          ResourceStore.t(),
+          map()
         ) :: :ok | {:error, term()}
-  defp start_workers(session_id, team_id, orchestrator_id, workers, store) do
+  defp start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids) do
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
       base_opts =
         AgentSpec.to_start_opts(spec,
@@ -435,10 +462,13 @@ defmodule Planck.Headless do
         )
 
       resolved = base_opts[:tools]
+      worker_id = Map.get(prev_ids, spec.name, base_opts[:id])
+      sender = %{id: worker_id, name: spec.name}
 
       opts =
         base_opts
-        |> Keyword.put(:tools, Tools.worker_tools(team_id, orchestrator_id) ++ resolved)
+        |> Keyword.put(:id, worker_id)
+        |> Keyword.put(:tools, Tools.worker_tools(team_id, orchestrator_id, sender) ++ resolved)
         |> Keyword.put(:delegator_id, orchestrator_id)
         |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
 
@@ -494,11 +524,10 @@ defmodule Planck.Headless do
   @spec reconstruct_dynamic_workers(String.t(), String.t(), Team.t()) :: :ok
   defp reconstruct_dynamic_workers(session_id, team_id, base_team) do
     with {:ok, all_rows} <- Session.messages(session_id),
-         {:ok, new_orch_pid} <- find_orchestrator(team_id) do
-      new_orch_id = Agent.get_info(new_orch_pid).id
+         {:ok, orch_pid} <- find_orchestrator(team_id) do
+      orch_id = Agent.get_info(orch_pid).id
       messages_by_agent = Enum.group_by(all_rows, & &1.agent_id, & &1.message)
-      prev_orch_id = find_previous_orchestrator(messages_by_agent, new_orch_id)
-      orch_messages = Map.get(messages_by_agent, prev_orch_id || new_orch_id, [])
+      orch_messages = Map.get(messages_by_agent, orch_id, [])
 
       # Workers are identified by {type, name}. Name defaults to type when absent,
       # matching AgentSpec.default_name/2 behaviour.
@@ -514,7 +543,7 @@ defmodule Planck.Headless do
         name = args["name"] || type
         MapSet.member?(base_members, {type, name})
       end)
-      |> Enum.each(&start_dynamic_worker(&1, session_id, team_id, new_orch_id, store))
+      |> Enum.each(&start_dynamic_worker(&1, session_id, team_id, orch_id, store))
     end
 
     :ok
@@ -561,11 +590,14 @@ defmodule Planck.Headless do
             available_models: store.available_models
           )
 
+        dynamic_worker_id = base_opts[:id]
+        sender = %{id: dynamic_worker_id, name: spec.name}
+
         opts =
           base_opts
           |> Keyword.put(
             :tools,
-            Tools.worker_tools(team_id, orchestrator_id) ++ base_opts[:tools]
+            Tools.worker_tools(team_id, orchestrator_id, sender) ++ base_opts[:tools]
           )
           |> Keyword.put(:delegator_id, orchestrator_id)
           |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
@@ -589,27 +621,17 @@ defmodule Planck.Headless do
   defp maybe_inject_recovery(session_id, team_id) do
     with {:ok, orch_pid} <- find_orchestrator(team_id),
          {:ok, all_rows} <- Session.messages(session_id) do
-      new_orch_id = Agent.get_info(orch_pid).id
-
-      messages_by_agent =
-        Enum.group_by(all_rows, & &1.agent_id, & &1.message)
-
-      # The new orchestrator (just started) has no messages yet. The previous
-      # orchestrator is the agent whose messages contain orchestrator-specific
-      # tool calls (ask_agent, delegate_task, spawn_agent). We inject the
-      # recovery message under the new orchestrator's id so it sees it first.
-      prev_orch_id = find_previous_orchestrator(messages_by_agent, new_orch_id)
-      orch_id = prev_orch_id || new_orch_id
+      orch_id = Agent.get_info(orch_pid).id
+      messages_by_agent = Enum.group_by(all_rows, & &1.agent_id, & &1.message)
       orch_messages = Map.get(messages_by_agent, orch_id, [])
 
-      # Don't inject if a recovery message is already the last thing the orchestrator sees.
       unless last_message_is_recovery?(orch_messages) do
         in_flight =
           unresolved_asks(orch_messages) ++
             unfinished_workers(messages_by_agent, orch_id, orch_messages)
 
         if in_flight != [] do
-          Session.append(session_id, new_orch_id, build_recovery_message(in_flight))
+          Session.append(session_id, orch_id, build_recovery_message(in_flight))
         end
       end
     end
@@ -628,15 +650,6 @@ defmodule Planck.Headless do
   end
 
   @orchestrator_tools ~w(ask_agent delegate_task spawn_agent)
-
-  @spec find_previous_orchestrator(%{String.t() => [Planck.Agent.Message.t()]}, String.t()) ::
-          String.t() | nil
-  defp find_previous_orchestrator(messages_by_agent, new_orch_id) do
-    Enum.find_value(messages_by_agent, fn {agent_id, messages} ->
-      if agent_id != new_orch_id && has_orchestrator_tool_calls?(messages),
-        do: agent_id
-    end)
-  end
 
   @spec has_orchestrator_tool_calls?([Planck.Agent.Message.t()]) :: boolean()
   defp has_orchestrator_tool_calls?(messages) do
@@ -703,8 +716,8 @@ defmodule Planck.Headless do
     end)
   end
 
-  # Find workers (non-orchestrator agent_ids) whose last assistant message
-  # does not end with a send_response tool call — they never finished their task.
+  # Find workers (non-orchestrator agent_ids) that have started work but never
+  # called send_response across their entire message history.
   # Cross-references the orchestrator's delegate_task calls to include the target
   # label and task text in the report.
   @spec unfinished_workers(
@@ -715,12 +728,19 @@ defmodule Planck.Headless do
   defp unfinished_workers(messages_by_agent, orch_id, orch_messages) do
     delegations = extract_delegations(orch_messages)
 
-    messages_by_agent
-    |> Enum.reject(fn {id, _} -> id == orch_id end)
-    |> Enum.flat_map(fn {_worker_id, msgs} ->
-      last_assistant = msgs |> Enum.filter(&(&1.role == :assistant)) |> List.last()
+    # Exclude any agent that has ever made inter-agent tool calls — previous
+    # orchestrators from earlier resumes may still be in the session rows.
+    orchestrator_ids =
+      MapSet.new(messages_by_agent, fn {id, msgs} ->
+        if has_orchestrator_tool_calls?(msgs), do: id, else: nil
+      end)
+      |> MapSet.delete(nil)
+      |> MapSet.put(orch_id)
 
-      if last_assistant && not ends_with_send_response?(last_assistant) do
+    messages_by_agent
+    |> Enum.reject(fn {id, _} -> MapSet.member?(orchestrator_ids, id) end)
+    |> Enum.flat_map(fn {_worker_id, msgs} ->
+      if worker_unfinished?(msgs) do
         task_text = worker_task_text(msgs)
         {target, task} = find_delegation(delegations, task_text)
         [{"delegate_task", "#{target} did not complete: #{task}"}]
@@ -741,6 +761,7 @@ defmodule Planck.Headless do
         {:tool_call, _, "delegate_task", args} ->
           target = args["name"] || args["type"] || "worker"
           [{target, args["task"] || ""}]
+
         _ ->
           []
       end)
@@ -751,7 +772,9 @@ defmodule Planck.Headless do
   @spec worker_task_text([Planck.Agent.Message.t()]) :: String.t()
   defp worker_task_text(messages) do
     case Enum.find(messages, &(&1.role == :user)) do
-      nil -> ""
+      nil ->
+        ""
+
       msg ->
         Enum.flat_map(msg.content, fn
           {:text, t} -> [t]
@@ -778,17 +801,33 @@ defmodule Planck.Headless do
       else: text
   end
 
-  @spec ends_with_send_response?(Planck.Agent.Message.t()) :: boolean()
-  defp ends_with_send_response?(message) do
-    message.content
-    |> Enum.reverse()
-    |> Enum.find(fn
-      {:tool_call, _, _, _} -> true
-      _ -> false
-    end)
-    |> case do
-      {:tool_call, _, "send_response", _} -> true
-      _ -> false
+  # A worker is unfinished when their most recent task (last :user message) has
+  # no send_response in any assistant message that follows it. This correctly
+  # handles compacted history (we search all rows, not just in-memory context)
+  # and models that continue after send_response within the same turn.
+  @spec worker_unfinished?([Planck.Agent.Message.t()]) :: boolean()
+  defp worker_unfinished?(msgs) do
+    last_user_idx =
+      msgs
+      |> Enum.with_index()
+      |> Enum.filter(fn {msg, _} -> msg.role == :user end)
+      |> List.last()
+
+    case last_user_idx do
+      nil ->
+        false
+
+      {_, idx} ->
+        msgs
+        |> Enum.drop(idx + 1)
+        |> Enum.any?(fn msg ->
+          msg.role == :assistant &&
+            Enum.any?(msg.content, fn
+              {:tool_call, _, "send_response", _} -> true
+              _ -> false
+            end)
+        end)
+        |> Kernel.not()
     end
   end
 

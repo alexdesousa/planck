@@ -42,7 +42,7 @@ defmodule Planck.Agent.ExternalTool do
   an agent or building the `grantable_tools` list for an orchestrator.
   """
 
-  alias Planck.Agent.Tool
+  alias Planck.Agent.{BuiltinTools, Tool}
 
   @default_timeout 30_000
 
@@ -130,7 +130,7 @@ defmodule Planck.Agent.ExternalTool do
           cwd = Map.get(args, "cwd", File.cwd!())
           timeout = Map.get(args, "timeout", @default_timeout)
           command = interpolate(template, args)
-          Planck.Agent.BuiltinTools.run_bash(command, timeout, cwd)
+          BuiltinTools.run_bash(command, timeout, cwd)
         end
       )
 

@@ -34,17 +34,26 @@ defmodule Planck.Agent.Tools do
   """
 
   alias Planck.Agent
-  alias Planck.Agent.Tool
+  alias Planck.Agent.{AIBehaviour, Skill, Tool}
+  alias Planck.AI
 
   @doc """
   Returns the three inter-agent tools available to all agents in a team:
   `ask_agent`, `delegate_task`, `send_response`.
 
   Pass `delegator_id: nil` for orchestrators (they have no delegator to respond to).
+
+  The optional `sender` map (`%{id: String.t(), name: String.t()}`) is captured
+  in `send_response` so the orchestrator knows which worker replied.
   """
-  @spec worker_tools(String.t(), String.t() | nil) :: [Tool.t()]
-  def worker_tools(team_id, delegator_id) do
-    [ask_agent(team_id), delegate_task(team_id), send_response(delegator_id), list_team(team_id)]
+  @spec worker_tools(String.t(), String.t() | nil, map() | nil) :: [Tool.t()]
+  def worker_tools(team_id, delegator_id, sender \\ nil) do
+    [
+      ask_agent(team_id),
+      delegate_task(team_id),
+      send_response(delegator_id, sender),
+      list_team(team_id)
+    ]
   end
 
   @doc """
@@ -101,21 +110,16 @@ defmodule Planck.Agent.Tools do
           "type" => %{"type" => "string", "description" => "Agent type to ask"},
           "name" => %{"type" => "string", "description" => "Agent name to ask"},
           "id" => %{"type" => "string", "description" => "Agent id to ask"},
-          "question" => %{"type" => "string", "description" => "The question to ask"},
-          "timeout_ms" => %{
-            "type" => "integer",
-            "description" => "Max milliseconds to wait for a response (default 300000)"
-          }
+          "question" => %{"type" => "string", "description" => "The question to ask"}
         },
         "required" => ["question"]
       },
       execute_fn: fn _id, args ->
-        question = args["question"]
-        timeout = Map.get(args, "timeout_ms", 300_000)
-
-        with {:ok, pid} <- resolve_target(team_id, args),
-             :ok <- Agent.prompt(pid, question) do
-          await_turn_end(pid, timeout)
+        with {:ok, pid} <- resolve_target(team_id, args) do
+          ref = Process.monitor(pid)
+          Agent.subscribe(pid)
+          :ok = Agent.prompt(pid, args["question"])
+          await_turn_end(ref)
         end
       end
     )
@@ -128,8 +132,12 @@ defmodule Planck.Agent.Tools do
       name: "delegate_task",
       description: """
       Delegate a task to another agent in the team. Returns immediately — the
-      target agent runs the task asynchronously and calls send_response when done.
-      Fails if no matching agent exists in the team.
+      target agent runs the task asynchronously and calls send_response when done,
+      which will re-trigger your next turn with the result as context.
+
+      After delegating, end your turn unless you can delegate something else in
+      parallel that won't be blocked by previous delegations. Do not attempt to
+      read or use the result in this turn — it will arrive later.
       """,
       parameters: %{
         "type" => "object",
@@ -146,15 +154,23 @@ defmodule Planck.Agent.Tools do
 
         with {:ok, pid} <- resolve_target(team_id, args) do
           Agent.prompt(pid, task)
-          {:ok, "Task delegated."}
+
+          {:ok,
+           "Task delegated. End your turn now unless you can delegate something else in parallel that won't be blocked by this delegation. The result will arrive in a future turn."}
         end
       end
     )
   end
 
-  @doc "Build the `send_response` tool for a given delegator."
+  @doc """
+  Build the `send_response` tool for a given delegator.
+
+  The optional `sender` map (`%{id: String.t(), name: String.t()}`) is included
+  in the message delivered to the delegator so it knows which worker replied.
+  """
   @spec send_response(String.t() | nil) :: Tool.t()
-  def send_response(delegator_id) do
+  @spec send_response(String.t() | nil, map() | nil) :: Tool.t()
+  def send_response(delegator_id, sender \\ nil) do
     Tool.new(
       name: "send_response",
       description: """
@@ -178,7 +194,7 @@ defmodule Planck.Agent.Tools do
             {:error, "No delegator to respond to."}
 
           {:ok, pid} ->
-            send(pid, {:agent_response, response})
+            send(pid, {:agent_response, response, sender})
             {:ok, "Response sent."}
         end
       end
@@ -204,7 +220,7 @@ defmodule Planck.Agent.Tools do
           String.t(),
           String.t(),
           [Tool.t()],
-          [Planck.Agent.Skill.t()]
+          [Skill.t()]
         ) :: Tool.t()
   def spawn_agent(
         session_id,
@@ -287,9 +303,9 @@ defmodule Planck.Agent.Tools do
 
           model_result =
             if base_url do
-              Planck.AI.get_model(provider, args["model_id"], base_url: base_url)
+              AI.get_model(provider, args["model_id"], base_url: base_url)
             else
-              Planck.Agent.AIBehaviour.client().get_model(provider, args["model_id"])
+              AIBehaviour.client().get_model(provider, args["model_id"])
             end
 
           with {:ok, model} <- model_result,
@@ -327,11 +343,11 @@ defmodule Planck.Agent.Tools do
     )
   end
 
-  @spec build_system_prompt(String.t(), [Planck.Agent.Skill.t()]) :: String.t()
+  @spec build_system_prompt(String.t(), [Skill.t()]) :: String.t()
   defp build_system_prompt(base, []), do: base
 
   defp build_system_prompt(base, skills) do
-    case Planck.Agent.Skill.system_prompt_section(skills) do
+    case Skill.system_prompt_section(skills) do
       nil -> base
       section -> base <> "\n\n" <> section
     end
@@ -478,16 +494,12 @@ defmodule Planck.Agent.Tools do
     }
   end
 
-  @spec await_turn_end(pid(), pos_integer()) ::
-          {:ok, String.t()}
-          | {:error, String.t()}
-  defp await_turn_end(pid, timeout)
-
-  defp await_turn_end(pid, timeout) do
-    Agent.subscribe(pid)
-
+  @spec await_turn_end(reference()) :: {:ok, String.t()} | {:error, String.t()}
+  defp await_turn_end(monitor_ref) do
     receive do
       {:agent_event, :turn_end, %{message: msg}} ->
+        Process.demonitor(monitor_ref, [:flush])
+
         text =
           Enum.reduce(msg.content, "", fn
             {:text, t}, acc -> acc <> t
@@ -497,12 +509,15 @@ defmodule Planck.Agent.Tools do
         {:ok, text}
 
       {:agent_event, :error, %{reason: reason}} when is_binary(reason) ->
+        Process.demonitor(monitor_ref, [:flush])
         {:error, reason}
 
       {:agent_event, :error, %{reason: reason}} ->
+        Process.demonitor(monitor_ref, [:flush])
         {:error, inspect(reason)}
-    after
-      timeout -> {:error, "Agent timed out."}
+
+      {:DOWN, ^monitor_ref, :process, _pid, reason} ->
+        {:error, "Agent terminated: #{inspect(reason)}"}
     end
   end
 

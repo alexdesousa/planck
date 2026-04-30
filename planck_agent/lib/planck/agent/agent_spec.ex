@@ -47,6 +47,8 @@ defmodule Planck.Agent.AgentSpec do
       [%AgentSpec{...}, ...]
   """
 
+  alias Planck.Agent.{AIBehaviour, Skill}
+
   require Logger
 
   @typedoc """
@@ -271,7 +273,7 @@ defmodule Planck.Agent.AgentSpec do
         pool_map = Map.new(pool, &{&1.name, &1})
         resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
 
-        case Planck.Agent.Skill.system_prompt_section(resolved) do
+        case Skill.system_prompt_section(resolved) do
           nil -> spec.system_prompt
           section -> spec.system_prompt <> "\n\n" <> section
         end
@@ -356,7 +358,7 @@ defmodule Planck.Agent.AgentSpec do
 
   @spec resolve_model_dynamic!(atom(), String.t(), String.t() | nil) :: Planck.AI.Model.t()
   defp resolve_model_dynamic!(provider, model_id, nil) do
-    case Planck.Agent.AIBehaviour.client().get_model(provider, model_id) do
+    case AIBehaviour.client().get_model(provider, model_id) do
       {:ok, model} -> model
       {:error, :not_found} -> raise ArgumentError, "model not found: #{provider}:#{model_id}"
     end
