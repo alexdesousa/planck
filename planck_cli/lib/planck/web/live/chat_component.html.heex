@@ -24,7 +24,7 @@
                 <span class="text-green-700 dark:text-green-400 font-bold">
                   <%= author_label(entry.author) %>
                 </span>
-                <span class="text-green-600 dark:text-green-500">responded</span>
+                <span class="text-green-600 dark:text-green-500"><%= pgettext("chat label", "responded") %></span>
                 <%= if not entry.expanded do %>
                   <span class="text-green-700/60 dark:text-green-400/60 truncate flex-1">
                     <%= String.slice(entry.text, 0, 60) %><%= if String.length(entry.text) > 60, do: "…" %>
@@ -49,7 +49,7 @@
                   phx-value-text={entry.text}
                   phx-target={@myself}
                 >
-                  <span class="text-base">✎</span> edit
+                  <span class="text-base">✎</span> <%= pgettext("button label", "edit") %>
                 </button>
               <% end %>
               <div class={[
@@ -99,7 +99,7 @@
               >
                 <span class="text-stone-400"><%= if entry.expanded, do: "▼", else: "▶" %></span>
                 <span class="text-stone-500 dark:text-stone-400 italic">
-                  <%= author_label(entry.author) %> thinking<%= if entry.streaming, do: "…" %>
+                  <%= author_label(entry.author) %> <%= if entry.streaming, do: pgettext("chat label", "thinking…"), else: pgettext("chat label", "thinking") %>
                 </span>
               </button>
               <%= if entry.expanded do %>
@@ -131,11 +131,11 @@
                 <span class="ml-auto flex-shrink-0">
                   <%= cond do %>
                     <% entry.tool_error -> %>
-                      <span class="text-destructive font-bold">error</span>
+                      <span class="text-destructive font-bold"><%= pgettext("tool status", "error") %></span>
                     <% entry.tool_result -> %>
-                      <span class="text-green-600">done</span>
+                      <span class="text-green-600"><%= pgettext("tool status", "done") %></span>
                     <% true -> %>
-                      <span class="text-muted-foreground animate-pulse">running…</span>
+                      <span class="text-muted-foreground animate-pulse"><%= pgettext("tool status", "running…") %></span>
                   <% end %>
                 </span>
               </button>
@@ -143,13 +143,13 @@
                 <div class="border-t-2 border-border divide-y-2 divide-border">
                   <%= if entry.tool_args && map_size(entry.tool_args) > 0 do %>
                     <div class="px-3 py-2">
-                      <p class="font-mono text-xs text-muted-foreground mb-1">input</p>
+                      <p class="font-mono text-xs text-muted-foreground mb-1"><%= pgettext("tool label", "input") %></p>
                       <pre class="font-mono text-xs whitespace-pre-wrap overflow-x-auto text-foreground break-all"><%= format_args(entry.tool_name, entry.tool_args) %></pre>
                     </div>
                   <% end %>
                   <%= if entry.tool_result do %>
                     <div class="px-3 py-2">
-                      <p class="font-mono text-xs text-muted-foreground mb-1">output</p>
+                      <p class="font-mono text-xs text-muted-foreground mb-1"><%= pgettext("tool label", "output") %></p>
                       <pre class={[
                         "font-mono text-xs whitespace-pre-wrap overflow-x-auto break-all",
                         if(entry.tool_error, do: "text-destructive", else: "text-foreground")
@@ -172,7 +172,7 @@
                 phx-target={@myself}
               >
                 <span class="text-destructive"><%= if entry.expanded, do: "▼", else: "▶" %></span>
-                <span class="text-destructive font-bold"><%= author_label(entry.author) %> error</span>
+                <span class="text-destructive font-bold"><%= author_label(entry.author) %> <%= pgettext("chat label", "error") %></span>
               </button>
               <%= if entry.expanded do %>
                 <div class="border-t-2 border-destructive px-3 py-2">
@@ -185,7 +185,7 @@
         <% :summary -> %>
           <div class="flex items-center gap-2 my-2">
             <div class="flex-1 border-t border-dashed border-border" />
-            <span class="font-mono text-xs text-muted-foreground px-2">context compacted</span>
+            <span class="font-mono text-xs text-muted-foreground px-2"><%= pgettext("chat label", "context compacted") %></span>
             <div class="flex-1 border-t border-dashed border-border" />
           </div>
 
@@ -198,7 +198,7 @@
   <%= if @compacting do %>
     <div class="flex items-center gap-2 my-2">
       <div class="flex-1 border-t border-dashed border-border" />
-      <span class="font-mono text-xs text-muted-foreground px-2 animate-pulse">compacting context…</span>
+      <span class="font-mono text-xs text-muted-foreground px-2 animate-pulse"><%= pgettext("chat label", "compacting context…") %></span>
       <div class="flex-1 border-t border-dashed border-border" />
     </div>
   <% end %>
@@ -209,7 +209,7 @@
       <span class="font-mono text-xs">
         <%= if @streaming_agent_id,
           do: agent_label(@agents, @streaming_agent_id),
-          else: "agent" %>
+          else: pgettext("chat label", "agent") %>
       </span>
       <span class="flex gap-0.5">
         <span class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 0ms" />

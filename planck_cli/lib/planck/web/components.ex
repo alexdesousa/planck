@@ -8,6 +8,7 @@ defmodule Planck.Web.Components do
   """
 
   use Phoenix.Component
+  use Gettext, backend: Planck.Web.Gettext
 
   # ---------------------------------------------------------------------------
   # Agent color palette — shared with TUI, assigned by spawn order.
@@ -71,7 +72,7 @@ defmodule Planck.Web.Components do
           if(@agent.status == :streaming, do: "bg-white animate-pulse", else: "bg-white/30")
         ]} />
       </div>
-      <p class="font-mono text-xs mt-1 opacity-75"><%= @agent.type %></p>
+      <p class="font-mono text-xs mt-1 opacity-75"><%= translate_agent_type(@agent.type) %></p>
       <p class="font-mono text-xs opacity-75 truncate"><%= @agent[:model] %></p>
       <p class="font-mono text-xs opacity-60"><%= format_usage(@agent.usage) %></p>
       <p class="font-mono text-xs opacity-60"><%= format_cost(@agent[:cost]) %></p>
@@ -101,7 +102,7 @@ defmodule Planck.Web.Components do
     >
       <div class="flex items-center justify-between gap-2">
         <span class="font-bold font-mono text-sm text-primary truncate">
-          <%= @agent.name || "orchestrator" %>
+          <%= @agent.name || pgettext("agent type", "orchestrator") %>
         </span>
         <span
           class={[
@@ -111,7 +112,7 @@ defmodule Planck.Web.Components do
           style={if @agent.status == :streaming, do: "background-color: var(--primary);", else: ""}
         />
       </div>
-      <p class="font-mono text-xs mt-1 text-muted-foreground">orchestrator</p>
+      <p class="font-mono text-xs mt-1 text-muted-foreground"><%= pgettext("agent type", "orchestrator") %></p>
       <p class="font-mono text-xs text-muted-foreground truncate"><%= @agent[:model] %></p>
       <p class="font-mono text-xs text-muted-foreground"><%= format_usage(@agent.usage) %></p>
       <p class="font-mono text-xs text-muted-foreground"><%= format_cost(@agent[:cost]) %></p>
@@ -229,11 +230,11 @@ defmodule Planck.Web.Components do
   def sidecar_status(assigns) do
     {dot_class, label} =
       case assigns.status do
-        :connected -> {"bg-green-500", "sidecar"}
-        :building -> {"bg-accent animate-pulse", "building…"}
-        :starting -> {"bg-accent animate-pulse", "starting…"}
-        :failed -> {"bg-destructive", "sidecar error"}
-        _ -> {"bg-muted", "no sidecar"}
+        :connected -> {"bg-green-500", pgettext("sidecar status", "sidecar")}
+        :building -> {"bg-accent animate-pulse", pgettext("sidecar status", "building…")}
+        :starting -> {"bg-accent animate-pulse", pgettext("sidecar status", "starting…")}
+        :failed -> {"bg-destructive", pgettext("sidecar status", "sidecar error")}
+        _ -> {"bg-muted", pgettext("sidecar status", "no sidecar")}
       end
 
     assigns = assign(assigns, dot_class: dot_class, label: label)
@@ -383,6 +384,11 @@ defmodule Planck.Web.Components do
   def format_cost(cost) when cost == 0.0, do: "-"
   def format_cost(cost) when cost < 0.01, do: "<$0.01"
   def format_cost(cost), do: "$#{:erlang.float_to_binary(cost, decimals: 2)}"
+
+  @spec translate_agent_type(String.t() | nil) :: String.t()
+  defp translate_agent_type("orchestrator"), do: pgettext("agent type", "orchestrator")
+  defp translate_agent_type("worker"), do: pgettext("agent type", "worker")
+  defp translate_agent_type(type), do: type || ""
 
   @spec format_usage(nil | map()) :: String.t()
   defp format_usage(nil), do: "↓0 ↑0"

@@ -53,6 +53,10 @@ for pkg in "${PACKAGES[@]}"; do
   run "$pkg" test     mix test --warnings-as-errors
   run "$pkg" dialyzer mix dialyzer
 
+  if [ -d "$ROOT/$pkg/priv/gettext" ]; then
+    run "$pkg" gettext  bash -c "mix gettext.extract --merge && git -C '$ROOT' diff --exit-code '$ROOT/$pkg/priv/gettext'"
+  fi
+
   if [ $? -eq 0 ]; then
     PASSED=$((PASSED + 1))
   fi

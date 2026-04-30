@@ -50,6 +50,7 @@ defmodule Planck.CLI.MixProject do
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:bandit, "~> 1.5"},
       {:earmark, "~> 1.4"},
+      {:gettext, "~> 0.26"},
       {:skogsra, "~> 2.5"},
       {:tidewave, "~> 0.1", only: :dev},
       {:telemetry_metrics, "~> 1.0"},

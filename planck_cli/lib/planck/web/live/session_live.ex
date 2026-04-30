@@ -8,7 +8,7 @@ defmodule Planck.Web.SessionLive do
   alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     socket =
       socket
       |> assign(:sessions, [])
@@ -26,6 +26,11 @@ defmodule Planck.Web.SessionLive do
       |> assign(:teams, [])
 
     if connected?(socket) do
+      # Restore locale for the LiveView process (the plug already set it for
+      # the HTTP request; LiveView runs in a separate process).
+      locale = session["locale"] || get_connect_params(socket)["locale"]
+      if locale, do: Gettext.put_locale(Planck.Web.Gettext, locale)
+
       Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
 
       sessions = Headless.list_sessions()

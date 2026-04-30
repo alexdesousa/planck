@@ -8,6 +8,7 @@ defmodule Planck.Web.Router do
     plug(:put_root_layout, html: {Planck.Web.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
+    plug(Planck.Web.Locale.Plug, gettext: Planck.Web.Gettext, locales: ["en", "es"])
   end
 
   scope "/", Planck.Web do

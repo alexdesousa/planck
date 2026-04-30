@@ -52,7 +52,7 @@ Hooks.Chat = {
 
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
-  params: {_csrf_token: csrfToken},
+  params: {_csrf_token: csrfToken, locale: document.documentElement.lang || navigator.language || "en"},
   hooks: Hooks
 })
 
