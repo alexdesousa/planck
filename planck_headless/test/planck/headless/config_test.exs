@@ -25,9 +25,8 @@ defmodule Planck.Headless.ConfigTest do
       assert config.default_model == nil
       assert config.sessions_dir == ".planck/sessions"
       assert config.skills_dirs == [".planck/skills", "~/.planck/skills"]
-      assert config.tools_dirs == [".planck/tools", "~/.planck/tools"]
       assert config.teams_dirs == [".planck/teams", "~/.planck/teams"]
-      assert config.compactor == nil
+      assert config.sidecar == ".planck/sidecar"
       assert config.models == []
     end
   end

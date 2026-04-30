@@ -12,21 +12,24 @@ defmodule Planck.Agent.Sidecar do
 
   ## Module-level utilities
 
-  `Planck.Agent.Sidecar` itself provides two public functions that planck_headless
-  calls on the sidecar node via `:rpc.call/5`, passing the sidecar module as an
-  argument. Because `planck_agent` is a dependency of both planck_headless and the
-  sidecar, the module is available on both nodes:
+  `Planck.Agent.Sidecar` itself provides module-level functions that
+  planck_headless calls on the sidecar node via `:rpc.call/5`. Because
+  `planck_agent` is a dependency of both planck_headless and the sidecar, these
+  are available on both nodes:
 
-  - `list_tools/1` — converts `module.tools()` to `[Planck.AI.Tool.t()]` (no
-    closures, serialisable across nodes).
-  - `execute_tool/4` — finds a tool by name in `module.tools()` and calls its
-    `execute_fn` locally on the sidecar.
+  - `discover/0` — finds the module implementing this behaviour (cached in
+    `:persistent_term` after the first call).
+  - `list_tools/0` — discovers the entry module and returns its tools as
+    `[Planck.AI.Tool.t()]` (no closures, serialisable across nodes).
+  - `list_tools/1` — same but takes an explicit module; intended for tests.
+  - `execute_tool/3` — discovers the entry module and executes a named tool.
+  - `execute_tool/4` — same but takes an explicit module; intended for tests.
 
   planck_headless calls:
 
-      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_tools, [MySidecar.Planck])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_tools, [])
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :execute_tool,
-                [MySidecar.Planck, tool_name, agent_id, args], timeout)
+                [tool_name, agent_id, args], timeout)
 
   ## Minimal example
 
@@ -104,16 +107,18 @@ defmodule Planck.Agent.Sidecar do
       end
 
   The `tools/0` function is the only thing you normally need to override.
-  `list_tools/1` and `execute_tool/4` are **not** injected here — they are
-  module-level functions on `Planck.Agent.Sidecar` itself that planck_headless
-  calls on the sidecar node passing your module as an argument:
+  `list_tools/0`, `discover/0`, `execute_tool/3`, and `execute_tool/4` are
+  **not** injected here — they are module-level functions on
+  `Planck.Agent.Sidecar` itself that planck_headless calls on the sidecar node:
 
-      :rpc.call(node, Planck.Agent.Sidecar, :list_tools, [MySidecar.Planck])
+      :rpc.call(node, Planck.Agent.Sidecar, :list_tools, [])
       :rpc.call(node, Planck.Agent.Sidecar, :execute_tool,
-                [MySidecar.Planck, tool_name, agent_id, args], timeout)
+                [tool_name, agent_id, args], timeout)
 
   This design keeps the dispatch logic in `planck_agent` (available on both
-  nodes) rather than requiring each sidecar module to implement it.
+  nodes) rather than requiring each sidecar module to implement it. No config
+  is needed — `list_tools/0` discovers the entry module automatically via
+  `discover/0`.
   """
   defmacro __using__(_options) do
     quote do
@@ -131,11 +136,65 @@ defmodule Planck.Agent.Sidecar do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Convert `module.tools()` to `[Planck.AI.Tool.t()]` — serialisable, no closures.
+  Discover the module in the current node that implements `Planck.Agent.Sidecar`.
+
+  Scans modules across all loaded OTP applications and returns the first one
+  whose `@behaviour` attribute includes `Planck.Agent.Sidecar`, or `nil` if
+  none is found.
+
+  Called by planck_headless on the sidecar node via `list_tools/0`. You
+  normally do not need to call this directly.
+  """
+  @spec discover() :: module() | nil
+  def discover do
+    sidecar_module_key = {__MODULE__, :entry_module}
+
+    case :persistent_term.get(sidecar_module_key, :not_found) do
+      :not_found ->
+        module = scan_entry_module()
+        :persistent_term.put(sidecar_module_key, module)
+        module
+
+      cached ->
+        cached
+    end
+  end
+
+  @spec scan_entry_module() :: module() | nil
+  defp scan_entry_module do
+    :application.loaded_applications()
+    |> Enum.flat_map(fn {app, _, _} ->
+      case :application.get_key(app, :modules) do
+        {:ok, mods} -> mods
+        _ -> []
+      end
+    end)
+    |> Enum.find(fn mod ->
+      behaviours = mod.__info__(:attributes)[:behaviour] || []
+      __MODULE__ in behaviours
+    end)
+  end
+
+  @doc """
+  Discover the sidecar entry module and return its tools as `[Planck.AI.Tool.t()]`.
+
+  Combines `discover/0` and `list_tools/1`. Returns `[]` if no entry module is
+  found.
 
   Called by planck_headless on the sidecar node:
 
-      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_tools, [MySidecar.Planck])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_tools, [])
+  """
+  @spec list_tools() :: [Planck.AI.Tool.t()]
+  def list_tools do
+    case discover() do
+      nil -> []
+      module -> list_tools(module)
+    end
+  end
+
+  @doc """
+  Convert `module.tools()` to `[Planck.AI.Tool.t()]` — serialisable, no closures.
   """
   @spec list_tools(module()) :: [Planck.AI.Tool.t()]
   def list_tools(module) do
@@ -149,15 +208,28 @@ defmodule Planck.Agent.Sidecar do
   end
 
   @doc """
-  Execute a named tool via the sidecar module's `tools/0` list.
+  Discover the entry module and execute a named tool.
 
   Called by planck_headless on the sidecar node:
 
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :execute_tool,
-                [MySidecar.Planck, tool_name, agent_id, args], timeout)
+                [tool_name, agent_id, args], timeout)
 
   The `timeout` is read from `args["timeout_ms"]` by the planck_headless RPC
   wrapper, not by this function.
+  """
+  @spec execute_tool(String.t(), String.t(), map()) :: {:ok, term()} | {:error, term()}
+  def execute_tool(tool_name, agent_id, args) do
+    case discover() do
+      nil -> {:error, "no sidecar entry module found"}
+      module -> execute_tool(module, tool_name, agent_id, args)
+    end
+  end
+
+  @doc """
+  Execute a named tool via an explicit sidecar module's `tools/0` list.
+
+  Intended for tests. Production code should use `execute_tool/3`.
   """
   @spec execute_tool(module(), String.t(), String.t(), map()) ::
           {:ok, term()} | {:error, term()}
