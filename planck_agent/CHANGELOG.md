@@ -2,6 +2,21 @@
 
 ## v0.1.0
 
+### Skills — explicit `load_skill` / `list_skills` tools
+
+- `Skill.load_skill_tool/1` — builds a `load_skill` tool as a closure over the
+  skill pool; automatically injected by `AgentSpec.to_start_opts/2` for every
+  agent when `skill_pool:` is non-empty. No TEAM.json declaration needed.
+- `Skill.list_skills_tool/1` — builds a `list_skills` tool returning all
+  available skill names and descriptions. Opt-in: add `"list_skills"` to an
+  agent's TEAM.json `"tools"` array to enable autonomous skill discovery.
+- `Skill.system_prompt_section/1` updated: no longer includes file paths or
+  resources dir; instructs agents to use `load_skill` instead of `read`.
+- `AgentSpec.resolve_tools/2` updated: automatically appends `load_skill_tool`
+  when `skill_pool:` is non-empty, regardless of `spec.skills`.
+
+### Prior entries
+
 First release.
 
 - `Planck.Agent.Sidecar` — behaviour for distributed sidecar extensions; single

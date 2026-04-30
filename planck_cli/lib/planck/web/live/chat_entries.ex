@@ -276,6 +276,8 @@ defmodule Planck.Web.Live.ChatEntries do
     agent_subtitle(args["name"] || args["type"] || args["id"], args["task"])
   end
 
+  def tool_subtitle("load_skill", %{"name" => name}), do: name
+  def tool_subtitle("list_skills", _), do: nil
   def tool_subtitle("send_response", %{"response" => r}), do: truncate(r, 80)
 
   def tool_subtitle("spawn_agent", args) do

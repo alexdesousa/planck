@@ -13,7 +13,7 @@ defmodule Planck.Headless do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Message, Session, Team, Tools}
+  alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Message, Session, Skill, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
   alias Planck.Headless.Config.JsonBinding
 
@@ -434,7 +434,7 @@ defmodule Planck.Headless do
   defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, metadata) do
     base_opts =
       AgentSpec.to_start_opts(spec,
-        tool_pool: builtins() ++ store.tools,
+        tool_pool: builtins() ++ store.tools ++ skill_discovery_tools(store.skills),
         skill_pool: store.skills,
         team_id: team_id,
         session_id: session_id,
@@ -452,6 +452,7 @@ defmodule Planck.Headless do
         resolved
       ) ++
         Tools.worker_tools(team_id, nil) ++
+        skill_discovery_tools(store.skills) ++
         resolved
 
     system_prompt = prepend_agents_md(base_opts[:system_prompt], cwd)
@@ -482,7 +483,7 @@ defmodule Planck.Headless do
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
       base_opts =
         AgentSpec.to_start_opts(spec,
-          tool_pool: builtins() ++ store.tools,
+          tool_pool: builtins() ++ store.tools ++ skill_discovery_tools(store.skills),
           skill_pool: store.skills,
           team_id: team_id,
           session_id: session_id,
@@ -519,6 +520,13 @@ defmodule Planck.Headless do
   end
 
   defp build_on_compact(_spec, nil), do: nil
+
+  # list_skills is opt-in: agents declare "list_skills" in their TEAM.json tools
+  # array to get autonomous skill discovery. load_skill is injected automatically
+  # by AgentSpec.to_start_opts when skill_pool is non-empty.
+  @spec skill_discovery_tools([Skill.t()]) :: [Planck.Agent.Tool.t()]
+  defp skill_discovery_tools([]), do: []
+  defp skill_discovery_tools(skills), do: [Skill.list_skills_tool(skills)]
 
   @spec load_agent_usage(map(), String.t()) ::
           {%{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()}, float()}

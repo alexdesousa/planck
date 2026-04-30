@@ -47,7 +47,7 @@ defmodule Planck.Agent.AgentSpec do
       [%AgentSpec{...}, ...]
   """
 
-  alias Planck.Agent.{AIBehaviour, Skill}
+  alias Planck.Agent.{AIBehaviour, Skill, Tool}
 
   require Logger
 
@@ -248,17 +248,27 @@ defmodule Planck.Agent.AgentSpec do
     ]
   end
 
-  @spec resolve_tools(t(), keyword()) :: [Planck.Agent.Tool.t()]
+  @spec resolve_tools(t(), keyword()) :: [Tool.t()]
   defp resolve_tools(spec, overrides) do
-    case spec.tools do
-      [] ->
-        Keyword.get(overrides, :tools, [])
+    skill_pool = Keyword.get(overrides, :skill_pool, [])
 
-      names ->
-        pool = Keyword.get(overrides, :tool_pool, [])
-        pool_map = Map.new(pool, &{&1.name, &1})
-        resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
-        resolved ++ Keyword.get(overrides, :tools, [])
+    declared =
+      case spec.tools do
+        [] ->
+          Keyword.get(overrides, :tools, [])
+
+        names ->
+          pool = Keyword.get(overrides, :tool_pool, [])
+          pool_map = Map.new(pool, &{&1.name, &1})
+          resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
+          resolved ++ Keyword.get(overrides, :tools, [])
+      end
+
+    # load_skill is automatically available to every agent when skills exist —
+    # agents do not need to declare it in their TEAM.json.
+    case skill_pool do
+      [] -> declared
+      pool -> declared ++ [Skill.load_skill_tool(pool)]
     end
   end
 

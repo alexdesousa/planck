@@ -221,6 +221,45 @@ defmodule Planck.Agent.AgentSpecTest do
 
       assert opts[:system_prompt] == "You are a builder."
     end
+
+    test "load_skill tool is auto-injected when skill_pool is non-empty" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      skill = %Planck.Agent.Skill{
+        name: "elixir-dev",
+        description: "Elixir expert.",
+        path: "/tmp/skills/elixir-dev",
+        skill_file: "/tmp/skills/elixir-dev/SKILL.md"
+      }
+
+      opts = AgentSpec.to_start_opts(@base_spec, skill_pool: [skill])
+      tool_names = Enum.map(opts[:tools], & &1.name)
+      assert "load_skill" in tool_names
+    end
+
+    test "load_skill tool is not added when skill_pool is empty" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      opts = AgentSpec.to_start_opts(@base_spec, skill_pool: [])
+      tool_names = Enum.map(opts[:tools], & &1.name)
+      refute "load_skill" in tool_names
+    end
+
+    test "load_skill is added regardless of declared spec.skills" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      skill = %Planck.Agent.Skill{
+        name: "elixir-dev",
+        description: "Elixir expert.",
+        path: "/tmp/skills/elixir-dev",
+        skill_file: "/tmp/skills/elixir-dev/SKILL.md"
+      }
+
+      # Agent declares no skills but still gets load_skill
+      opts = AgentSpec.to_start_opts(@base_spec, skill_pool: [skill])
+      tool_names = Enum.map(opts[:tools], & &1.name)
+      assert "load_skill" in tool_names
+    end
   end
 
   # --- from_map/1, from_map/2 ---

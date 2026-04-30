@@ -186,10 +186,13 @@ defmodule Planck.Agent do
     GenServer.cast(agent, :nudge)
   end
 
-  @doc "Cancel in-flight streaming and tool execution. Agent returns to `:idle`."
+  @doc """
+  Cancel in-flight streaming and tool execution. Blocks until the agent has
+  returned to `:idle` (or started a follow-up turn for any queued messages).
+  """
   @spec abort(agent()) :: :ok
   def abort(agent) do
-    GenServer.cast(agent, :abort)
+    GenServer.call(agent, :abort)
   end
 
   @doc """

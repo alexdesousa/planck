@@ -127,6 +127,70 @@ defmodule Planck.Agent.SkillTest do
     end
   end
 
+  # --- load_skill_tool/1 ---
+
+  describe "load_skill_tool/1" do
+    test "returns a tool named load_skill", %{tmp_dir: dir} do
+      write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
+      [skill] = Skill.load_all([dir])
+      tool = Skill.load_skill_tool([skill])
+      assert tool.name == "load_skill"
+    end
+
+    test "loading a known skill returns its SKILL.md content", %{tmp_dir: dir} do
+      write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
+      [skill] = Skill.load_all([dir])
+      tool = Skill.load_skill_tool([skill])
+      {:ok, content} = tool.execute_fn.("id", %{"name" => "elixir-dev"})
+      assert content =~ "elixir-dev"
+      assert content =~ "Elixir expert"
+    end
+
+    test "loading an unknown skill returns an error listing available names", %{tmp_dir: dir} do
+      write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
+      [skill] = Skill.load_all([dir])
+      tool = Skill.load_skill_tool([skill])
+      {:error, msg} = tool.execute_fn.("id", %{"name" => "unknown"})
+      assert msg =~ "Unknown skill"
+      assert msg =~ "elixir-dev"
+    end
+
+    test "works with an empty pool (returns error for any name)" do
+      tool = Skill.load_skill_tool([])
+      {:error, msg} = tool.execute_fn.("id", %{"name" => "anything"})
+      assert msg =~ "Unknown skill"
+    end
+  end
+
+  # --- list_skills_tool/1 ---
+
+  describe "list_skills_tool/1" do
+    test "returns a tool named list_skills", %{tmp_dir: dir} do
+      write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
+      [skill] = Skill.load_all([dir])
+      tool = Skill.list_skills_tool([skill])
+      assert tool.name == "list_skills"
+    end
+
+    test "returns names and descriptions of all skills", %{tmp_dir: dir} do
+      write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
+      write_skill(dir, "code-review", valid_md("code-review", "Reviews code"))
+      skills = Skill.load_all([dir])
+      tool = Skill.list_skills_tool(skills)
+      {:ok, result} = tool.execute_fn.("id", %{})
+      assert result =~ "elixir-dev"
+      assert result =~ "Elixir expert"
+      assert result =~ "code-review"
+      assert result =~ "Reviews code"
+    end
+
+    test "returns a no-skills message for an empty pool" do
+      tool = Skill.list_skills_tool([])
+      {:ok, result} = tool.execute_fn.("id", %{})
+      assert result =~ "No skills"
+    end
+  end
+
   # --- system_prompt_section/1 ---
 
   describe "system_prompt_section/1" do
@@ -134,16 +198,16 @@ defmodule Planck.Agent.SkillTest do
       assert Skill.system_prompt_section([]) == nil
     end
 
-    test "includes name, description, and file path for each skill", %{tmp_dir: dir} do
+    test "includes name and description for each skill", %{tmp_dir: dir} do
       write_skill(dir, "n8n-expert", valid_md("n8n-expert", "n8n automation expert"))
       [skill] = Skill.load_all([dir])
 
       section = Skill.system_prompt_section([skill])
       assert section =~ "n8n-expert"
       assert section =~ "n8n automation expert"
-      assert section =~ "SKILL.md"
-      assert section =~ "resources dir"
-      assert section =~ "`read`"
+      assert section =~ "load_skill"
+      refute section =~ "SKILL.md"
+      refute section =~ "resources dir"
     end
 
     test "includes all skills in the listing", %{tmp_dir: dir} do
