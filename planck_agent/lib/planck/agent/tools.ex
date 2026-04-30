@@ -193,26 +193,47 @@ defmodule Planck.Agent.Tools do
   Build the `spawn_agent` tool for a given team.
 
   `grantable_tools` is the set of built-in tools the orchestrator may delegate.
+  `grantable_skills` is the set of skills the orchestrator may attach to spawned
+  workers — their descriptions are appended to the spawned agent's system prompt.
   Spawned agents always receive the full worker inter-agent tools
   (`ask_agent`, `delegate_task`, `send_response`, `list_team`) plus whichever
   built-in tools the orchestrator selects via the `"tools"` argument.
   """
-  @spec spawn_agent(String.t(), String.t(), String.t(), [Tool.t()]) :: Tool.t()
-  def spawn_agent(session_id, team_id, orchestrator_id, grantable_tools \\ []) do
-    grantable_map = Map.new(grantable_tools, &{&1.name, &1})
-    available_names = Enum.map_join(grantable_tools, ", ", & &1.name)
+  @spec spawn_agent(
+          String.t(),
+          String.t(),
+          String.t(),
+          [Tool.t()],
+          [Planck.Agent.Skill.t()]
+        ) :: Tool.t()
+  def spawn_agent(
+        session_id,
+        team_id,
+        orchestrator_id,
+        grantable_tools \\ [],
+        grantable_skills \\ []
+      ) do
+    grantable_tool_map = Map.new(grantable_tools, &{&1.name, &1})
+    grantable_skill_map = Map.new(grantable_skills, &{&1.name, &1})
+    available_tool_names = Enum.map_join(grantable_tools, ", ", & &1.name)
+    available_skill_names = Enum.map_join(grantable_skills, ", ", & &1.name)
 
     tools_description =
-      if available_names == "",
+      if available_tool_names == "",
         do: "No built-in tools available to grant.",
-        else: "Available built-in tools to grant: #{available_names}."
+        else: "Available built-in tools to grant: #{available_tool_names}."
+
+    skills_description =
+      if available_skill_names == "",
+        do: "No skills available to grant.",
+        else: "Available skills to grant: #{available_skill_names}."
 
     Tool.new(
       name: "spawn_agent",
       description: """
       Create a new worker agent in the team. The worker is registered in the
       team and can be addressed by type or name. Fails if an agent of the same
-      type already exists. #{tools_description}
+      type already exists. #{tools_description} #{skills_description}
       """,
       parameters: %{
         "type" => "object",
@@ -234,6 +255,12 @@ defmodule Planck.Agent.Tools do
             "items" => %{"type" => "string"},
             "description" =>
               "Built-in tool names to grant (e.g. [\"read\", \"bash\"]). Unknown names are silently ignored."
+          },
+          "skills" => %{
+            "type" => "array",
+            "items" => %{"type" => "string"},
+            "description" =>
+              "Skill names to attach; their descriptions are appended to the system prompt. Unknown names are silently ignored."
           }
         },
         "required" => ["type", "name", "description", "system_prompt", "provider", "model_id"]
@@ -242,8 +269,14 @@ defmodule Planck.Agent.Tools do
         try do
           type = args["type"]
           provider = String.to_existing_atom(args["provider"])
-          requested = Map.get(args, "tools", [])
-          granted = Enum.flat_map(requested, &List.wrap(Map.get(grantable_map, &1)))
+          requested_tools = Map.get(args, "tools", [])
+          requested_skills = Map.get(args, "skills", [])
+
+          granted_tools =
+            Enum.flat_map(requested_tools, &List.wrap(Map.get(grantable_tool_map, &1)))
+
+          granted_skills =
+            Enum.flat_map(requested_skills, &List.wrap(Map.get(grantable_skill_map, &1)))
 
           with {:ok, model} <-
                  Planck.Agent.AIBehaviour.client().get_model(provider, args["model_id"]),
@@ -256,11 +289,11 @@ defmodule Planck.Agent.Tools do
               name: args["name"],
               description: args["description"],
               model: model,
-              system_prompt: args["system_prompt"],
+              system_prompt: build_system_prompt(args["system_prompt"], granted_skills),
               session_id: session_id,
               team_id: team_id,
               delegator_id: orchestrator_id,
-              tools: worker_tools(team_id, orchestrator_id) ++ granted
+              tools: worker_tools(team_id, orchestrator_id) ++ granted_tools
             ]
 
             case DynamicSupervisor.start_child(
@@ -279,6 +312,16 @@ defmodule Planck.Agent.Tools do
         end
       end
     )
+  end
+
+  @spec build_system_prompt(String.t(), [Planck.Agent.Skill.t()]) :: String.t()
+  defp build_system_prompt(base, []), do: base
+
+  defp build_system_prompt(base, skills) do
+    case Planck.Agent.Skill.system_prompt_section(skills) do
+      nil -> base
+      section -> base <> "\n\n" <> section
+    end
   end
 
   @doc "Build the `destroy_agent` tool for a given team."

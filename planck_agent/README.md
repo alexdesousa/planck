@@ -210,7 +210,7 @@ escalate beyond what the orchestrator was given.
 ### Spawning a team manually
 
 ```elixir
-alias Planck.Agent.{Agent, AgentSpec, Compactor, TeamTemplate}
+alias Planck.Agent.{Agent, AgentSpec, Compactor, Team}
 
 {:ok, model} = Planck.AI.get_model(:anthropic, "claude-sonnet-4-6")
 
@@ -385,9 +385,9 @@ Unknown names are silently ignored. When `spec.tools` is empty, `to_start_opts/2
 falls back to the `tools:` keyword — the behaviour before this feature was added.
 
 ```elixir
-alias Planck.Agent.{Agent, AgentSpec, Compactor, TeamTemplate}
+alias Planck.Agent.{Agent, AgentSpec, Compactor, Team}
 
-{:ok, specs} = TeamTemplate.load("config/team.json")
+{:ok, team} = Team.load(".planck/teams/my-team")
 
 tools_by_type = %{
   "planner" => [list_team_tool, delegate_task_tool, spawn_agent_tool],
@@ -397,7 +397,7 @@ tools_by_type = %{
 team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 session_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
-Enum.each(specs, fn spec ->
+Enum.each(team.members, fn spec ->
   {:ok, model} = Planck.AI.get_model(spec.provider, spec.model_id)
   tools = Map.get(tools_by_type, spec.type, [])
 
