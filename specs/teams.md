@@ -316,8 +316,8 @@ now accepts an alias in addition to a path.
 - `planck_headless` owns the registry (boot-time scan, alias lookup, reload).
   Collections of teams are a `planck_headless` concern, same pattern as tools
   and skills.
-- `planck_tui` and `planck_web` own the slash commands and the team-selection
-  UI. They call `Planck.Headless.list_teams/0` and
+- `planck_cli` owns the slash commands and the team-selection UI (both TUI
+  and Web UI live there). They call `Planck.Headless.list_teams/0` and
   `Planck.Headless.start_session(template: alias)`.
 
 ## Testing strategy
