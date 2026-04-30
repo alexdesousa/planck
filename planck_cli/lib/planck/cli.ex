@@ -6,6 +6,7 @@ defmodule Planck.CLI do
   @impl true
   def start(_type, _args) do
     Planck.CLI.Config.preload()
+    Planck.CLI.Config.validate!()
 
     if System.get_env("__BURRITO") do
       # Running as a compiled binary — execute the CLI and halt when done.

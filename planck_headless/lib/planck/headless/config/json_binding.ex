@@ -13,6 +13,8 @@ defmodule Planck.Headless.Config.JsonBinding do
 
   use Skogsra.Binding
 
+  alias Planck.Headless.Config
+
   require Logger
 
   @cache_key {__MODULE__, :config}
@@ -60,7 +62,7 @@ defmodule Planck.Headless.Config.JsonBinding do
 
   @spec load_files() :: map()
   defp load_files do
-    Enum.reduce(Planck.Headless.Config.config_files!(), %{}, fn path, acc ->
+    Enum.reduce(Config.config_files!(), %{}, fn path, acc ->
       case load_file(path) do
         {:ok, map} -> Map.merge(acc, map)
         :skip -> acc

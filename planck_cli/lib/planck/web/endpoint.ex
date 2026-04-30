@@ -8,6 +8,10 @@ defmodule Planck.Web.Endpoint do
     same_site: "Lax"
   ]
 
+  if Application.compile_env(:planck_cli, :dev_routes, false) do
+    plug(Tidewave)
+  end
+
   socket("/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]

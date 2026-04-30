@@ -1,5 +1,10 @@
 <div class="h-screen flex flex-col bg-background text-foreground overflow-hidden">
 
+  <%!-- New session modal --%>
+  <%= if @show_new_session do %>
+    <.new_session_modal teams={@teams} />
+  <% end %>
+
   <%!-- Mobile toolbar — hidden when both sidebars are inline --%>
   <div class="flex md:hidden items-center justify-between border-b-2 border-border px-3 py-2 bg-card">
     <button class="border-2 border-black px-2 py-1 font-mono text-xs font-bold
@@ -36,19 +41,33 @@
       </div>
       <div class="flex-1 overflow-y-auto p-2 space-y-1">
         <%= for session <- @sessions do %>
-          <button
-            class={[
-              "w-full text-left px-2 py-1.5 font-mono text-xs border-2 border-transparent",
-              "hover:border-border hover:bg-muted transition-colors",
-              if(session.session_id == @active_session, do: "border-border bg-muted font-bold", else: "")
-            ]}
-            phx-click="switch_session"
-            phx-value-id={session.session_id}
-          >
-            <span class={["inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle",
-                           if(session.active, do: "bg-green-500", else: "bg-muted")]} />
-            <%= session.name || session.session_id %>
-          </button>
+          <div class="group flex items-center gap-1">
+            <button
+              class={[
+                "flex-1 text-left px-2 py-1.5 font-mono text-xs border-2 border-transparent",
+                "hover:border-border hover:bg-muted transition-colors truncate",
+                if(session.session_id == @active_session, do: "border-border bg-muted font-bold", else: "")
+              ]}
+              phx-click="switch_session"
+              phx-value-id={session.session_id}
+            >
+              <span class={["inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle",
+                             if(session.active, do: "bg-green-500", else: "bg-muted")]} />
+              <%= session.name || session.session_id %>
+            </button>
+            <button
+              class="opacity-0 group-hover:opacity-100 flex-shrink-0
+                     border border-border w-5 h-5 flex items-center justify-center
+                     font-mono text-xs text-muted-foreground
+                     hover:border-destructive hover:text-destructive hover:bg-destructive/10
+                     transition-opacity"
+              phx-click="delete_session"
+              phx-value-id={session.session_id}
+              title="Delete session"
+            >
+              ×
+            </button>
+          </div>
         <% end %>
       </div>
       <div class="p-2 border-t-2 border-border">
@@ -66,47 +85,14 @@
 
     <%!-- Centre: chat --%>
     <main class="flex-1 flex flex-col overflow-hidden">
-      <%!-- Messages --%>
-      <div class="flex-1 overflow-y-auto p-4 space-y-4" id="chat-messages" phx-hook="ScrollBottom">
-        <%= for entry <- @messages do %>
-          <%= cond do %>
-            <% entry.type == :user -> %>
-              <div class="flex justify-end">
-                <div class="max-w-2xl border-2 border-black px-3 py-2 bg-muted shadow-[2px_2px_0px_#000]">
-                  <p class="font-mono text-xs text-muted-foreground mb-1">you</p>
-                  <p class="text-sm whitespace-pre-wrap"><%= entry.text %></p>
-                </div>
-              </div>
-
-            <% entry.type == :assistant -> %>
-              <div class="max-w-2xl">
-                <p class="font-mono text-xs text-muted-foreground mb-1">
-                  <%= agent_label(@agents, entry.agent_id) %>
-                  <%= if entry.streaming do %><span class="animate-pulse">▊</span><% end %>
-                </p>
-                <p class="text-sm whitespace-pre-wrap leading-relaxed"><%= entry.text %></p>
-              </div>
-
-            <% entry.type == :tool -> %>
-              <.tool_block entry={entry} />
-
-            <% entry.type == :thinking -> %>
-              <.thinking_block entry={entry} />
-
-            <% true -> %>
-          <% end %>
-        <% end %>
-
-        <%= if @messages == [] do %>
-          <div class="flex items-center justify-center h-full text-center">
-            <div>
-              <p class="font-bold font-mono text-lg text-foreground">planck</p>
-              <p class="font-mono text-sm text-muted-foreground mt-2">
-                Ask me anything, or tell me to configure your project.
-              </p>
-            </div>
-          </div>
-        <% end %>
+      <div class="flex-1 overflow-hidden">
+        <.live_component
+          module={Planck.Web.Live.ChatComponent}
+          id="chat-main"
+          session_id={@active_session}
+          perspective_agent_id={@orchestrator_id}
+          agents={@agents}
+        />
       </div>
 
       <%!-- Prompt input --%>
@@ -115,24 +101,52 @@
           <textarea
             name="prompt"
             value={@prompt}
-            class="auto-grow flex-1 border-2 border-black px-3 py-2 font-mono text-sm
-                   bg-background resize-none focus:outline-none
-                   focus:shadow-[2px_2px_0px_#000] placeholder:text-muted-foreground"
-            placeholder="Message planck…"
+            class={[
+              "auto-grow flex-1 border-2 border-black px-3 py-2 font-mono text-sm",
+              "bg-background resize-none focus:outline-none",
+              "focus:shadow-[2px_2px_0px_#000] placeholder:text-muted-foreground",
+              if(@history_index, do: "border-primary shadow-[2px_2px_0px_var(--primary)]", else: "")
+            ]}
+            placeholder="Message planck… (↑ for history)"
             id="prompt-input"
             phx-hook="PromptInput"
             disabled={@streaming}
           ></textarea>
-          <button
-            type="submit"
-            class="border-2 border-black px-4 font-bold font-mono text-sm
-                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                   bg-primary text-primary-foreground disabled:opacity-50"
-            disabled={@streaming}
-          >
-            Send
-          </button>
+          <%= if @streaming or @waiting do %>
+            <button
+              type="button"
+              class="border-2 border-black px-3 font-bold font-mono text-sm
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     bg-destructive text-destructive-foreground"
+              phx-click="abort"
+              title="Stop orchestrator"
+            >
+              Stop
+            </button>
+            <button
+              type="button"
+              class="border-2 border-black px-3 font-bold font-mono text-sm
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     border-destructive text-destructive bg-card"
+              phx-click="abort_all"
+              title="Stop all agents"
+            >
+              Stop All
+            </button>
+          <% else %>
+            <button
+              type="submit"
+              class="border-2 border-black px-4 font-bold font-mono text-sm
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     bg-primary text-primary-foreground disabled:opacity-50"
+              disabled={@streaming}
+            >
+              Send
+            </button>
+          <% end %>
         </form>
       </div>
     </main>
@@ -178,32 +192,38 @@
     sidecar={@sidecar}
   />
 
-  <%!-- Agent context overlay --%>
+  <%!-- Agent context overlay — centered panel, not full-screen on large displays --%>
   <%= if @overlay do %>
-    <div class="fixed inset-0 z-50 bg-background flex flex-col">
-      <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
-        <p class="font-bold font-mono"><%= agent_label(@agents, @overlay) %></p>
-        <button
-          class="border-2 border-black px-3 py-1 font-mono text-sm font-bold
-                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
-          phx-click="close_overlay"
-          phx-window-keydown="close_overlay"
-          phx-key="Escape"
-        >
-          ✕ Close
-        </button>
-      </div>
-      <div class="flex-1 overflow-y-auto p-4 font-mono text-sm">
-        <%!-- Agent-specific messages filtered from @messages --%>
-        <%= for entry <- Enum.filter(@messages, & &1.agent_id == @overlay or &1.type == :user) do %>
-          <div class="mb-4">
-            <p class="text-xs text-muted-foreground mb-1">
-              <%= if entry.type == :user, do: "you", else: agent_label(@agents, entry.agent_id) %>
-            </p>
-            <p class="whitespace-pre-wrap"><%= entry.text %></p>
-          </div>
-        <% end %>
+    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 md:p-8"
+         phx-window-keydown="close_overlay"
+         phx-key="Escape">
+      <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
+                  w-full max-w-2xl h-[85vh] overflow-hidden">
+        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card flex-shrink-0">
+          <p class="font-bold font-mono text-sm">
+            <%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %>
+            <span class="text-muted-foreground font-normal ml-2">
+              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model) %>
+            </span>
+          </p>
+          <button
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="close_overlay"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="flex-1 overflow-hidden min-h-0">
+          <.live_component
+            module={Planck.Web.Live.ChatComponent}
+            id="chat-overlay"
+            session_id={@active_session}
+            perspective_agent_id={@overlay}
+            agents={@agents}
+          />
+        </div>
       </div>
     </div>
   <% end %>

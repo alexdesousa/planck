@@ -1,0 +1,209 @@
+<div id={"chat-#{@id}"} class="flex flex-col h-full overflow-y-auto overscroll-contain p-4 space-y-3"
+     phx-hook="Chat"
+     phx-target={@myself}>
+
+  <%!-- Message entries --%>
+  <%= for entry <- @entries do %>
+
+    <%!-- RIGHT side: user input, incoming delegations, and worker responses --%>
+    <%= if entry.side == :right do %>
+      <div class="flex justify-end">
+        <div class="max-w-[70%]">
+          <%= if entry.type == :agent_response do %>
+            <div class="border-2 border-black shadow-[2px_2px_0px_#000] bg-green-500/10">
+              <button
+                class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-green-500/10
+                       font-mono text-xs text-left"
+                phx-click="toggle_entry"
+                phx-value-id={entry.id}
+                phx-target={@myself}
+              >
+                <span class="text-green-600 dark:text-green-500">
+                  <%= if entry.expanded, do: "▼", else: "▶" %>
+                </span>
+                <span class="text-green-700 dark:text-green-400 font-bold">
+                  <%= author_label(entry.author) %>
+                </span>
+                <span class="text-green-600 dark:text-green-500">responded</span>
+                <%= if not entry.expanded do %>
+                  <span class="text-green-700/60 dark:text-green-400/60 truncate flex-1">
+                    <%= String.slice(entry.text, 0, 60) %><%= if String.length(entry.text) > 60, do: "…" %>
+                  </span>
+                <% end %>
+              </button>
+              <%= if entry.expanded do %>
+                <div class="border-t-2 border-black/20 px-3 py-2">
+                  <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+                </div>
+              <% end %>
+            </div>
+          <% else %>
+            <div class={[
+              "border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000]",
+              if(entry.author == :user, do: "bg-muted", else: "bg-primary/10")
+            ]}>
+              <p class={[
+                "font-mono text-xs mb-1 flex items-center gap-2",
+                if(entry.author == :user, do: "text-muted-foreground", else: "text-primary")
+              ]}>
+                <%= author_label(entry.author) %>
+                <%= if time_label(entry[:timestamp]) do %>
+                  <time data-local-time={time_label(entry[:timestamp])} class="opacity-50"></time>
+                <% end %>
+              </p>
+              <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+    <%!-- LEFT side: respondent messages --%>
+    <% else %>
+      <%= case entry.type do %>
+        <% :text -> %>
+          <div class="max-w-[70%]">
+            <p class="font-mono text-xs text-muted-foreground mb-1 flex items-center gap-2">
+              <%= author_label(entry.author) %>
+              <%= if entry.streaming do %><span class="animate-pulse">▊</span><% end %>
+              <%= if !entry.streaming && time_label(entry[:timestamp]) do %>
+                <time data-local-time={time_label(entry[:timestamp])} class="opacity-50"></time>
+              <% end %>
+            </p>
+            <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+          </div>
+
+        <% :thinking -> %>
+          <div class="max-w-[70%]">
+            <div class="border-2 border-dashed border-stone-300 dark:border-stone-600">
+              <button
+                class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-stone-50
+                       dark:hover:bg-stone-800/50 font-mono text-xs text-left"
+                phx-click="toggle_entry"
+                phx-value-id={entry.id}
+                phx-target={@myself}
+              >
+                <span class="text-stone-400"><%= if entry.expanded, do: "▼", else: "▶" %></span>
+                <span class="text-stone-500 dark:text-stone-400 italic">
+                  <%= author_label(entry.author) %> thinking<%= if entry.streaming, do: "…" %>
+                </span>
+              </button>
+              <%= if entry.expanded do %>
+                <div class="border-t-2 border-dashed border-stone-300 dark:border-stone-600 px-3 py-2">
+                  <p class="font-mono text-xs text-stone-500 dark:text-stone-400 whitespace-pre-wrap leading-relaxed">
+                    <%= entry.text %>
+                  </p>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+        <% :tool -> %>
+          <div class="max-w-[70%]">
+            <div class="border-2 border-border">
+              <button
+                class="w-full flex items-center gap-2 px-3 py-1.5 bg-muted
+                       hover:bg-muted/80 font-mono text-xs text-left"
+                phx-click="toggle_entry"
+                phx-value-id={entry.id}
+                phx-target={@myself}
+              >
+                <span class="text-muted-foreground"><%= if entry.expanded, do: "▼", else: "▶" %></span>
+                <span class="text-muted-foreground mr-1"><%= author_label(entry.author) %></span>
+                <span class="font-bold text-foreground"><%= entry.tool_name %></span>
+                <%= if entry.tool_subtitle do %>
+                  <span class="text-muted-foreground truncate flex-1"><%= entry.tool_subtitle %></span>
+                <% end %>
+                <span class="ml-auto flex-shrink-0">
+                  <%= cond do %>
+                    <% entry.tool_error -> %>
+                      <span class="text-destructive font-bold">error</span>
+                    <% entry.tool_result -> %>
+                      <span class="text-green-600">done</span>
+                    <% true -> %>
+                      <span class="text-muted-foreground animate-pulse">running…</span>
+                  <% end %>
+                </span>
+              </button>
+              <%= if entry.expanded do %>
+                <div class="border-t-2 border-border divide-y-2 divide-border">
+                  <%= if entry.tool_args && map_size(entry.tool_args) > 0 do %>
+                    <div class="px-3 py-2">
+                      <p class="font-mono text-xs text-muted-foreground mb-1">input</p>
+                      <pre class="font-mono text-xs whitespace-pre-wrap overflow-x-auto text-foreground break-all"><%= format_args(entry.tool_name, entry.tool_args) %></pre>
+                    </div>
+                  <% end %>
+                  <%= if entry.tool_result do %>
+                    <div class="px-3 py-2">
+                      <p class="font-mono text-xs text-muted-foreground mb-1">output</p>
+                      <pre class={[
+                        "font-mono text-xs whitespace-pre-wrap overflow-x-auto break-all",
+                        if(entry.tool_error, do: "text-destructive", else: "text-foreground")
+                      ]}><%= entry.tool_result %></pre>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+        <% :error -> %>
+          <div class="max-w-[70%]">
+            <div class="border-2 border-destructive">
+              <button
+                class="w-full flex items-center gap-2 px-3 py-1.5 bg-destructive/10
+                       hover:bg-destructive/20 font-mono text-xs text-left"
+                phx-click="toggle_entry"
+                phx-value-id={entry.id}
+                phx-target={@myself}
+              >
+                <span class="text-destructive"><%= if entry.expanded, do: "▼", else: "▶" %></span>
+                <span class="text-destructive font-bold"><%= author_label(entry.author) %> error</span>
+              </button>
+              <%= if entry.expanded do %>
+                <div class="border-t-2 border-destructive px-3 py-2">
+                  <pre class="font-mono text-xs text-destructive whitespace-pre-wrap break-all"><%= entry.text %></pre>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+        <% :summary -> %>
+          <div class="flex items-center gap-2 my-2">
+            <div class="flex-1 border-t border-dashed border-border" />
+            <span class="font-mono text-xs text-muted-foreground px-2">context compacted</span>
+            <div class="flex-1 border-t border-dashed border-border" />
+          </div>
+
+        <% _ -> %>
+      <% end %>
+    <% end %>
+  <% end %>
+
+  <%!-- Compacting indicator --%>
+  <%= if @compacting do %>
+    <div class="flex items-center gap-2 my-2">
+      <div class="flex-1 border-t border-dashed border-border" />
+      <span class="font-mono text-xs text-muted-foreground px-2 animate-pulse">compacting context…</span>
+      <div class="flex-1 border-t border-dashed border-border" />
+    </div>
+  <% end %>
+
+  <%!-- Typing / waiting indicator --%>
+  <%= if @waiting or (@streaming and @streaming_agent_id) do %>
+    <div class="flex items-center gap-2 text-muted-foreground py-1">
+      <span class="font-mono text-xs">
+        <%= if @streaming_agent_id,
+          do: agent_label(@agents, @streaming_agent_id),
+          else: "agent" %>
+      </span>
+      <span class="flex gap-0.5">
+        <span class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 0ms" />
+        <span class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 150ms" />
+        <span class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 300ms" />
+      </span>
+    </div>
+  <% end %>
+
+  <%!-- Scroll anchor --%>
+  <div id={"chat-bottom-#{@id}"} />
+</div>

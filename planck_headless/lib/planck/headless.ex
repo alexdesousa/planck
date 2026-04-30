@@ -13,8 +13,9 @@ defmodule Planck.Headless do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Session, Team, Tools}
+  alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Message, Session, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
+  alias Planck.Headless.Config.JsonBinding
 
   @type session_id :: String.t()
 
@@ -214,7 +215,7 @@ defmodule Planck.Headless do
   """
   @spec reload_resources() :: :ok
   def reload_resources do
-    Planck.Headless.Config.JsonBinding.invalidate()
+    JsonBinding.invalidate()
     ResourceStore.reload()
   end
 
@@ -625,14 +626,13 @@ defmodule Planck.Headless do
       messages_by_agent = Enum.group_by(all_rows, & &1.agent_id, & &1.message)
       orch_messages = Map.get(messages_by_agent, orch_id, [])
 
-      unless last_message_is_recovery?(orch_messages) do
-        in_flight =
-          unresolved_asks(orch_messages) ++
-            unfinished_workers(messages_by_agent, orch_id, orch_messages)
+      in_flight =
+        if last_message_is_recovery?(orch_messages),
+          do: [],
+          else: unfinished_workers(messages_by_agent, orch_id, orch_messages)
 
-        if in_flight != [] do
-          Session.append(session_id, orch_id, build_recovery_message(in_flight))
-        end
+      if in_flight != [] do
+        Session.append(session_id, orch_id, build_recovery_message(in_flight))
       end
     end
 
@@ -676,60 +676,19 @@ defmodule Planck.Headless do
     continue from that point if you see it fit.
     """
 
-    Planck.Agent.Message.new(:user, [{:text, String.trim(body)}])
+    Message.new(:user, [{:text, String.trim(body)}])
   end
 
-  # Find ask_agent tool calls in the orchestrator's messages that have no
-  # matching tool_result — the orchestrator was blocked waiting for an answer.
-  @spec unresolved_asks([Planck.Agent.Message.t()]) :: [{String.t(), String.t()}]
-  defp unresolved_asks(messages) do
-    # Collect all resolved tool call ids from tool_result messages.
-    resolved_ids =
-      messages
-      |> Enum.flat_map(fn msg ->
-        Enum.flat_map(msg.content, fn
-          {:tool_result, id, _} -> [id]
-          _ -> []
-        end)
-      end)
-      |> MapSet.new()
-
-    # Find ask_agent tool calls with no matching result.
-    messages
-    |> Enum.filter(&(&1.role == :assistant))
-    |> Enum.flat_map(&unresolved_ask_parts(&1.content, resolved_ids))
-  end
-
-  @spec unresolved_ask_parts([term()], MapSet.t()) :: [{String.t(), String.t()}]
-  defp unresolved_ask_parts(content, resolved_ids) do
-    Enum.flat_map(content, fn
-      {:tool_call, id, "ask_agent", input} ->
-        if MapSet.member?(resolved_ids, id) do
-          []
-        else
-          target = input["name"] || input["type"] || "agent"
-          [{"ask_agent", "waiting for answer from #{target}: #{input["question"]}"}]
-        end
-
-      _ ->
-        []
-    end)
-  end
-
-  # Find workers (non-orchestrator agent_ids) that have started work but never
-  # called send_response across their entire message history.
-  # Cross-references the orchestrator's delegate_task calls to include the target
-  # label and task text in the report.
+  # Find workers (non-orchestrator agent_ids) whose last received task has no
+  # send_response after it. For each, find the LAST orchestrator tool call
+  # (ask_agent or delegate_task) that matches the worker's pending task text —
+  # that determines both the tool type and the target label in the report.
   @spec unfinished_workers(
           %{String.t() => [Planck.Agent.Message.t()]},
           String.t(),
           [Planck.Agent.Message.t()]
         ) :: [{String.t(), String.t()}]
   defp unfinished_workers(messages_by_agent, orch_id, orch_messages) do
-    delegations = extract_delegations(orch_messages)
-
-    # Exclude any agent that has ever made inter-agent tool calls — previous
-    # orchestrators from earlier resumes may still be in the session rows.
     orchestrator_ids =
       MapSet.new(messages_by_agent, fn {id, msgs} ->
         if has_orchestrator_tool_calls?(msgs), do: id, else: nil
@@ -740,57 +699,70 @@ defmodule Planck.Headless do
     messages_by_agent
     |> Enum.reject(fn {id, _} -> MapSet.member?(orchestrator_ids, id) end)
     |> Enum.flat_map(fn {_worker_id, msgs} ->
-      if worker_unfinished?(msgs) do
-        task_text = worker_task_text(msgs)
-        {target, task} = find_delegation(delegations, task_text)
-        [{"delegate_task", "#{target} did not complete: #{task}"}]
-      else
-        []
-      end
+      task_text = worker_task_text(msgs)
+      interaction = last_orchestrator_interaction(task_text, orch_messages)
+      pending_interaction_entry(interaction, msgs)
     end)
   end
 
-  # Extract all delegate_task calls from the orchestrator's messages as
-  # {target_label, task_text} pairs for cross-referencing with workers.
-  @spec extract_delegations([Planck.Agent.Message.t()]) :: [{String.t(), String.t()}]
-  defp extract_delegations(messages) do
-    messages
+  @spec pending_interaction_entry(
+          {String.t(), String.t(), String.t()} | nil,
+          [Planck.Agent.Message.t()]
+        ) :: [{String.t(), String.t()}]
+  defp pending_interaction_entry(nil, _msgs), do: []
+
+  defp pending_interaction_entry({"ask_agent", target, task}, msgs) do
+    if worker_answered_ask?(msgs), do: [], else: [{"ask_agent", "#{target}: #{truncate(task, 80)}"}]
+  end
+
+  defp pending_interaction_entry({"delegate_task", target, task}, msgs) do
+    if worker_sent_response?(msgs),
+      do: [],
+      else: [{"delegate_task", "#{target} did not complete: #{truncate(task, 80)}"}]
+  end
+
+  # Find the LAST ask_agent or delegate_task call from the orchestrator whose
+  # question/task text matches the worker's current pending task text.
+  @spec last_orchestrator_interaction(String.t(), [Planck.Agent.Message.t()]) ::
+          {String.t(), String.t(), String.t()} | nil
+  defp last_orchestrator_interaction(task_text, orch_messages) do
+    orch_messages
     |> Enum.filter(&(&1.role == :assistant))
-    |> Enum.flat_map(fn msg ->
-      Enum.flat_map(msg.content, fn
-        {:tool_call, _, "delegate_task", args} ->
-          target = args["name"] || args["type"] || "worker"
-          [{target, args["task"] || ""}]
+    |> Enum.flat_map(&match_interactions(&1.content, task_text))
+    |> List.last()
+  end
 
-        _ ->
+  @spec match_interactions([term()], String.t()) :: [{String.t(), String.t(), String.t()}]
+  defp match_interactions(content, task_text) do
+    Enum.flat_map(content, fn
+      {:tool_call, _, tool, args} when tool in ["ask_agent", "delegate_task"] ->
+        content_text = args["question"] || args["task"] || ""
+
+        if content_text == task_text do
+          [{tool, args["name"] || args["type"] || "worker", task_text}]
+        else
           []
-      end)
+        end
+
+      _ ->
+        []
     end)
   end
 
-  # The worker's first :user message is the delegated task text.
+  # The worker's last :user message is their current pending task text.
   @spec worker_task_text([Planck.Agent.Message.t()]) :: String.t()
   defp worker_task_text(messages) do
-    case Enum.find(messages, &(&1.role == :user)) do
+    case Enum.filter(messages, &(&1.role == :user)) |> List.last() do
       nil ->
         ""
 
       msg ->
-        Enum.flat_map(msg.content, fn
+        msg.content
+        |> Enum.flat_map(fn
           {:text, t} -> [t]
           _ -> []
         end)
         |> Enum.join("")
-    end
-  end
-
-  # Find the delegation whose task text matches the worker's task.
-  # Falls back to "worker" / the raw task text if no match is found.
-  @spec find_delegation([{String.t(), String.t()}], String.t()) :: {String.t(), String.t()}
-  defp find_delegation(delegations, worker_task) do
-    case Enum.find(delegations, fn {_target, task} -> task == worker_task end) do
-      {target, task} -> {target, truncate(task, 80)}
-      nil -> {"worker", truncate(worker_task, 80)}
     end
   end
 
@@ -801,33 +773,34 @@ defmodule Planck.Headless do
       else: text
   end
 
-  # A worker is unfinished when their most recent task (last :user message) has
-  # no send_response in any assistant message that follows it. This correctly
-  # handles compacted history (we search all rows, not just in-memory context)
-  # and models that continue after send_response within the same turn.
-  @spec worker_unfinished?([Planck.Agent.Message.t()]) :: boolean()
-  defp worker_unfinished?(msgs) do
-    last_user_idx =
-      msgs
-      |> Enum.with_index()
-      |> Enum.filter(fn {msg, _} -> msg.role == :user end)
-      |> List.last()
-
-    case last_user_idx do
-      nil ->
-        false
-
-      {_, idx} ->
-        msgs
-        |> Enum.drop(idx + 1)
-        |> Enum.any?(fn msg ->
-          msg.role == :assistant &&
-            Enum.any?(msg.content, fn
-              {:tool_call, _, "send_response", _} -> true
-              _ -> false
-            end)
+  # delegate_task: done when the worker has called send_response after the last task.
+  @spec worker_sent_response?([Planck.Agent.Message.t()]) :: boolean()
+  defp worker_sent_response?(msgs) do
+    msgs_after_last_user(msgs)
+    |> Enum.any?(fn msg ->
+      msg.role == :assistant &&
+        Enum.any?(msg.content, fn
+          {:tool_call, _, "send_response", _} -> true
+          _ -> false
         end)
-        |> Kernel.not()
+    end)
+  end
+
+  # ask_agent: done when the worker has produced any assistant turn after the question.
+  @spec worker_answered_ask?([Planck.Agent.Message.t()]) :: boolean()
+  defp worker_answered_ask?(msgs) do
+    msgs_after_last_user(msgs)
+    |> Enum.any?(&(&1.role == :assistant))
+  end
+
+  @spec msgs_after_last_user([Planck.Agent.Message.t()]) :: [Planck.Agent.Message.t()]
+  defp msgs_after_last_user(msgs) do
+    case msgs
+         |> Enum.with_index()
+         |> Enum.filter(fn {m, _} -> m.role == :user end)
+         |> List.last() do
+      nil -> []
+      {_, idx} -> Enum.drop(msgs, idx + 1)
     end
   end
 

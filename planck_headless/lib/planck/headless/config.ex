@@ -62,9 +62,11 @@ defmodule Planck.Headless.Config do
 
     use Skogsra.Type
 
+    alias Planck.AI.Config, as: AIConfig
+
     @impl Skogsra.Type
     @spec cast(term()) :: {:ok, [Planck.AI.Model.t()]} | {:error, String.t()}
-    def cast(list) when is_list(list), do: {:ok, Planck.AI.Config.from_list(list)}
+    def cast(list) when is_list(list), do: {:ok, AIConfig.from_list(list)}
     def cast(_), do: {:error, "expected a list of model maps"}
   end
 
