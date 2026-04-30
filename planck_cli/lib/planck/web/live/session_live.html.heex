@@ -1,10 +1,5 @@
 <div class="h-screen flex flex-col bg-background text-foreground overflow-hidden">
 
-  <%!-- New session modal --%>
-  <%= if @show_new_session do %>
-    <.new_session_modal teams={@teams} />
-  <% end %>
-
   <%!-- Mobile toolbar — hidden when both sidebars are inline --%>
   <div class="flex md:hidden items-center justify-between border-b-2 border-border px-3 py-2 bg-card">
     <button class="border-2 border-black px-2 py-1 font-mono text-xs font-bold
@@ -30,59 +25,14 @@
   <div class="flex flex-1 overflow-hidden">
 
     <%!-- Left sidebar: sessions — inline on md+, drawer on smaller --%>
-    <aside class={[
-      "flex flex-col bg-card overflow-hidden border-r-2 border-border",
-      "w-56 md:w-44 md:static md:translate-x-0",
-      "fixed inset-y-0 left-0 z-40 transition-transform duration-200",
-      if(@left_open, do: "translate-x-0", else: "-translate-x-full md:translate-x-0")
-    ]}>
-      <div class="border-b-2 border-border px-3 py-2">
-        <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Sessions</p>
-      </div>
-      <div class="flex-1 overflow-y-auto p-2 space-y-1">
-        <%= for session <- @sessions do %>
-          <div class="flex items-center gap-1">
-            <button
-              class={[
-                "flex-1 text-left px-2 py-1.5 font-mono text-xs border-2 border-black truncate",
-                "transition-all hover:shadow-[2px_2px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5",
-                if(session.session_id == @active_session,
-                  do: "bg-muted font-bold shadow-[2px_2px_0px_#000]",
-                  else: "bg-card")
-              ]}
-              phx-click="switch_session"
-              phx-value-id={session.session_id}
-            >
-              <span class={["inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle",
-                             if(session.active, do: "bg-green-500", else: "bg-muted")]} />
-              <%= session.name || session.session_id %>
-            </button>
-            <button
-              class="flex-shrink-0 border-2 border-black w-6 h-6 flex items-center justify-center
-                     font-mono text-xs font-bold bg-destructive text-destructive-foreground
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all"
-              phx-click="delete_session"
-              phx-value-id={session.session_id}
-              title="Delete session"
-            >
-              ×
-            </button>
-          </div>
-        <% end %>
-      </div>
-      <div class="p-2 border-t-2 border-border">
-        <button
-          class="w-full border-2 border-black py-1 font-bold font-mono text-xs
-                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                 bg-primary text-primary-foreground"
-          phx-click="new_session"
-        >
-          + New
-        </button>
-      </div>
-    </aside>
+    <.live_component
+      module={Planck.Web.Live.SessionsSidebar}
+      id="sessions-sidebar"
+      sessions={@sessions}
+      active_session={@active_session}
+      left_open={@left_open}
+      teams={@teams}
+    />
 
     <%!-- Centre: chat --%>
     <main class="flex-1 flex flex-col overflow-hidden">
