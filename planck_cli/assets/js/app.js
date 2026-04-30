@@ -61,13 +61,21 @@ topbar.config({barColors: {0: "#5F4FE6"}, shadowColor: "rgba(0,0,0,.3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
-// Dark mode: sync data-theme attribute with system preference
+// Dark mode: localStorage override, falling back to system preference
 const applyTheme = () => {
-  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches
+  const stored = localStorage.getItem("theme")
+  const dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light")
 }
 applyTheme()
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme)
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!localStorage.getItem("theme")) applyTheme()
+})
+window.toggleTheme = () => {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark"
+  localStorage.setItem("theme", next)
+  document.documentElement.setAttribute("data-theme", next)
+}
 
 liveSocket.connect()
 window.liveSocket = liveSocket
