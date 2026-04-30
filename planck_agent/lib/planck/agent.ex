@@ -475,7 +475,8 @@ defmodule Planck.Agent do
     Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "agent:#{id}", event)
 
     if session_id do
-      Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "session:#{session_id}", event)
+      session_event = {:agent_event, type, Map.put(payload, :agent_id, id)}
+      Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "session:#{session_id}", session_event)
     end
   end
 

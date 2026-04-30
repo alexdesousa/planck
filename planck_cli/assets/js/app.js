@@ -4,10 +4,31 @@ import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+const Hooks = {}
+
+// Submit on Enter, newline on Shift+Enter.
+// Auto-grow is handled by field-sizing: content (Chrome/Safari).
+// Firefox falls back to a fixed-height input until browser support lands.
+Hooks.PromptInput = {
+  mounted() {
+    this.el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault()
+        this.el.closest("form").requestSubmit()
+      }
+    })
+  }
+}
+
+// Keep chat scrolled to bottom on new messages
+Hooks.ScrollBottom = {
+  updated() { this.el.scrollTop = this.el.scrollHeight }
+}
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {}
+  hooks: Hooks
 })
 
 // Progress bar on navigations
