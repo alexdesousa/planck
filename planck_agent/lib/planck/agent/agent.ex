@@ -94,8 +94,7 @@ defmodule Planck.Agent.Agent do
   @doc "Start an agent under a supervisor."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
-    gen_opts = Keyword.take(opts, [:name])
-    GenServer.start_link(__MODULE__, opts, gen_opts)
+    GenServer.start_link(__MODULE__, opts, [])
   end
 
   @doc false

@@ -53,12 +53,27 @@ defmodule Planck.Agent.Tools do
   These tools, combined with `worker_tools/2`, make up the full orchestrator set.
   The presence of `spawn_agent` in the tool list is what marks an agent as an
   orchestrator — `Planck.Agent.Agent` derives `role: :orchestrator` from it.
+
+  `grantable_tools` is the list of built-in tools the orchestrator may delegate
+  to spawned agents — typically the same built-in tools the orchestrator itself
+  holds. Spawned agents may only receive a subset of these.
   """
-  @spec orchestrator_tools(String.t(), String.t(), String.t(), [Planck.AI.Model.t()]) ::
+  @spec orchestrator_tools(
+          String.t(),
+          String.t(),
+          String.t(),
+          [Planck.AI.Model.t()],
           [Tool.t()]
-  def orchestrator_tools(session_id, team_id, orchestrator_id, available_models) do
+        ) :: [Tool.t()]
+  def orchestrator_tools(
+        session_id,
+        team_id,
+        orchestrator_id,
+        available_models,
+        grantable_tools \\ []
+      ) do
     [
-      spawn_agent(session_id, team_id, orchestrator_id),
+      spawn_agent(session_id, team_id, orchestrator_id, grantable_tools),
       destroy_agent(team_id),
       interrupt_agent(team_id),
       list_models(available_models)
@@ -173,15 +188,30 @@ defmodule Planck.Agent.Tools do
   # Orchestrator-only tools
   # ---------------------------------------------------------------------------
 
-  @doc "Build the `spawn_agent` tool for a given team."
-  @spec spawn_agent(String.t(), String.t(), String.t()) :: Tool.t()
-  def spawn_agent(session_id, team_id, orchestrator_id) do
+  @doc """
+  Build the `spawn_agent` tool for a given team.
+
+  `grantable_tools` is the set of built-in tools the orchestrator may delegate.
+  Spawned agents always receive the full worker inter-agent tools
+  (`ask_agent`, `delegate_task`, `send_response`, `list_team`) plus whichever
+  built-in tools the orchestrator selects via the `"tools"` argument.
+  """
+  @spec spawn_agent(String.t(), String.t(), String.t(), [Tool.t()]) :: Tool.t()
+  def spawn_agent(session_id, team_id, orchestrator_id, grantable_tools \\ []) do
+    grantable_map = Map.new(grantable_tools, &{&1.name, &1})
+    available_names = Enum.map_join(grantable_tools, ", ", & &1.name)
+
+    tools_description =
+      if available_names == "",
+        do: "No built-in tools available to grant.",
+        else: "Available built-in tools to grant: #{available_names}."
+
     Tool.new(
       name: "spawn_agent",
       description: """
       Create a new worker agent in the team. The worker is registered in the
       team and can be addressed by type or name. Fails if an agent of the same
-      type already exists.
+      type already exists. #{tools_description}
       """,
       parameters: %{
         "type" => "object",
@@ -197,6 +227,12 @@ defmodule Planck.Agent.Tools do
           "model_id" => %{
             "type" => "string",
             "description" => "Model id (e.g. claude-sonnet-4-6)"
+          },
+          "tools" => %{
+            "type" => "array",
+            "items" => %{"type" => "string"},
+            "description" =>
+              "Built-in tool names to grant (e.g. [\"read\", \"bash\"]). Unknown names are silently ignored."
           }
         },
         "required" => ["type", "name", "description", "system_prompt", "provider", "model_id"]
@@ -205,6 +241,8 @@ defmodule Planck.Agent.Tools do
         try do
           type = args["type"]
           provider = String.to_existing_atom(args["provider"])
+          requested = Map.get(args, "tools", [])
+          granted = Enum.flat_map(requested, &List.wrap(Map.get(grantable_map, &1)))
 
           with {:ok, model} <-
                  Planck.Agent.AIBehaviour.client().get_model(provider, args["model_id"]),
@@ -220,7 +258,8 @@ defmodule Planck.Agent.Tools do
               system_prompt: args["system_prompt"],
               session_id: session_id,
               team_id: team_id,
-              delegator_id: orchestrator_id
+              delegator_id: orchestrator_id,
+              tools: worker_tools(team_id, orchestrator_id) ++ granted
             ]
 
             case DynamicSupervisor.start_child(

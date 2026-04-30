@@ -163,6 +163,49 @@ and `Planck.Agent.WorkerTools` for the `Tool` structs to include.
 | `interrupt_agent` | Aborts a worker's current turn; worker stays alive |
 | `list_models` | Returns the `available_models` list passed at start time |
 
+### Built-in file and shell tools
+
+`Planck.Agent.BuiltinTools` provides four ready-made `Tool` structs that cover
+file-system access and shell execution:
+
+```elixir
+tools = [
+  Planck.Agent.BuiltinTools.read(),
+  Planck.Agent.BuiltinTools.write(),
+  Planck.Agent.BuiltinTools.edit(),
+  Planck.Agent.BuiltinTools.bash()
+]
+```
+
+| Tool | Description |
+|---|---|
+| `read` | Read a file. Accepts optional `offset` (lines to skip) and `limit` (max lines). |
+| `write` | Write content to a file, creating missing parent directories. |
+| `edit` | Replace an exact unique string in a file. Errors if not found or ambiguous. |
+| `bash` | Run a shell command. Optional `cwd` and `timeout` (ms) as runtime JSON args. |
+
+`bash` captures both stdout and stderr; stderr is appended under a `STDERR:` header when non-empty. Shell execution is managed by `erlexec`, which cleans up process groups on timeout or termination.
+
+### Granting tools to spawned workers
+
+When building the orchestrator's tools, pass a `grantable_tools` list to
+`Planck.Agent.Tools.orchestrator_tools/5`. The orchestrator can then grant any
+subset of those tools to workers it spawns by including a `"tools"` key in the
+`spawn_agent` call:
+
+```json
+{
+  "type": "reviewer",
+  "name": "Reviewer",
+  "tools": ["read"]
+}
+```
+
+Workers always receive the standard worker tools (`ask_agent`, `delegate_task`,
+`send_response`, `list_team`). Granted tools are added on top. Names not in the
+orchestrator's `grantable_tools` list are silently ignored — workers cannot
+escalate beyond what the orchestrator was given.
+
 ### Spawning a team manually
 
 ```elixir
@@ -327,6 +370,46 @@ Enum.each(specs, fn spec ->
 end)
 ```
 
+## Skills
+
+Skills are reusable agent capabilities stored on the filesystem. Each skill is a
+directory containing a `SKILL.md` with YAML-style frontmatter:
+
+```
+.planck/skills/
+  code_review/
+    SKILL.md
+    resources/
+      rubric.md
+```
+
+```markdown
+---
+name: code_review
+description: Reviews code for correctness, style, and performance.
+---
+
+Review the provided code...
+```
+
+Load skills and inject them into an agent's system prompt:
+
+```elixir
+alias Planck.Agent.Skill
+
+dirs   = Planck.Agent.Config.skills_dirs!()
+skills = Skill.load_all(dirs)
+
+system_prompt =
+  [base_prompt, Skill.system_prompt_section(skills)]
+  |> Enum.reject(&is_nil/1)
+  |> Enum.join("\n\n")
+```
+
+`system_prompt_section/1` returns `nil` when there are no skills, so it composes
+cleanly. Each skill entry includes the path to its `SKILL.md` file and its
+`resources` directory.
+
 ## Dynamic tool management
 
 Add and remove tools without restarting the agent:
@@ -354,10 +437,12 @@ Subscribers receive `{:agent_event, :rewind, %{message_count: n}}`.
 | Env var | Config key | Default | Description |
 |---|---|---|---|
 | `PLANCK_AGENT_SESSIONS_DIR` | `:sessions_dir` | `.planck/sessions` | Directory for SQLite session files |
+| `PLANCK_AGENT_SKILLS_DIRS` | `:skills_dirs` | `.planck/skills:~/.planck/skills` | Colon-separated list of skill directories |
 
 ```elixir
 # config/runtime.exs
 config :planck_agent, :sessions_dir, "/var/data/planck/sessions"
+config :planck_agent, :skills_dirs, ["/app/skills", "~/.planck/skills"]
 ```
 
 ## Supervision tree

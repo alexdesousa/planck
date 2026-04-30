@@ -3,7 +3,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
   import Mox
 
-  alias Planck.Agent.{Agent, MockAI, Session, Tools}
+  alias Planck.Agent.{Agent, BuiltinTools, MockAI, Session, Tools}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global
@@ -303,6 +303,236 @@ defmodule Planck.Agent.TeamIntegrationTest do
   # ---------------------------------------------------------------------------
   # interrupt_agent
   # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # spawn_agent grantable tools
+  # ---------------------------------------------------------------------------
+
+  describe "spawn_agent grantable tools" do
+    defp call_spawn(spawn_tool, orch_id, extra_args \\ %{}) do
+      base = %{
+        "type" => "reviewer",
+        "name" => "Reviewer",
+        "description" => "Reviews code",
+        "system_prompt" => "You are a reviewer.",
+        "provider" => "ollama",
+        "model_id" => "llama3.2"
+      }
+
+      {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
+      {:ok, pid} = Agent.whereis(agent_id)
+
+      on_exit(fn ->
+        if Process.alive?(pid),
+          do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
+      end)
+
+      Agent.get_state(pid).tools
+    end
+
+    test "spawned agent always receives worker inter-agent tools" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [])
+      tools = call_spawn(spawn_tool, orch_id)
+
+      assert Map.has_key?(tools, "ask_agent")
+      assert Map.has_key?(tools, "delegate_task")
+      assert Map.has_key?(tools, "send_response")
+      assert Map.has_key?(tools, "list_team")
+    end
+
+    test "spawned agent receives requested tools from the grantable set" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [BuiltinTools.read()])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["read"]})
+
+      assert Map.has_key?(tools, "read")
+    end
+
+    test "tools not in the grantable set are silently ignored" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [BuiltinTools.read()])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["bash", "write"]})
+
+      refute Map.has_key?(tools, "bash")
+      refute Map.has_key?(tools, "write")
+      assert Map.has_key?(tools, "ask_agent")
+    end
+
+    test "spawned agent with no tools key gets only worker inter-agent tools" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      spawn_tool =
+        Tools.spawn_agent(unique_id(), team_id, orch_id, [
+          BuiltinTools.read(),
+          BuiltinTools.bash()
+        ])
+
+      tools = call_spawn(spawn_tool, orch_id)
+
+      refute Map.has_key?(tools, "read")
+      refute Map.has_key?(tools, "bash")
+      assert Map.has_key?(tools, "ask_agent")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # built-in tools exercised through a spawned worker
+  # ---------------------------------------------------------------------------
+
+  defp spawn_with_tool(tool) do
+    team_id = unique_id()
+    orch_id = unique_id()
+    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+    spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [tool])
+
+    {:ok, agent_id} =
+      spawn_tool.execute_fn.(orch_id, %{
+        "type" => "worker",
+        "name" => "Worker",
+        "description" => "A worker agent.",
+        "system_prompt" => "You are a worker.",
+        "provider" => "ollama",
+        "model_id" => "llama3.2",
+        "tools" => [tool.name]
+      })
+
+    {:ok, pid} = Agent.whereis(agent_id)
+
+    on_exit(fn ->
+      if Process.alive?(pid),
+        do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
+    end)
+
+    pid
+  end
+
+  defp tool_result_value(pid) do
+    msg = Enum.find(Agent.get_state(pid).messages, &(&1.role == :tool_result))
+    [{:tool_result, _id, value}] = msg.content
+    value
+  end
+
+  describe "spawned worker with read tool" do
+    test "reads a file and receives its content as the tool result" do
+      path = Path.join(System.tmp_dir!(), "planck_read_#{unique_id()}.txt")
+      File.write!(path, "hello from file")
+      on_exit(fn -> File.rm(path) end)
+
+      worker = spawn_with_tool(BuiltinTools.read())
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:text_delta, "Got it."}, {:done, %{}}]
+        else
+          [
+            {:tool_call_complete, %{id: "tc", name: "read", args: %{"path" => path}}},
+            {:done, %{}}
+          ]
+        end
+      end)
+
+      Agent.subscribe(worker)
+      Agent.prompt(worker, "Read the file.")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      assert tool_result_value(worker) == "hello from file"
+    end
+  end
+
+  describe "spawned worker with write tool" do
+    test "writes content to a file" do
+      path = Path.join(System.tmp_dir!(), "planck_write_#{unique_id()}.txt")
+      on_exit(fn -> File.rm(path) end)
+
+      worker = spawn_with_tool(BuiltinTools.write())
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:text_delta, "Written."}, {:done, %{}}]
+        else
+          [
+            {:tool_call_complete,
+             %{id: "tc", name: "write", args: %{"path" => path, "content" => "agent output"}}},
+            {:done, %{}}
+          ]
+        end
+      end)
+
+      Agent.subscribe(worker)
+      Agent.prompt(worker, "Write the file.")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      assert File.read!(path) == "agent output"
+    end
+  end
+
+  describe "spawned worker with edit tool" do
+    test "replaces a string in an existing file" do
+      path = Path.join(System.tmp_dir!(), "planck_edit_#{unique_id()}.txt")
+      File.write!(path, "hello world")
+      on_exit(fn -> File.rm(path) end)
+
+      worker = spawn_with_tool(BuiltinTools.edit())
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:text_delta, "Edited."}, {:done, %{}}]
+        else
+          [
+            {:tool_call_complete,
+             %{
+               id: "tc",
+               name: "edit",
+               args: %{"path" => path, "old_string" => "world", "new_string" => "elixir"}
+             }},
+            {:done, %{}}
+          ]
+        end
+      end)
+
+      Agent.subscribe(worker)
+      Agent.prompt(worker, "Edit the file.")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      assert File.read!(path) == "hello elixir"
+    end
+  end
+
+  describe "spawned worker with bash tool" do
+    test "runs a shell command and receives its output as the tool result" do
+      worker = spawn_with_tool(BuiltinTools.bash())
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:text_delta, "Done."}, {:done, %{}}]
+        else
+          [
+            {:tool_call_complete, %{id: "tc", name: "bash", args: %{"command" => "echo planck"}}},
+            {:done, %{}}
+          ]
+        end
+      end)
+
+      Agent.subscribe(worker)
+      Agent.prompt(worker, "Run the command.")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      assert String.trim(tool_result_value(worker)) == "planck"
+    end
+  end
 
   describe "interrupt_agent" do
     test "orchestrator aborts a worker's turn via interrupt_agent tool" do
