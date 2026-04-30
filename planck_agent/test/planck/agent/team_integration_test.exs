@@ -59,7 +59,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
     session_id = unique_id()
     dir = Path.join(System.tmp_dir!(), "planck_test_#{session_id}")
 
-    {:ok, _} = Session.start(session_id, dir: dir)
+    {:ok, _} = Session.start(session_id, name: "test-session", dir: dir)
 
     on_exit(fn ->
       Session.stop(session_id)

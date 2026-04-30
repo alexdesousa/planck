@@ -121,6 +121,7 @@ lives in the `Planck.Agent.AgentSpec` module docs; the summary is:
 | `name`          |     | Human-readable label; defaults to `type` when absent. Disambiguates when `type` repeats — required in that case. |
 | `description`   |     | One-line purpose shown to other agents via `list_team`         |
 | `system_prompt` |     | Inline text, or a `.md`/`.txt` path relative to the team dir   |
+| `base_url`      |     | Server URL for local providers with multiple instances (e.g. `"http://localhost:11434"`). Required only when `local_servers` has more than one entry of the same type. |
 | `opts`          |     | Provider-specific options (e.g. `{"temperature": 0.7}`)        |
 | `tools`         |     | Tool names resolved from the global tool pool at start (e.g. `["read", "bash"]`) |
 | `skills`        |     | Skill names resolved from the global skill pool at start; appended to `system_prompt` |
