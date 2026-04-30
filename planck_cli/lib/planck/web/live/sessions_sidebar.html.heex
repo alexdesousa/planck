@@ -1,0 +1,171 @@
+<div class="contents">
+<%!-- Delete confirmation modal --%>
+<%= if @pending_delete do %>
+  <% session = Enum.find(@sessions, &(&1.session_id == @pending_delete)) %>
+  <% name = if session, do: session.name || session.session_id, else: @pending_delete %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+       phx-window-keydown="cancel_delete"
+       phx-key="Escape"
+       phx-target={@myself}>
+    <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-80">
+      <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
+        <span class="font-bold font-mono text-sm">Delete session</span>
+        <button
+          class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+          phx-click="cancel_delete"
+          phx-target={@myself}
+        >✕</button>
+      </div>
+      <div class="p-4 space-y-4">
+        <p class="font-mono text-sm">
+          Delete <span class="font-bold"><%= name %></span>? This cannot be undone.
+        </p>
+        <div class="flex justify-end gap-2">
+          <button
+            class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="cancel_delete"
+            phx-target={@myself}
+          >Cancel</button>
+          <button
+            class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                   bg-destructive text-destructive-foreground"
+            phx-click="confirm_delete"
+            phx-target={@myself}
+          >Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+<% end %>
+
+<%!-- New session modal --%>
+<%= if @show_new_session do %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+       phx-window-keydown="close_new_session"
+       phx-key="Escape"
+       phx-target={@myself}>
+    <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-80">
+      <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
+        <span class="font-bold font-mono text-sm">New Session</span>
+        <button
+          class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+          phx-click="close_new_session"
+          phx-target={@myself}
+        >✕</button>
+      </div>
+      <form phx-submit="create_session" phx-target={@myself} class="p-4 space-y-3">
+        <div>
+          <label class="font-mono text-xs text-muted-foreground block mb-1">Team</label>
+          <div class="border-2 border-black shadow-[2px_2px_0px_#000] divide-y-2 divide-black
+                      max-h-40 overflow-y-auto">
+            <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
+                           hover:bg-muted has-[:checked]:bg-muted">
+              <input type="radio" name="team" value="" checked class="accent-black" />
+              Dynamic (default)
+            </label>
+            <%= for team <- @teams do %>
+              <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
+                             hover:bg-muted has-[:checked]:bg-muted">
+                <input type="radio" name="team" value={team} class="accent-black" />
+                <%= team %>
+              </label>
+            <% end %>
+          </div>
+        </div>
+        <div>
+          <label class="font-mono text-xs text-muted-foreground block mb-1">
+            Name <span class="opacity-50">(optional)</span>
+          </label>
+          <input
+            type="text"
+            name="name"
+            class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                   bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                   placeholder:text-muted-foreground"
+            placeholder="my-session"
+          />
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="close_new_session"
+            phx-target={@myself}
+          >Cancel</button>
+          <button
+            type="submit"
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                   bg-primary text-primary-foreground"
+          >Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+<% end %>
+
+<%!-- Sidebar --%>
+<aside class={[
+  "flex flex-col bg-card overflow-hidden border-r-2 border-border",
+  "w-56 md:w-44 md:static md:translate-x-0",
+  "fixed inset-y-0 left-0 z-40 transition-transform duration-200",
+  if(@left_open, do: "translate-x-0", else: "-translate-x-full md:translate-x-0")
+]}>
+  <div class="border-b-2 border-border px-3 py-2">
+    <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Sessions</p>
+  </div>
+  <div class="flex-1 overflow-y-auto p-2 space-y-1">
+    <%= for session <- @sessions do %>
+      <div class="flex items-center gap-1">
+        <button
+          class={[
+            "flex-1 text-left px-2 py-1.5 font-mono text-xs border-2 border-black truncate",
+            "transition-all hover:shadow-[2px_2px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5",
+            if(session.session_id == @active_session,
+              do: "bg-muted font-bold shadow-[2px_2px_0px_#000]",
+              else: "bg-card")
+          ]}
+          phx-click="switch_session"
+          phx-value-id={session.session_id}
+          phx-target={@myself}
+        >
+          <span class={["inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle",
+                         if(session.active, do: "bg-green-500", else: "bg-muted")]} />
+          <%= session.name || session.session_id %>
+        </button>
+        <button
+          class="flex-shrink-0 border-2 border-black w-6 h-6 flex items-center justify-center
+                 font-mono text-xs font-bold bg-destructive text-destructive-foreground
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all"
+          phx-click="delete_session"
+          phx-value-id={session.session_id}
+          phx-target={@myself}
+          title="Delete session"
+        >×</button>
+      </div>
+    <% end %>
+  </div>
+  <div class="p-2 border-t-2 border-border">
+    <button
+      class="w-full border-2 border-black py-1 font-bold font-mono text-xs
+             shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+             hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+             bg-primary text-primary-foreground"
+      phx-click="new_session"
+      phx-target={@myself}
+    >+ New</button>
+  </div>
+</aside>
+</div>

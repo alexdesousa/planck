@@ -13,6 +13,8 @@ export PLANCK_LOCAL=true
 FAILURES=()
 PASSED=0
 
+trap 'echo ""; echo "  Interrupted."; exit 130' INT
+
 # Restrict to requested packages if arguments were given
 if [ $# -gt 0 ]; then
   PACKAGES=("$@")

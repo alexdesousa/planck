@@ -1,8 +1,6 @@
 defmodule Planck.Web.SessionLive do
   use Planck.Web, :live_view
 
-  import Planck.Web.Components
-
   alias Planck.Agent
   alias Planck.Agent.{Message, Session}
   alias Planck.Headless
@@ -25,7 +23,6 @@ defmodule Planck.Web.SessionLive do
       |> assign(:left_open, false)
       |> assign(:right_open, false)
       |> assign(:edit_message, nil)
-      |> assign(:show_new_session, false)
       |> assign(:teams, [])
 
     if connected?(socket) do
@@ -149,6 +146,49 @@ defmodule Planck.Web.SessionLive do
     {:noreply, assign(socket, :edit_message, nil)}
   end
 
+  def handle_info({:switch_session, session_id}, socket) do
+    active_ids = socket.assigns.sessions |> Enum.filter(& &1.active) |> Enum.map(& &1.session_id)
+
+    result =
+      if session_id in active_ids,
+        do: {:ok, session_id},
+        else: Headless.resume_session(session_id)
+
+    case result do
+      {:ok, sid} ->
+        {:noreply,
+         socket
+         |> load_session(sid)
+         |> assign(:sessions, Headless.list_sessions())
+         |> assign(:left_open, false)}
+
+      {:error, _} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_info({:delete_session, session_id}, socket) do
+    {:noreply, do_delete_session(session_id, socket)}
+  end
+
+  def handle_info({:create_session, team, name}, socket) do
+    opts =
+      []
+      |> then(fn o -> if team != "", do: Keyword.put(o, :template, team), else: o end)
+      |> then(fn o -> if name != "", do: Keyword.put(o, :name, name), else: o end)
+
+    socket =
+      case Headless.start_session(opts) do
+        {:ok, session_id} ->
+          socket |> load_session(session_id) |> assign(:sessions, Headless.list_sessions())
+
+        {:error, _} ->
+          socket
+      end
+
+    {:noreply, socket}
+  end
+
   def handle_info({:resend_message, %{db_id: db_id, text: text}}, socket) do
     {:noreply, do_resend_message(db_id, text, socket)}
   end
@@ -166,70 +206,6 @@ defmodule Planck.Web.SessionLive do
 
   def handle_event("close_overlay", _params, socket) do
     {:noreply, assign(socket, :overlay, nil)}
-  end
-
-  def handle_event("delete_session", %{"id" => session_id}, socket) do
-    Headless.delete_session(session_id)
-    sessions = Headless.list_sessions()
-
-    socket =
-      if socket.assigns.active_session == session_id do
-        next_session_after_delete(socket, sessions)
-      else
-        assign(socket, :sessions, sessions)
-      end
-
-    {:noreply, socket}
-  end
-
-  def handle_event("new_session", _params, socket) do
-    {:noreply, assign(socket, show_new_session: true, left_open: false)}
-  end
-
-  def handle_event("close_new_session", _params, socket) do
-    {:noreply, assign(socket, :show_new_session, false)}
-  end
-
-  def handle_event("create_session", %{"team" => team, "name" => name}, socket) do
-    opts =
-      []
-      |> then(fn o -> if team != "", do: Keyword.put(o, :template, team), else: o end)
-      |> then(fn o -> if name != "", do: Keyword.put(o, :name, name), else: o end)
-
-    case Headless.start_session(opts) do
-      {:ok, session_id} ->
-        {:noreply,
-         socket
-         |> load_session(session_id)
-         |> assign(:sessions, Headless.list_sessions())
-         |> assign(:show_new_session, false)}
-
-      {:error, _} ->
-        {:noreply, assign(socket, :show_new_session, false)}
-    end
-  end
-
-  def handle_event("switch_session", %{"id" => session_id}, socket) do
-    active_ids = socket.assigns.sessions |> Enum.filter(& &1.active) |> Enum.map(& &1.session_id)
-
-    result =
-      if session_id in active_ids do
-        {:ok, session_id}
-      else
-        Headless.resume_session(session_id)
-      end
-
-    case result do
-      {:ok, sid} ->
-        {:noreply,
-         socket
-         |> load_session(sid)
-         |> assign(:sessions, Headless.list_sessions())
-         |> assign(:left_open, false)}
-
-      {:error, _} ->
-        {:noreply, socket}
-    end
   end
 
   def handle_event("toggle_left", _params, socket) do
@@ -303,6 +279,18 @@ defmodule Planck.Web.SessionLive do
     )
 
     assign(socket, streaming: false, waiting: false)
+  end
+
+  @spec do_delete_session(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_delete_session(session_id, socket) do
+    Headless.delete_session(session_id)
+    sessions = Headless.list_sessions()
+
+    if socket.assigns.active_session == session_id do
+      next_session_after_delete(socket, sessions)
+    else
+      assign(socket, :sessions, sessions)
+    end
   end
 
   @spec do_open_agent(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
