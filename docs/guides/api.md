@@ -141,8 +141,16 @@ Subscribe to real-time events for a session. The connection stays open until
 the client disconnects or the server closes it.
 
 ```sh
+# All agents in the session
 curl -N http://localhost:4000/api/sessions/a1b2c3d4/events
+
+# Single agent only
+curl -N http://localhost:4000/api/sessions/a1b2c3d4/events?agent_id=orch-id
 ```
+
+When `agent_id` is provided, only events from that agent are streamed. The
+`agent_id` field is present in the payload in both modes so the frame shape
+is identical.
 
 Each event is a standard SSE frame:
 
