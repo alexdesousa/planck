@@ -586,6 +586,81 @@ defmodule Planck.Headless.SessionLifecycleTest do
     test "returns error for non-existent session" do
       assert {:error, _} = Headless.resume_session("ghost-session")
     end
+
+    test "agent usage and cost are restored after resume", %{tmp_dir: dir} do
+      model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, model_with_cost} end)
+
+      team_dir = write_team(dir, "usage-restore-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(new_meta["team_id"])
+      state = Agent.get_state(orch_pid)
+
+      # (100 * 2.5 + 50 * 10.0) / 1_000_000 = 0.00075
+      assert state.usage.input_tokens == 100
+      assert state.usage.output_tokens == 50
+      assert_in_delta state.cost, 0.00075, 1.0e-10
+    end
+
+    test "accumulated usage and cost survive multiple resumes", %{tmp_dir: dir} do
+      model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
+      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, model_with_cost} end)
+
+      team_dir = write_team(dir, "multi-resume-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "first")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # Resume once — usage persists
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:done, %{usage: %{input_tokens: 60, output_tokens: 20}}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "second")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # Resume again — cost must be the sum of both turns
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(new_meta["team_id"])
+      state = Agent.get_state(orch_pid)
+
+      # Turn 1: (100*2.5 + 50*10.0)/1M = 0.00075
+      # Turn 2: (60*2.5 + 20*10.0)/1M = 0.00035
+      # Total cost: 0.00110
+      # Total tokens: input 160, output 70
+      assert state.usage.input_tokens == 160
+      assert state.usage.output_tokens == 70
+      assert_in_delta state.cost, 0.00110, 1.0e-10
+    end
   end
 
   # ---------------------------------------------------------------------------
