@@ -292,45 +292,58 @@ are built from the latest summary onward — the full history remains in the
 session for audit and UI pagination.
 
 Bring your own compaction strategy by implementing the `Planck.Agent.Compactor`
-behaviour in a module and loading it from a `.exs` file:
+behaviour in a sidecar module (see *Sidecars* below), then passing
+`sidecar_node:` and `compactor:` to `build/2`:
 
 ```elixir
-# my_compactor.exs
-defmodule MyApp.Compactor do
-  @behaviour Planck.Agent.Compactor
+on_compact = Compactor.build(model,
+  sidecar_node: sidecar_node,
+  compactor: "MySidecar.Compactors.Builder"
+)
+```
+
+The remote compactor falls back to the local LLM-based compactor if the sidecar
+is unavailable.
+
+The hook receives messages since the last summary checkpoint and must return
+either `{:compact, summary_msg, kept_messages}` or `:skip`.
+
+## Sidecars
+
+A sidecar is a separate OTP application that extends planck_headless with
+custom tools and compactors over distributed Erlang. The entry-point module
+implements the `Planck.Agent.Sidecar` behaviour:
+
+```elixir
+defmodule MySidecar.Planck do
+  use Planck.Agent.Sidecar
 
   @impl true
-  def compact(messages) do
-    case summarise(messages) do
-      {:ok, text} ->
-        summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
-        kept = Enum.take(messages, -5)
-        {:compact, summary_msg, kept}
-
-      :error ->
-        :skip
-    end
+  def tools do
+    [
+      Planck.Agent.Tool.new(
+        name: "run_tests",
+        description: "Run the test suite.",
+        parameters: %{"type" => "object", "properties" => %{}},
+        execute_fn: fn _id, _args ->
+          {output, 0} = System.cmd("mix", ["test"])
+          {:ok, output}
+        end
+      )
+    ]
   end
-
-  defp summarise(messages), do: ...
 end
 ```
 
-```elixir
-{:ok, on_compact} = Planck.Agent.Compactor.load("my_compactor.exs")
-```
+`Planck.Agent.Sidecar` itself provides the RPC entry points planck_headless
+calls on the sidecar node:
 
-Or pass any `function/1` directly for inline use:
+- `discover/0` — finds the entry module by scanning loaded OTP applications
+- `list_tools/0` — discovers the entry module and returns serialisable `Planck.AI.Tool.t()` structs
+- `execute_tool/3` — discovers the entry module and calls the matching tool
 
-```elixir
-on_compact = fn messages ->
-  summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, "..."}])
-  {:compact, summary_msg, Enum.take(messages, -5)}
-end
-```
-
-The hook receives the messages since the last summary checkpoint and must
-return either `{:compact, summary_msg, kept_messages}` or `:skip`.
+See `specs/sidecar.md` for the full design including startup sequence, compactor
+integration, and configuration.
 
 ## Team templates
 

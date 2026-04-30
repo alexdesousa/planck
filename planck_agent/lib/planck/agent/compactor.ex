@@ -37,6 +37,8 @@ defmodule Planck.Agent.Compactor do
       on_compact = Planck.Agent.Compactor.build(model,
         sidecar_node: :planck_sidecar@localhost,
         compactor:    "MySidecar.Compactors.Builder"
+        # The string is converted to the atom :"Elixir.MySidecar.Compactors.Builder"
+        # before the RPC call. Always use the bare Elixir module name (no "Elixir." prefix).
       )
 
   Both return a `fn messages ->` closure of arity 1, as expected by `Planck.Agent`.
@@ -178,7 +180,8 @@ defmodule Planck.Agent.Compactor do
   @spec build_remote(Model.t(), atom(), String.t(), function()) ::
           ([Message.t()] -> :skip | {:compact, Message.t(), [Message.t()]})
   defp build_remote(model, sidecar_node, compactor_name, local_fallback) do
-    module = String.to_atom(compactor_name)
+    module = :"Elixir.#{compactor_name}"
+    :rpc.call(sidecar_node, :code, :ensure_loaded, [module], 5_000)
     timeout = remote_compact_timeout(module, sidecar_node)
 
     fn messages ->

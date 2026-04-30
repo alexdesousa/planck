@@ -140,7 +140,12 @@ defmodule Planck.Agent.Sidecar do
 
   Scans modules across all loaded OTP applications and returns the first one
   whose `@behaviour` attribute includes `Planck.Agent.Sidecar`, or `nil` if
-  none is found.
+  none is found. Only Elixir modules (names starting with `"Elixir."`) are
+  checked; Erlang modules are skipped.
+
+  Successful results are cached in `:persistent_term`. `nil` results are **not**
+  cached — the next call will retry the scan, which is useful when the sidecar
+  entry module is loaded after `discover/0` is first called.
 
   Called by planck_headless on the sidecar node via `list_tools/0`. You
   normally do not need to call this directly.
@@ -149,16 +154,15 @@ defmodule Planck.Agent.Sidecar do
   def discover do
     sidecar_module_key = {__MODULE__, :entry_module}
 
-    case :persistent_term.get(sidecar_module_key, :not_found) do
-      :not_found ->
-        module = scan_entry_module()
-        :persistent_term.put(sidecar_module_key, module)
-        module
-
-      cached ->
-        cached
+    with :miss <- :persistent_term.get(sidecar_module_key, :miss),
+         module when not is_nil(module) <- scan_entry_module() do
+      :persistent_term.put(sidecar_module_key, module)
+      module
     end
   end
+
+  @spec elixir_module?(module()) :: boolean()
+  defp elixir_module?(mod), do: mod |> Atom.to_string() |> String.starts_with?("Elixir.")
 
   @spec scan_entry_module() :: module() | nil
   defp scan_entry_module do
@@ -170,8 +174,9 @@ defmodule Planck.Agent.Sidecar do
       end
     end)
     |> Enum.find(fn mod ->
-      behaviours = mod.__info__(:attributes)[:behaviour] || []
-      __MODULE__ in behaviours
+      elixir_module?(mod) and
+        :code.ensure_loaded(mod) == {:module, mod} and
+        __MODULE__ in (mod.__info__(:attributes)[:behaviour] || [])
     end)
   end
 

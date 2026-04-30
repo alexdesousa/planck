@@ -4,6 +4,22 @@
 
 First release.
 
+- `Planck.Headless.SidecarManager` — manages the optional sidecar OTP
+  application: builds (`mix deps.get` + `mix compile`), spawns via erlexec
+  (`elixir --sname planck_sidecar --cookie <cookie> -S mix run --no-halt`),
+  monitors node connections, auto-discovers the entry module via
+  `Planck.Agent.Sidecar.discover/0` RPC on nodeup, wraps tools with RPC
+  `execute_fn` closures, stores in `ResourceStore`; clears on nodedown; forwards
+  `PATH`, `MIX_ENV`, `PLANCK_LOCAL` from the parent environment; PubSub events
+  on `"planck:sidecar"` topic; `subscribe/0` / `unsubscribe/0` API
+- `ResourceStore.put_tools/1` and `clear_tools/0` — called by `SidecarManager`
+  to sync sidecar tools
+- `Config.sidecar` (`PLANCK_SIDECAR`) — path to the sidecar Mix project directory
+- Removed `Config.tools_dirs`, `Config.compactor`, `ResourceStore.on_compact`;
+  per-agent compactors via `AgentSpec.compactor` and `Compactor.build/2`
+- `Config.JsonBinding.init/1` returns `:error` (not `{:ok, %{}}`) when
+  `skip_json_config: true` — Skogsra skips the binding without emitting warnings
+
 ### Session lifecycle
 
 - `Planck.Headless.start_session/1` — resolves team (alias, path, or nil for

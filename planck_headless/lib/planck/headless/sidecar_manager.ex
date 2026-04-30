@@ -80,6 +80,8 @@ defmodule Planck.Headless.SidecarManager do
 
   @impl true
   def init(_opts) do
+    Process.flag(:trap_exit, true)
+
     state = %{
       sidecar_dir: Config.sidecar!(),
       sidecar_node: nil,
@@ -174,6 +176,13 @@ defmodule Planck.Headless.SidecarManager do
   def handle_info({:nodeup, _node}, state), do: {:noreply, state}
   def handle_info({:nodedown, _node}, state), do: {:noreply, state}
 
+  @impl true
+  def terminate(_reason, %{os_pid: os_pid}) when not is_nil(os_pid) do
+    :exec.stop(os_pid)
+  end
+
+  def terminate(_reason, _state), do: :ok
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
@@ -220,12 +229,13 @@ defmodule Planck.Headless.SidecarManager do
 
   @spec env([{charlist(), charlist()}]) :: [{charlist(), charlist()}]
   defp env(extra) do
-    path =
-      "PATH"
-      |> System.get_env("")
-      |> to_charlist()
-
-    [{~c"PATH", path} | extra]
+    ["PATH", "MIX_ENV", "PLANCK_LOCAL"]
+    |> Stream.map(&{&1, System.get_env(&1)})
+    |> Stream.reject(fn {_, v} -> is_nil(v) end)
+    |> Stream.map(fn {k, v} -> {to_charlist(k), to_charlist(v)} end)
+    |> Map.new()
+    |> Map.merge(Map.new(extra))
+    |> Map.to_list()
   end
 
   @spec sidecar_node?(atom()) :: boolean()
@@ -264,7 +274,13 @@ defmodule Planck.Headless.SidecarManager do
       execute_fn: fn agent_id, args ->
         timeout = Map.get(args, "timeout_ms", @default_tool_timeout_ms)
 
-        case :rpc.call(node, Planck.Agent.Sidecar, :execute_tool, [ai_tool.name, agent_id, args], timeout) do
+        case :rpc.call(
+               node,
+               Planck.Agent.Sidecar,
+               :execute_tool,
+               [ai_tool.name, agent_id, args],
+               timeout
+             ) do
           {:badrpc, reason} -> {:error, reason}
           result -> result
         end
