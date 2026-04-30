@@ -22,6 +22,7 @@ called `planck`.
 |---|---|---|
 | [`planck_ai`](./planck_ai) | LLM provider abstraction over `req_llm` | Hex |
 | [`planck_agent`](./planck_agent) | OTP-based agent runtime | Hex |
+| [`planck_headless`](./planck_headless) | Headless core — config, resources, session lifecycle | Hex |
 | [`planck_tui`](./planck_tui) | Terminal UI primitives (ratatui via NIF) | Hex |
 | [`planck_web`](./planck_web) | Phoenix LiveView chat components | Hex |
 | [`planck_cli`](./planck_cli) | Coding agent CLI | Burrito binary |
