@@ -52,6 +52,7 @@ defmodule Planck.Web.Live.ChatEntries do
   from different agents are interleaved in insertion order.
   """
   @type row :: %{
+          db_id: pos_integer(),
           agent_id: String.t(),
           message: Planck.Agent.Message.t(),
           inserted_at: integer()
@@ -88,7 +89,7 @@ defmodule Planck.Web.Live.ChatEntries do
   `:type` — see `entry_type()` for the full breakdown.
   """
   @type entry :: %{
-          required(:id) => String.t(),
+          required(:id) => String.t() | pos_integer(),
           required(:type) => entry_type(),
           required(:side) => :left | :right,
           required(:author) => author(),
@@ -326,7 +327,7 @@ defmodule Planck.Web.Live.ChatEntries do
   @spec classify_row(row(), String.t() | nil, agents(), boolean()) :: [entry()]
   defp classify_row(row, perspective_id, agents, is_orch)
 
-  defp classify_row(%{agent_id: aid, message: msg}, aid, agents, is_orch) do
+  defp classify_row(%{agent_id: aid, message: msg} = row, aid, agents, is_orch) do
     author = agent_author(aid, agents)
 
     case msg.role do

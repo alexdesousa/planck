@@ -1,0 +1,52 @@
+<div class="border-t-2 border-border p-3 bg-card">
+  <form phx-submit="submit" phx-change="change" phx-target={@myself} class="flex gap-2">
+    <textarea
+      name="prompt"
+      value={@text}
+      class="auto-grow flex-1 border-2 border-black px-3 py-2 font-mono text-sm
+             bg-background resize-none focus:outline-none
+             focus:shadow-[2px_2px_0px_#000] placeholder:text-muted-foreground"
+      placeholder="Message planck…"
+      id={"prompt-input-#{@id}"}
+      phx-hook="PromptInput"
+      disabled={@streaming}
+    ></textarea>
+    <%= if @streaming or @waiting do %>
+      <button
+        type="button"
+        class="border-2 border-black px-3 font-bold font-mono text-sm
+               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+               bg-destructive text-destructive-foreground"
+        phx-click="abort"
+        phx-target={@myself}
+        title="Stop orchestrator"
+      >
+        Stop
+      </button>
+      <button
+        type="button"
+        class="border-2 border-black px-3 font-bold font-mono text-sm
+               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+               border-destructive text-destructive bg-card"
+        phx-click="abort_all"
+        phx-target={@myself}
+        title="Stop all agents"
+      >
+        Stop All
+      </button>
+    <% else %>
+      <button
+        type="submit"
+        class="border-2 border-black px-4 font-bold font-mono text-sm
+               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+               bg-primary text-primary-foreground disabled:opacity-50"
+        disabled={@streaming}
+      >
+        Send
+      </button>
+    <% end %>
+  </form>
+</div>
