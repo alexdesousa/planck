@@ -7,7 +7,7 @@ defmodule Planck.Web.SessionLive do
   alias Planck.Agent.Session
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
-  alias Planck.Web.Live.ChatComponent
+  alias Planck.Web.Live.{ChatComponent, PromptInput}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -22,13 +22,11 @@ defmodule Planck.Web.SessionLive do
       |> assign(:usage, %{input_tokens: 0, output_tokens: 0, cost: 0.0})
       |> assign(:sidecar, :idle)
       |> assign(:overlay, nil)
-      |> assign(:prompt, "")
       |> assign(:streaming, false)
       |> assign(:waiting, false)
       |> assign(:left_open, false)
       |> assign(:right_open, false)
-      |> assign(:history_index, nil)
-      |> assign(:prompt_history, [])
+      |> assign(:edit_message, nil)
       |> assign(:show_new_session, false)
       |> assign(:teams, [])
 
@@ -73,11 +71,13 @@ defmodule Planck.Web.SessionLive do
     end
   end
 
+  @impl true
+  def handle_info(event, socket)
+
   # ---------------------------------------------------------------------------
   # PubSub events — agent
   # ---------------------------------------------------------------------------
 
-  @impl true
   def handle_info({:agent_event, :turn_start, %{agent_id: agent_id}} = event, socket) do
     socket = socket |> assign(:waiting, false) |> assign(:streaming, true)
     socket = update_agent_status(socket, agent_id, :streaming)
@@ -144,84 +144,94 @@ defmodule Planck.Web.SessionLive do
     {:noreply, socket}
   end
 
-  def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:agent_event, _type, _payload}, socket) do
+    {:noreply, socket}
+  end
 
   # ---------------------------------------------------------------------------
   # PubSub events — sidecar
   # ---------------------------------------------------------------------------
 
-  def handle_info({:building, _dir}, socket), do: {:noreply, assign(socket, :sidecar, :building)}
-  def handle_info({:starting, _dir}, socket), do: {:noreply, assign(socket, :sidecar, :starting)}
+  def handle_info({:building, _dir}, socket) do
+    {:noreply, assign(socket, :sidecar, :building)}
+  end
 
-  def handle_info({:connected, _node}, socket),
-    do: {:noreply, assign(socket, :sidecar, :connected)}
+  def handle_info({:starting, _dir}, socket) do
+    {:noreply, assign(socket, :sidecar, :starting)}
+  end
 
-  def handle_info({:disconnected, _node}, socket), do: {:noreply, assign(socket, :sidecar, :idle)}
-  def handle_info({:exited, _reason}, socket), do: {:noreply, assign(socket, :sidecar, :failed)}
+  def handle_info({:connected, _node}, socket) do
+    {:noreply, assign(socket, :sidecar, :connected)}
+  end
 
-  def handle_info({:error, _step, _reason}, socket),
-    do: {:noreply, assign(socket, :sidecar, :failed)}
+  def handle_info({:disconnected, _node}, socket) do
+    {:noreply, assign(socket, :sidecar, :idle)}
+  end
+
+  def handle_info({:exited, _reason}, socket) do
+    {:noreply, assign(socket, :sidecar, :failed)}
+  end
+
+  def handle_info({:error, _step, _reason}, socket) do
+    {:noreply, assign(socket, :sidecar, :failed)}
+  end
 
   # ---------------------------------------------------------------------------
   # User events
   # ---------------------------------------------------------------------------
 
-  @impl true
-  def handle_event("prompt_submit", %{"prompt" => text}, socket) when byte_size(text) > 0 do
+  def handle_info({:prompt_submit, text}, socket) when byte_size(text) > 0 do
     session_id = socket.assigns.active_session
-    history_index = socket.assigns.history_index
-
-    # Rewind if editing a historical message
-    if history_index do
-      rewind_orchestrator(session_id, history_index + 1)
-      reload_main_chat(socket)
-    end
 
     user_event = {:agent_event, :user_message, %{text: text, agent_id: nil}}
     send_update(ChatComponent, id: "chat-main", action: :event, event: user_event)
 
-    socket =
-      socket
-      |> assign(:prompt, "")
-      |> assign(:history_index, nil)
-      |> assign(:waiting, true)
-      |> update(:prompt_history, &(&1 ++ [text]))
+    socket = assign(socket, :waiting, true)
 
     if session_id, do: Headless.prompt(session_id, text)
 
     {:noreply, socket}
   end
 
-  def handle_event("prompt_submit", _params, socket), do: {:noreply, socket}
-
-  def handle_event("prompt_change", %{"prompt" => text}, socket) do
-    {:noreply, assign(socket, prompt: text, history_index: nil)}
+  def handle_info(:prompt_abort, socket) do
+    {:noreply, handle_event("abort", %{}, socket) |> elem(1)}
   end
 
-  def handle_event("history_prev", _params, socket) do
-    texts = socket.assigns.prompt_history
-    current = socket.assigns.history_index
-    next = if is_nil(current), do: 0, else: min(current + 1, length(texts) - 1)
-    text = texts |> Enum.reverse() |> Enum.at(next, "")
-    {:noreply, assign(socket, prompt: text, history_index: next)}
+  def handle_info(:prompt_abort_all, socket) do
+    {:noreply, handle_event("abort_all", %{}, socket) |> elem(1)}
   end
 
-  def handle_event("history_next", _params, socket) do
-    texts = socket.assigns.prompt_history
-    current = socket.assigns.history_index
+  def handle_info({:open_edit_message, %{db_id: db_id, text: text}}, socket) do
+    {:noreply, assign(socket, :edit_message, %{db_id: db_id, text: text})}
+  end
 
-    case current do
-      nil ->
-        {:noreply, socket}
+  def handle_info(:close_edit_modal, socket) do
+    {:noreply, assign(socket, :edit_message, nil)}
+  end
 
-      0 ->
-        {:noreply, assign(socket, prompt: "", history_index: nil)}
+  def handle_info({:resend_message, %{db_id: db_id, text: text}}, socket) do
+    session_id = socket.assigns.active_session
 
-      n ->
-        text = texts |> Enum.reverse() |> Enum.at(n - 1, "")
-        {:noreply, assign(socket, prompt: text, history_index: n - 1)}
+    if session_id do
+      # rewind_to_message returns only after both the truncation and the new
+      # prompt call have been processed by the agent, so the session is in the
+      # correct state when we reload the component.
+      Headless.rewind_to_message(session_id, db_id, text)
+
+      send_update(ChatComponent,
+        id: "chat-main",
+        action: :load,
+        session_id: session_id,
+        perspective_agent_id: socket.assigns[:perspective_agent_id],
+        agents: socket.assigns[:agents]
+      )
     end
+
+    {:noreply, socket |> assign(:edit_message, nil) |> assign(:waiting, true)}
   end
+
+  @impl true
+  def handle_event(event, params, socket)
 
   def handle_event("open_agent", %{"id" => agent_id}, socket) do
     send_update(ChatComponent,
@@ -376,7 +386,6 @@ defmodule Planck.Web.SessionLive do
     {agents, agent_order, orchestrator_id} = load_agents(session_id)
     session_name = get_session_name(session_id)
     sidecar_status = SidecarManager.status() |> map_sidecar_status()
-    prompt_history = load_prompt_history(session_id)
 
     socket =
       socket
@@ -386,7 +395,6 @@ defmodule Planck.Web.SessionLive do
       |> assign(:agent_order, agent_order)
       |> assign(:orchestrator_id, orchestrator_id)
       |> assign(:sidecar, sidecar_status)
-      |> assign(:prompt_history, prompt_history)
       |> assign(:waiting, false)
       |> assign(:streaming, false)
 
@@ -446,23 +454,6 @@ defmodule Planck.Web.SessionLive do
 
       _ ->
         {%{}, [], nil}
-    end
-  end
-
-  @spec load_prompt_history(String.t()) :: [String.t()]
-  defp load_prompt_history(session_id) do
-    case Session.messages(session_id) do
-      {:ok, rows} ->
-        rows
-        |> Enum.filter(fn %{message: m} -> m.role == :user end)
-        |> Enum.flat_map(fn %{message: m} ->
-          m.content
-          |> Enum.filter(&match?({:text, _}, &1))
-          |> Enum.map(fn {:text, t} -> t end)
-        end)
-
-      _ ->
-        []
     end
   end
 
@@ -548,19 +539,6 @@ defmodule Planck.Web.SessionLive do
       (worker[:name] && args["name"] == worker[:name])
   end
 
-  @spec reload_main_chat(Phoenix.LiveView.Socket.t()) :: :ok
-  defp reload_main_chat(socket) do
-    send_update(ChatComponent,
-      id: "chat-main",
-      action: :load,
-      session_id: socket.assigns.active_session,
-      perspective_agent_id: socket.assigns.orchestrator_id,
-      agents: socket.assigns.agents
-    )
-
-    :ok
-  end
-
   @spec update_agent_status(Phoenix.LiveView.Socket.t(), String.t(), atom()) ::
           Phoenix.LiveView.Socket.t()
   defp update_agent_status(socket, agent_id, status) do
@@ -605,17 +583,4 @@ defmodule Planck.Web.SessionLive do
   end
 
   defp calculate_cost(_, _), do: 0.0
-
-  @spec rewind_orchestrator(String.t() | nil, pos_integer()) :: :ok
-  defp rewind_orchestrator(nil, _n), do: :ok
-
-  defp rewind_orchestrator(session_id, n) do
-    with {:ok, %{"team_id" => team_id}} when not is_nil(team_id) <-
-           Session.get_metadata(session_id),
-         [{pid, _}] <- Registry.lookup(Planck.Agent.Registry, {team_id, "orchestrator"}) do
-      Agent.rewind(pid, n)
-    else
-      _ -> :ok
-    end
-  end
 end

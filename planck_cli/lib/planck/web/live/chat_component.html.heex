@@ -38,20 +38,35 @@
               <% end %>
             </div>
           <% else %>
-            <div class={[
-              "border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000]",
-              if(entry.author == :user, do: "bg-muted", else: "bg-primary/10")
-            ]}>
-              <p class={[
-                "font-mono text-xs mb-1 flex items-center gap-2",
-                if(entry.author == :user, do: "text-muted-foreground", else: "text-primary")
+            <div class="flex flex-col items-end gap-1">
+              <%= if entry.type == :user && is_integer(entry.id) do %>
+                <button
+                  class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
+                         shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                         hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+                  phx-click="open_edit"
+                  phx-value-db-id={entry.id}
+                  phx-value-text={entry.text}
+                  phx-target={@myself}
+                >
+                  <span class="text-base">✎</span> edit
+                </button>
+              <% end %>
+              <div class={[
+                "border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000]",
+                if(entry.author == :user, do: "bg-muted", else: "bg-primary/10")
               ]}>
-                <%= author_label(entry.author) %>
-                <%= if time_label(entry[:timestamp]) do %>
-                  <time data-local-time={time_label(entry[:timestamp])} class="opacity-50"></time>
-                <% end %>
-              </p>
-              <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+                <p class={[
+                  "font-mono text-xs mb-1 flex items-center gap-2",
+                  if(entry.author == :user, do: "text-muted-foreground", else: "text-primary")
+                ]}>
+                  <%= author_label(entry.author) %>
+                  <%= if time_label(entry[:timestamp]) do %>
+                    <time data-local-time={time_label(entry[:timestamp])} class="opacity-50"></time>
+                  <% end %>
+                </p>
+                <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+              </div>
             </div>
           <% end %>
         </div>

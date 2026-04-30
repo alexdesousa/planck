@@ -96,59 +96,12 @@
       </div>
 
       <%!-- Prompt input --%>
-      <div class="border-t-2 border-border p-3 bg-card">
-        <form phx-submit="prompt_submit" phx-change="prompt_change" class="flex gap-2">
-          <textarea
-            name="prompt"
-            value={@prompt}
-            class={[
-              "auto-grow flex-1 border-2 border-black px-3 py-2 font-mono text-sm",
-              "bg-background resize-none focus:outline-none",
-              "focus:shadow-[2px_2px_0px_#000] placeholder:text-muted-foreground",
-              if(@history_index, do: "border-primary shadow-[2px_2px_0px_var(--primary)]", else: "")
-            ]}
-            placeholder="Message planck… (↑ for history)"
-            id="prompt-input"
-            phx-hook="PromptInput"
-            disabled={@streaming}
-          ></textarea>
-          <%= if @streaming or @waiting do %>
-            <button
-              type="button"
-              class="border-2 border-black px-3 font-bold font-mono text-sm
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                     bg-destructive text-destructive-foreground"
-              phx-click="abort"
-              title="Stop orchestrator"
-            >
-              Stop
-            </button>
-            <button
-              type="button"
-              class="border-2 border-black px-3 font-bold font-mono text-sm
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                     border-destructive text-destructive bg-card"
-              phx-click="abort_all"
-              title="Stop all agents"
-            >
-              Stop All
-            </button>
-          <% else %>
-            <button
-              type="submit"
-              class="border-2 border-black px-4 font-bold font-mono text-sm
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                     bg-primary text-primary-foreground disabled:opacity-50"
-              disabled={@streaming}
-            >
-              Send
-            </button>
-          <% end %>
-        </form>
-      </div>
+      <.live_component
+        module={Planck.Web.Live.PromptInput}
+        id="prompt-input"
+        streaming={@streaming}
+        waiting={@waiting}
+      />
     </main>
 
     <%!-- Right sidebar: agents — inline on md+, drawer on smaller --%>
@@ -226,5 +179,15 @@
         </div>
       </div>
     </div>
+  <% end %>
+
+  <%!-- Edit message modal --%>
+  <%= if @edit_message do %>
+    <.live_component
+      module={Planck.Web.Live.EditMessageModal}
+      id="edit-message-modal"
+      db_id={@edit_message.db_id}
+      text={@edit_message.text}
+    />
   <% end %>
 </div>

@@ -16,22 +16,8 @@ Hooks.PromptInput = {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
         this.el.closest("form").requestSubmit()
-      } else if (e.key === "ArrowUp" && this.isOnFirstLine()) {
-        e.preventDefault()
-        this.pushEvent("history_prev", {})
-      } else if (e.key === "ArrowDown" && this.isOnLastLine()) {
-        e.preventDefault()
-        this.pushEvent("history_next", {})
       }
     })
-  },
-  isOnFirstLine() {
-    return this.el.selectionStart === 0 ||
-      !this.el.value.slice(0, this.el.selectionStart).includes("\n")
-  },
-  isOnLastLine() {
-    return this.el.selectionEnd === this.el.value.length ||
-      !this.el.value.slice(this.el.selectionEnd).includes("\n")
   }
 }
 

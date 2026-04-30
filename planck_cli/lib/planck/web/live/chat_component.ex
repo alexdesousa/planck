@@ -78,6 +78,11 @@ defmodule Planck.Web.Live.ChatComponent do
   # ---------------------------------------------------------------------------
 
   @impl true
+  def handle_event("open_edit", %{"db-id" => db_id, "text" => text}, socket) do
+    send(self(), {:open_edit_message, %{db_id: String.to_integer(db_id), text: text}})
+    {:noreply, socket}
+  end
+
   def handle_event("toggle_entry", %{"id" => entry_id}, socket) do
     entries = ChatEntries.toggle_entry(socket.assigns.entries, entry_id)
     {:noreply, assign(socket, :entries, entries)}
