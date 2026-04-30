@@ -97,7 +97,12 @@ PubSub and routes events to the right component via `send_update/3`.
 ## Prompt input — `PromptInput`
 
 - Multi-line textarea; Shift+Enter inserts newline, Enter submits
-- **Stop** button cancels the current turn; **Stop All** cancels all agents
+- **Input active while streaming**: textarea and Send remain enabled during
+  `:streaming` so the user can queue a follow-up message while the agent is
+  still responding. The agent enqueues it and processes it after the current
+  turn ends. Only disabled during `:waiting` (the brief moment before streaming
+  starts) to prevent double-submits.
+- **Stop** and **Stop All** buttons visible whenever `:streaming` or `:waiting`
 - Firefox fallback: `CSS.supports("field-sizing", "content")` detected; if false,
   sets 5-line height (desktop) / 3-line (mobile) with manual resize-on-input
 - `streaming` and `waiting` flags passed as template assigns from `SessionLive`
