@@ -305,32 +305,32 @@ defmodule Planck.Agent.TeamIntegrationTest do
   # interrupt_agent
   # ---------------------------------------------------------------------------
 
+  defp call_spawn(spawn_tool, orch_id, extra_args \\ %{}) do
+    base = %{
+      "type" => "reviewer",
+      "name" => "Reviewer",
+      "description" => "Reviews code",
+      "system_prompt" => "You are a reviewer.",
+      "provider" => "ollama",
+      "model_id" => "llama3.2"
+    }
+
+    {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
+    {:ok, pid} = Agent.whereis(agent_id)
+
+    on_exit(fn ->
+      if Process.alive?(pid),
+        do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
+    end)
+
+    Agent.get_state(pid).tools
+  end
+
   # ---------------------------------------------------------------------------
   # spawn_agent grantable tools
   # ---------------------------------------------------------------------------
 
   describe "spawn_agent grantable tools" do
-    defp call_spawn(spawn_tool, orch_id, extra_args \\ %{}) do
-      base = %{
-        "type" => "reviewer",
-        "name" => "Reviewer",
-        "description" => "Reviews code",
-        "system_prompt" => "You are a reviewer.",
-        "provider" => "ollama",
-        "model_id" => "llama3.2"
-      }
-
-      {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
-      {:ok, pid} = Agent.whereis(agent_id)
-
-      on_exit(fn ->
-        if Process.alive?(pid),
-          do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
-      end)
-
-      Agent.get_state(pid).tools
-    end
-
     test "spawned agent always receives worker inter-agent tools" do
       team_id = unique_id()
       orch_id = unique_id()

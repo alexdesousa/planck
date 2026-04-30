@@ -106,10 +106,21 @@ defmodule Planck.Agent do
     }
   end
 
-  @doc "Send a user message and kick off the agent loop (async)."
+  @doc "Send a user message and kick off the agent loop. Returns once the agent status is :streaming."
   @spec prompt(agent(), String.t() | [Planck.AI.Message.content_part()], keyword()) :: :ok
   def prompt(agent, content, opts \\ []) do
-    GenServer.cast(agent, {:prompt, content, opts})
+    GenServer.call(agent, {:prompt, content, opts})
+  end
+
+  @doc """
+  Trigger the agent to run an LLM turn without adding a new user message.
+
+  Used after session resume when a recovery context message is already present
+  in the agent's history and just needs to be acted upon.
+  """
+  @spec nudge(agent()) :: :ok
+  def nudge(agent) do
+    GenServer.cast(agent, :nudge)
   end
 
   @doc "Cancel in-flight streaming and tool execution. Agent returns to `:idle`."
@@ -221,11 +232,12 @@ defmodule Planck.Agent do
   end
 
   @impl true
+  def handle_call(event, from, state)
+
   def handle_call(:get_state, _from, state) do
     {:reply, state, state}
   end
 
-  @impl true
   def handle_call(:get_info, _from, state) do
     info = %{
       id: state.id,
@@ -241,8 +253,7 @@ defmodule Planck.Agent do
     {:reply, info, state}
   end
 
-  @impl true
-  def handle_cast({:prompt, content, _opts}, state) do
+  def handle_call({:prompt, content, _opts}, _from, state) do
     parts = normalize_content(content)
     msg = Message.new(:user, parts)
     checkpoint = length(state.messages)
@@ -255,10 +266,21 @@ defmodule Planck.Agent do
 
     maybe_append_to_session(new_state, msg)
     broadcast(new_state, :turn_start, %{index: new_state.turn_index})
-    {:noreply, %{new_state | status: :streaming}, {:continue, :run_llm}}
+    {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
   end
 
   @impl true
+  def handle_cast(event, state)
+
+  def handle_cast(:nudge, %{status: :idle} = state) do
+    broadcast(state, :turn_start, %{index: state.turn_index})
+    {:noreply, %{state | status: :streaming}, {:continue, :run_llm}}
+  end
+
+  def handle_cast(:nudge, state) do
+    {:noreply, state}
+  end
+
   def handle_cast({:rewind, _n}, %{status: status} = state) when status != :idle do
     {:noreply, state}
   end
@@ -281,23 +303,22 @@ defmodule Planck.Agent do
     end
   end
 
-  @impl true
   def handle_cast(:abort, state) do
     cancel_stream(state)
     {:noreply, reset_streaming(state)}
   end
 
-  @impl true
   def handle_cast({:add_tool, tool}, state) do
     {:noreply, %{state | tools: Map.put(state.tools, tool.name, tool)}}
   end
 
-  @impl true
   def handle_cast({:remove_tool, name}, state) do
     {:noreply, %{state | tools: Map.delete(state.tools, name)}}
   end
 
   @impl true
+  def handle_continue(message, state)
+
   def handle_continue(:run_llm, state) do
     {messages, state} = apply_compact(state)
     ai_tools = state.tools |> Map.values() |> Enum.map(&Tool.to_ai_tool/1)
@@ -329,7 +350,6 @@ defmodule Planck.Agent do
      }}
   end
 
-  @impl true
   def handle_continue({:execute_tools, tool_calls}, state) do
     parent = self()
 
@@ -379,6 +399,8 @@ defmodule Planck.Agent do
   end
 
   @impl true
+  def handle_info(event, state)
+
   def handle_info({:stream_event, ref, event}, %{stream_ref: ref} = state) do
     {:noreply, process_event(state, event)}
   end
@@ -387,7 +409,6 @@ defmodule Planck.Agent do
     {:noreply, state}
   end
 
-  @impl true
   def handle_info({:stream_done, ref}, %{stream_ref: ref} = state) do
     pending = state.pending_tool_calls
     assistant_msg = build_assistant_message(state)
@@ -418,7 +439,6 @@ defmodule Planck.Agent do
     {:noreply, state}
   end
 
-  @impl true
   def handle_info({:agent_response, response}, state) do
     msg = Message.new({:custom, :agent_response}, [{:text, response}])
     new_state = %{state | messages: state.messages ++ [msg]}
@@ -432,7 +452,6 @@ defmodule Planck.Agent do
     end
   end
 
-  @impl true
   def handle_info({:EXIT, pid, reason}, state) do
     broadcast(state, :worker_exit, %{pid: pid, reason: reason})
     {:noreply, state}
@@ -582,11 +601,15 @@ defmodule Planck.Agent do
         {recent, state}
 
       {:compact, summary_msg, kept} ->
+        broadcast(state, :compacting, %{})
+
         prefix_len = length(messages) - length(recent)
         prefix = Enum.take(messages, prefix_len)
         new_messages = prefix ++ [summary_msg | kept]
         new_state = %{state | messages: new_messages}
         maybe_append_to_session(new_state, summary_msg)
+
+        broadcast(new_state, :compacted, %{})
         {[summary_msg | kept], new_state}
     end
   end
