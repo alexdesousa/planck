@@ -46,8 +46,7 @@ defmodule Planck.CLI.Main do
         0
 
       :web ->
-        IO.puts("Web UI mode coming soon. Use `planck --help` for available options.")
-        0
+        start_web()
 
       :sidecar ->
         IO.puts("Sidecar mode coming soon. Use `planck --help` for available options.")
@@ -67,6 +66,18 @@ defmodule Planck.CLI.Main do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  @spec start_web() :: non_neg_integer()
+  defp start_web do
+    case Planck.Web.Supervisor.start_link() do
+      {:ok, _} ->
+        Process.sleep(:infinity)
+        0
+
+      {:error, {:already_started, _}} ->
+        0
+    end
+  end
 
   @spec parse([String.t()]) ::
           :help | :version | :tui | :web | :sidecar | {:prompt, String.t()} | :unknown
