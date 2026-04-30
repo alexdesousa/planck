@@ -365,6 +365,127 @@ defmodule Planck.Headless.SessionLifecycleTest do
                Headless.start_session(template: "no-such-team")
     end
 
+    # Sidecar tools and sessions
+    #
+    # Dynamic teams (no template): headless declares all store.tools by name in
+    # the orchestrator spec, so sidecar tools appear automatically.
+    #
+    # Static teams (TEAM.json): sidecar tools are added to the tool_pool at
+    # materialisation time. An agent only receives them if the tool name is
+    # explicitly declared in its TEAM.json "tools" array.
+
+    test "dynamic team orchestrator automatically includes sidecar tools", %{tmp_dir: _dir} do
+      sidecar_tool =
+        Planck.Agent.Tool.new(
+          name: "echo",
+          description: "Sidecar echo tool.",
+          parameters: %{
+            "type" => "object",
+            "properties" => %{"message" => %{"type" => "string"}},
+            "required" => ["message"]
+          },
+          execute_fn: fn _id, %{"message" => msg} -> {:ok, msg} end
+        )
+
+      ResourceStore.put_tools([sidecar_tool])
+      on_exit(fn -> ResourceStore.clear_tools() end)
+
+      Application.put_env(:planck, :default_provider, :ollama)
+      Application.put_env(:planck, :default_model, "llama3.2")
+      Config.reload_default_provider()
+      Config.reload_default_model()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_provider)
+        Application.delete_env(:planck, :default_model)
+        Config.reload_default_provider()
+        Config.reload_default_model()
+      end)
+
+      {:ok, session_id} = Headless.start_session()
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      assert "echo" in tool_names
+    end
+
+    test "static team agent gets sidecar tool when declared in TEAM.json", %{tmp_dir: dir} do
+      sidecar_tool =
+        Planck.Agent.Tool.new(
+          name: "notify",
+          description: "Sidecar notify tool.",
+          parameters: %{"type" => "object", "properties" => %{}, "required" => []},
+          execute_fn: fn _id, _args -> {:ok, "notified"} end
+        )
+
+      ResourceStore.put_tools([sidecar_tool])
+      on_exit(fn -> ResourceStore.clear_tools() end)
+
+      # Write a team that explicitly declares "notify" in the orchestrator's tools.
+      team_dir = write_team_declaring_tool(dir, "notify-team", "notify")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      assert "notify" in tool_names
+    end
+
+    test "static team agent does not receive undeclared sidecar tools", %{tmp_dir: dir} do
+      sidecar_tool =
+        Planck.Agent.Tool.new(
+          name: "echo",
+          description: "Sidecar echo tool.",
+          parameters: %{"type" => "object", "properties" => %{}, "required" => []},
+          execute_fn: fn _id, _args -> {:ok, "echoed"} end
+        )
+
+      ResourceStore.put_tools([sidecar_tool])
+      on_exit(fn -> ResourceStore.clear_tools() end)
+
+      # write_team declares only ["read", "write", "edit", "bash"] — not "echo".
+      team_dir = write_team(dir, "undeclared-sidecar-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      refute "echo" in tool_names
+    end
+
+    test "sidecar tools cleared before session start do not appear", %{tmp_dir: _dir} do
+      sidecar_tool =
+        Planck.Agent.Tool.new(
+          name: "temp_tool",
+          description: "Temporary.",
+          parameters: %{"type" => "object", "properties" => %{}, "required" => []},
+          execute_fn: fn _id, _args -> {:ok, "ok"} end
+        )
+
+      ResourceStore.put_tools([sidecar_tool])
+      ResourceStore.clear_tools()
+
+      Application.put_env(:planck, :default_provider, :ollama)
+      Application.put_env(:planck, :default_model, "llama3.2")
+      Config.reload_default_provider()
+      Config.reload_default_model()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_provider)
+        Application.delete_env(:planck, :default_model)
+        Config.reload_default_provider()
+        Config.reload_default_model()
+      end)
+
+      {:ok, session_id} = Headless.start_session()
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      refute "temp_tool" in tool_names
+    end
+
     test "metadata is saved to the session SQLite file", %{tmp_dir: dir} do
       team_dir = write_team(dir, "meta-team")
 
@@ -793,6 +914,29 @@ defmodule Planck.Headless.SessionLifecycleTest do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  defp write_team_declaring_tool(dir, alias_name, extra_tool) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "ollama",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read", "write", "edit", "bash", extra_tool]
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
 
   defp write_team_with_worker(dir, alias_name) do
     team_dir = Path.join(dir, alias_name)
