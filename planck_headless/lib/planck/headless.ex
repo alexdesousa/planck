@@ -13,7 +13,7 @@ defmodule Planck.Headless do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AgentSpec, BuiltinTools, Session, Team, Tools}
+  alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Session, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName}
 
   @type session_id :: String.t()
@@ -322,11 +322,9 @@ defmodule Planck.Headless do
     workers = Enum.reject(team.members, &(&1.type == "orchestrator"))
     orchestrator_id = generate_id()
 
-    on_compact = store.on_compact
-
     with {:ok, _} <-
-           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store, on_compact),
-         :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store, on_compact) do
+           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store),
+         :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store) do
       {:ok, team_id}
     end
   end
@@ -336,18 +334,16 @@ defmodule Planck.Headless do
           String.t(),
           String.t(),
           AgentSpec.t(),
-          ResourceStore.t(),
-          function() | nil
+          ResourceStore.t()
         ) :: {:ok, pid()} | {:error, term()}
-  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, on_compact) do
+  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store) do
     base_opts =
       AgentSpec.to_start_opts(spec,
         tool_pool: builtins() ++ store.tools,
         skill_pool: store.skills,
         team_id: team_id,
         session_id: session_id,
-        available_models: store.available_models,
-        on_compact: on_compact
+        available_models: store.available_models
       )
 
     resolved = base_opts[:tools]
@@ -367,6 +363,7 @@ defmodule Planck.Headless do
       base_opts
       |> Keyword.put(:id, orchestrator_id)
       |> Keyword.put(:tools, full_tools)
+      |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
 
     start_agent(opts)
   end
@@ -376,10 +373,9 @@ defmodule Planck.Headless do
           String.t(),
           String.t(),
           [AgentSpec.t()],
-          ResourceStore.t(),
-          function() | nil
+          ResourceStore.t()
         ) :: :ok | {:error, term()}
-  defp start_workers(session_id, team_id, orchestrator_id, workers, store, on_compact) do
+  defp start_workers(session_id, team_id, orchestrator_id, workers, store) do
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
       base_opts =
         AgentSpec.to_start_opts(spec,
@@ -387,18 +383,16 @@ defmodule Planck.Headless do
           skill_pool: store.skills,
           team_id: team_id,
           session_id: session_id,
-          available_models: store.available_models,
-          on_compact: on_compact
+          available_models: store.available_models
         )
 
       resolved = base_opts[:tools]
 
-      full_tools = Tools.worker_tools(team_id, orchestrator_id) ++ resolved
-
       opts =
         base_opts
-        |> Keyword.put(:tools, full_tools)
+        |> Keyword.put(:tools, Tools.worker_tools(team_id, orchestrator_id) ++ resolved)
         |> Keyword.put(:delegator_id, orchestrator_id)
+        |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
 
       case start_agent(opts) do
         {:ok, _pid} -> {:cont, :ok}
@@ -406,6 +400,16 @@ defmodule Planck.Headless do
       end
     end)
   end
+
+  @spec build_on_compact(AgentSpec.t(), Planck.AI.Model.t() | nil) :: function() | nil
+  defp build_on_compact(spec, model) when not is_nil(model) do
+    Compactor.build(model,
+      compactor: spec.compactor,
+      sidecar_node: nil
+    )
+  end
+
+  defp build_on_compact(_spec, nil), do: nil
 
   @spec start_agent(keyword()) :: {:ok, pid()} | {:error, term()}
   defp start_agent(opts) do
@@ -507,7 +511,6 @@ defmodule Planck.Headless do
             team_id: team_id,
             session_id: session_id,
             available_models: store.available_models,
-            on_compact: store.on_compact
           )
 
         opts =
@@ -517,6 +520,7 @@ defmodule Planck.Headless do
             Tools.worker_tools(team_id, orchestrator_id) ++ base_opts[:tools]
           )
           |> Keyword.put(:delegator_id, orchestrator_id)
+          |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
 
         case start_agent(opts) do
           {:ok, _} ->
