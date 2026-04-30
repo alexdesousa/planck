@@ -4,7 +4,7 @@ defmodule Planck.Web.SessionLive do
   import Planck.Web.Components
 
   alias Planck.Agent
-  alias Planck.Agent.Session
+  alias Planck.Agent.{Message, Session}
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
   alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
@@ -391,8 +391,8 @@ defmodule Planck.Web.SessionLive do
   @spec build_agent_entry({pid(), map()}, {map(), [String.t()], String.t() | nil}) ::
           {map(), [String.t()], String.t() | nil}
   defp build_agent_entry({pid, meta}, {acc, ord, orch}) do
-    info = Agent.get_info(pid)
-    {model_cost, model_id} = agent_model_info(pid)
+    state = Agent.get_state(pid)
+    {model_cost, model_id, context_window} = agent_model_info(state)
     color_index = length(ord)
 
     entry = %{
@@ -400,10 +400,12 @@ defmodule Planck.Web.SessionLive do
       name: meta.name || meta.type,
       type: meta.type,
       model: model_id,
-      status: info.status,
-      usage: info.usage || %{input_tokens: 0, output_tokens: 0},
-      cost: 0.0,
+      status: state.status,
+      usage: state.usage || %{input_tokens: 0, output_tokens: 0},
+      cost: Map.get(state, :cost, 0.0),
       model_cost: model_cost,
+      context_window: context_window,
+      context_tokens: load_context_tokens(state.session_id, meta.id),
       color_index: color_index
     }
 
@@ -411,13 +413,24 @@ defmodule Planck.Web.SessionLive do
     {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
   end
 
-  @spec agent_model_info(pid()) :: {map(), String.t()}
-  defp agent_model_info(pid) do
-    case Agent.get_state(pid) do
-      %{model: %Planck.AI.Model{cost: cost, name: name, id: id}} -> {cost, name || id}
-      _ -> {%{input: 0.0, output: 0.0}, "unknown"}
+  @spec load_context_tokens(String.t() | nil, String.t()) :: non_neg_integer()
+  defp load_context_tokens(nil, _agent_id), do: 0
+
+  defp load_context_tokens(session_id, agent_id) do
+    case Session.messages(session_id, agent_id: agent_id) do
+      {:ok, rows} -> rows |> Enum.map(& &1.message) |> Message.estimate_tokens()
+      _ -> 0
     end
   end
+
+  @spec agent_model_info(map()) :: {map(), String.t(), pos_integer()}
+  defp agent_model_info(%{
+         model: %Planck.AI.Model{cost: cost, name: name, id: id, context_window: cw}
+       }) do
+    {cost, name || id, cw}
+  end
+
+  defp agent_model_info(_), do: {%{input: 0.0, output: 0.0}, "unknown", 4_096}
 
   @spec load_session(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   defp load_session(socket, session_id) do

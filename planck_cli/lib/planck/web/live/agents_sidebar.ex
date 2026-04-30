@@ -49,7 +49,18 @@ defmodule Planck.Web.Live.AgentsSidebar do
   end
 
   def update(assigns, socket) do
-    {:ok, assign(socket, :open, assigns[:open] || false)}
+    {:ok,
+     socket
+     |> assign(:open, assigns[:open] || false)
+     |> assign_if_present(:agents, assigns)
+     |> assign_if_present(:agent_order, assigns)}
+  end
+
+  defp assign_if_present(socket, key, assigns) do
+    case Map.fetch(assigns, key) do
+      {:ok, value} -> assign(socket, key, value)
+      :error -> socket
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -69,13 +80,14 @@ defmodule Planck.Web.Live.AgentsSidebar do
 
   defp handle_agent_event(
          socket,
-         {:agent_event, :usage_delta, %{agent_id: agent_id, total: total}}
+         {:agent_event, :usage_delta, %{agent_id: agent_id, total: total} = event}
        ) do
     update_agent(socket, agent_id, fn agent ->
       %{
         agent
         | usage: %{input_tokens: total.input_tokens, output_tokens: total.output_tokens},
-          cost: Map.get(total, :cost, 0.0)
+          cost: Map.get(total, :cost, 0.0),
+          context_tokens: Map.get(event, :context_tokens, agent[:context_tokens] || 0)
       }
     end)
   end

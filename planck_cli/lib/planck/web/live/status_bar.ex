@@ -22,12 +22,14 @@ defmodule Planck.Web.Live.StatusBar do
 
   use Planck.Web, :live_component
 
+  @empty_usage %{input_tokens: 0, output_tokens: 0, cost: 0.0}
+
   @impl true
   def mount(socket) do
     {:ok,
      socket
      |> assign(:session_name, nil)
-     |> assign(:usage, %{input_tokens: 0, output_tokens: 0, cost: 0.0})
+     |> assign(:usage, @empty_usage)
      |> assign(:sidecar, :idle)}
   end
 
@@ -37,7 +39,7 @@ defmodule Planck.Web.Live.StatusBar do
   def update(%{action: :load} = assigns, socket) do
     {:ok,
      socket
-     |> assign(:usage, assigns[:usage] || %{input_tokens: 0, output_tokens: 0, cost: 0.0})
+     |> assign(:usage, assigns[:usage] || @empty_usage)
      |> assign(:sidecar, assigns[:sidecar] || :idle)}
   end
 

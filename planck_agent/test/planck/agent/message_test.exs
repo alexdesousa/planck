@@ -29,6 +29,51 @@ defmodule Planck.Agent.MessageTest do
     end
   end
 
+  describe "estimate_tokens/1" do
+    test "returns 0 for empty list" do
+      assert Message.estimate_tokens([]) == 0
+    end
+
+    test "counts text content as chars / 4" do
+      msg = Message.new(:user, [{:text, "abcd"}])
+      assert Message.estimate_tokens([msg]) == 1
+    end
+
+    test "counts thinking content" do
+      msg = Message.new(:assistant, [{:thinking, "abcdefgh"}])
+      assert Message.estimate_tokens([msg]) == 2
+    end
+
+    test "counts tool_result content" do
+      msg = Message.new(:tool_result, [{:tool_result, "id1", "abcd"}])
+      assert Message.estimate_tokens([msg]) == 1
+    end
+
+    test "ignores other content parts (tool_call, image_url)" do
+      msg = Message.new(:assistant, [{:tool_call, "id1", "bash", %{}}, {:image_url, "http://x"}])
+      assert Message.estimate_tokens([msg]) == 0
+    end
+
+    test "sums across all messages and all content parts" do
+      msgs = [
+        Message.new(:user, [{:text, "aaaabbbb"}]),
+        Message.new(:assistant, [{:text, "cccc"}, {:thinking, "dddddddd"}])
+      ]
+
+      # "aaaabbbb" = 8 chars → 2 tokens
+      # "cccc" = 4 chars → 1 token
+      # "dddddddd" = 8 chars → 2 tokens
+      # total = 5
+      assert Message.estimate_tokens(msgs) == 5
+    end
+
+    test "truncates division remainder" do
+      # 5 chars → div(5, 4) = 1
+      msg = Message.new(:user, [{:text, "abcde"}])
+      assert Message.estimate_tokens([msg]) == 1
+    end
+  end
+
   describe "to_ai_messages/1" do
     test "converts user and assistant messages" do
       messages = [

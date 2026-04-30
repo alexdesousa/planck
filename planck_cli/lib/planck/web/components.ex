@@ -68,13 +68,14 @@ defmodule Planck.Web.Components do
         <span class="font-bold font-mono text-sm truncate"><%= @agent.name || @agent.type %></span>
         <span class={[
           "w-2.5 h-2.5 rounded-full border border-black flex-shrink-0",
-          if(@agent.status == :streaming, do: "bg-accent animate-pulse", else: "bg-white/50")
+          if(@agent.status == :streaming, do: "bg-white animate-pulse", else: "bg-white/30")
         ]} />
       </div>
       <p class="font-mono text-xs mt-1 opacity-75"><%= @agent.type %></p>
       <p class="font-mono text-xs opacity-75 truncate"><%= @agent[:model] %></p>
       <p class="font-mono text-xs opacity-60"><%= format_usage(@agent.usage) %></p>
       <p class="font-mono text-xs opacity-60"><%= format_cost(@agent[:cost]) %></p>
+      <p class="font-mono text-xs opacity-60"><%= format_context(@agent[:context_tokens], @agent[:context_window]) %></p>
     </div>
     """
   end
@@ -114,6 +115,7 @@ defmodule Planck.Web.Components do
       <p class="font-mono text-xs text-muted-foreground truncate"><%= @agent[:model] %></p>
       <p class="font-mono text-xs text-muted-foreground"><%= format_usage(@agent.usage) %></p>
       <p class="font-mono text-xs text-muted-foreground"><%= format_cost(@agent[:cost]) %></p>
+      <p class="font-mono text-xs text-muted-foreground"><%= format_context(@agent[:context_tokens], @agent[:context_window]) %></p>
     </div>
     """
   end
@@ -354,6 +356,19 @@ defmodule Planck.Web.Components do
   def format_number(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000, 1)}M"
   def format_number(n) when n >= 1_000, do: "#{Float.round(n / 1_000, 1)}k"
   def format_number(n), do: "#{n}"
+
+  @doc "Format context usage as a percentage of the context window."
+  @spec format_context(non_neg_integer() | nil, pos_integer() | nil) :: String.t()
+  def format_context(nil, _), do: ""
+  def format_context(_, nil), do: ""
+  def format_context(0, _), do: ""
+
+  def format_context(tokens, window) when window > 0 do
+    pct = Float.round(tokens / window * 100, 1)
+    "ctx #{pct}%"
+  end
+
+  def format_context(_, _), do: ""
 
   @doc "Format a cost in dollars: 0.0 → \"-\", 0.001 → \"$0.00\", 1.5 → \"$1.50\"."
   @spec format_cost(float() | nil) :: String.t()
