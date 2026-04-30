@@ -14,7 +14,7 @@ defmodule Planck.Headless do
 
   alias Planck.Agent
   alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Session, Team, Tools}
-  alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName}
+  alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
 
   @type session_id :: String.t()
 
@@ -405,7 +405,7 @@ defmodule Planck.Headless do
   defp build_on_compact(spec, model) when not is_nil(model) do
     Compactor.build(model,
       compactor: spec.compactor,
-      sidecar_node: nil
+      sidecar_node: SidecarManager.node()
     )
   end
 
