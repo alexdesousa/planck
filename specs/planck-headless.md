@@ -32,6 +32,10 @@ surfaces only — they never call `planck_agent` directly.
   filtered `available_models` list to callers and to the orchestrator's
   `list_models` tool.
 
+- **Session naming** — generate and sanitize human-readable session names
+  (`<adjective>-<noun>`) and embed them in SQLite filenames alongside the id
+  for O(1) lookup by either id or name.
+
 ## What planck_headless does NOT own
 
 - Rendering — no TUI or HTML; events flow via PubSub.
@@ -84,13 +88,17 @@ session crashing does not affect others.
 # opts:
 #   template:    String.t() | Path.t() | nil  — alias in the registry,
 #                path to a TEAM.json, or nil for the default dynamic team
-#   name:        String.t() | nil             — human-readable session name
+#   name:        String.t() | nil             — human-readable name; auto-generated
+#                                               as "<adjective>-<noun>" if not provided
 #   cwd:         Path.t()                     — working directory (default: File.cwd!())
-@spec start_session(keyword()) :: {:ok, String.t()} | {:error, term()}
+@spec start_session(keyword()) :: {:ok, session_id :: String.t()} | {:error, term()}
 
-# Resume a session by id. Restores message history; starts a fresh agent team
-# using the same team spec the session was originally created with.
-@spec resume_session(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+# Resume a session by session_id or by name. Reconstructs the team, restores
+# message history, injects a recovery context message if prior work was
+# interrupted, and starts fresh agent processes.
+# See *Session resumption* for the full flow.
+@spec resume_session(id_or_name :: String.t(), keyword()) ::
+        {:ok, session_id :: String.t()} | {:error, term()}
 
 # Close a session. Stops the agent team and the session GenServer; the SQLite
 # file is retained for later resumption.
@@ -99,9 +107,10 @@ session crashing does not affect others.
 # Send a user prompt to the orchestrator of a session.
 @spec prompt(String.t(), String.t()) :: :ok | {:error, term()}
 
-# List all active sessions.
+# List all sessions on disk (active and inactive) with their id, name, and
+# whether they are currently running.
 @spec list_sessions() ::
-        [%{session_id: String.t(), name: String.t() | nil, status: atom()}]
+        [%{session_id: String.t(), name: String.t(), active: boolean()}]
 
 # --- Teams ---
 
@@ -157,17 +166,27 @@ per-session filesystem scanning.
    - `template: nil` → build a dynamic team of one from config
      (`default_provider`, `default_model`, default system prompt; full
      `tool_pool` and `skill_pool` attached to the lone orchestrator)
-2. Generate a `session_id`.
-3. Start `Planck.Agent.Session` under `SessionSupervisor`.
-4. For each member in the team, call `AgentSpec.to_start_opts/2` with:
+2. Generate a `session_id` (random hex) and resolve the session name:
+   - Use `opts[:name]` if provided, sanitized to `[a-z0-9-]+`.
+   - Otherwise auto-generate via `Planck.Headless.SessionName.generate/1`,
+     which picks an `<adjective>-<noun>` pair that is not already in use
+     under `sessions_dir`. Retries on collision.
+3. Start `Planck.Agent.Session` under `SessionSupervisor` with
+   `id: session_id`, `name: session_name`, `dir: Config.get().sessions_dir`.
+   The session file is created as `<sessions_dir>/<session_id>_<name>.db`.
+4. Save session metadata via `Session.save_metadata/2`:
+   - `team_alias` — the alias string, path, or `nil` for dynamic-only sessions.
+   - `session_name` — the resolved name (mirrors the filename component).
+   - `cwd` — from `opts[:cwd]` (default `File.cwd!()`).
+5. For each member in the team, call `AgentSpec.to_start_opts/2` with:
    - `tool_pool:` from `ResourceStore.tools`
    - `skill_pool:` from `ResourceStore.skills`
    - `team_id:` and `session_id:` for this session
    - `available_models:` from `ResourceStore`
    - `on_compact:` from `ResourceStore.on_compact`
-5. Start each agent under `Planck.Agent.AgentSupervisor`.
-6. Record `session_id → team_id` in `SessionRegistry`.
-7. Return `{:ok, session_id}`.
+6. Start each agent under `Planck.Agent.AgentSupervisor`.
+7. Record `session_id → team_id` in `SessionRegistry`.
+8. Return `{:ok, session_id}`.
 
 The system-prompt assembly (appending the skills section) already happens inside
 `AgentSpec.to_start_opts/2` via the `skill_pool:` resolver — `planck_headless`
@@ -194,6 +213,91 @@ Team.dynamic(orchestrator)
 
 The orchestrator sees every loaded tool and skill. A `new_team` skill can later
 grow this into a multi-member dynamic team via `spawn_agent`.
+
+## Session resumption
+
+`resume_session/1` reconstructs a session that was previously closed or
+interrupted. The SQLite file survives; the agent processes must be recreated.
+
+### Locating the session file
+
+`resume_session/1` accepts either a session id or a session name:
+
+- **By id** — `Session.find_by_id(sessions_dir, id)` globs
+  `<sessions_dir>/<id>_*.db`. Returns `{:ok, path, name}`.
+- **By name** — `Session.find_by_name(sessions_dir, name)` globs
+  `<sessions_dir>/*_<name>.db`. Returns `{:ok, path, id}`.
+
+Both return `{:error, :not_found}` if no matching file exists.
+
+### Team reconstruction
+
+1. **Read session metadata** — `Session.get_metadata/1` returns `team_alias`,
+   `cwd`, and `session_name` that were stored when the session was first created.
+2. **Reload the base team**:
+   - `team_alias` is an alias string → look it up in the ResourceStore.
+   - `team_alias` is an absolute path → `Team.load/1` on the fly.
+   - `team_alias` is `nil` → the session was dynamic-only; start with a lone
+     orchestrator built from config (same as `start_session(template: nil)`).
+3. **Reconstruct dynamic workers** — scan the orchestrator's message history for
+   `spawn_agent` tool calls. Each call contains the full `AgentSpec` as JSON
+   arguments. Any worker that was spawned at runtime but is not in the base team
+   is reconstructed from that call. New `agent_id`s are generated; the delegator
+   is the new orchestrator's id.
+
+This gives a complete picture of the team as it existed at the time of
+interruption, without re-reading TEAM.json for workers that were spawned on the
+fly.
+
+### In-flight detection
+
+An in-flight delegation is a `delegate_task` tool call in the orchestrator's
+message history that has no corresponding `agent_response` before the next user
+turn (or before the history ends). Concretely:
+
+- After `delegate_task(type: "builder", task: "...")`, the orchestrator's
+  history should contain an `agent_response` injected via `handle_info`.
+- If no such response appears before the turn boundary, the delegation was
+  in-flight at interruption time.
+
+`resume_session/1` collects the list of such dangling delegations.
+
+### Recovery context injection
+
+After all agents are started, `resume_session/1` injects a recovery message into
+the orchestrator's context before the orchestrator receives any new user input:
+
+```
+Session resumed after interruption.
+
+The following delegations were in progress when the session ended and did not
+receive a response:
+
+- builder ("Bob"): "Refactor lib/app.ex to use a GenServer"
+- tester ("Alice"): "Write tests for the new GenServer"
+
+These agents have been restarted. Re-delegate their tasks as needed, or ask
+the user how to proceed.
+```
+
+If no delegations were in-flight (clean resumption), no recovery message is
+injected — the orchestrator simply continues with its existing history.
+
+The recovery context is a `:user` message appended to the orchestrator's session
+history; it is included in the next LLM call as part of the conversation.
+
+### Testing strategy (resumption)
+
+- Clean resume: session with complete history resumes without a recovery message;
+  orchestrator's first call sees the same history.
+- Interrupted resume: last orchestrator turn contained a `delegate_task` with no
+  matching `agent_response`; recovery message lists the dangling delegation.
+- Multiple in-flight delegations: all are listed in the recovery message.
+- Dynamic worker reconstruction: `spawn_agent` calls in history recreate workers
+  with fresh `agent_id`s; they appear in `list_team` output after resume.
+- Static team on resume: `team_alias` from metadata reloads the same TEAM.json;
+  if the file has changed since the session was created, the new definition is
+  used (intentional — teams on disk are the source of truth).
 
 ## ResourceStore
 
@@ -368,13 +472,25 @@ is the configured application that resolves paths once and threads them through.
   orchestrator's system prompt includes the global skill section; its tool list
   includes every loaded tool.
 - `start_session/1` with a malformed template rolls back session + agents + SQLite.
-- `resume_session/2`: history restored; fresh team starts with the same spec.
+- `start_session/1` saves team_alias, cwd, session_name in session metadata.
+- `resume_session/2`: see *Session resumption* testing strategy above.
 - `close_session/1`: agents terminate; session GenServer stops; SQLite retained.
 
 ### Sessions
 - `prompt/2`: message reaches orchestrator; `:turn_end` event arrives on
   session topic.
-- `list_sessions/0`: returns currently active sessions.
+- `list_sessions/0`: returns all sessions on disk with id, name, and
+  active status; auto-generated names are present for all entries.
+
+### SessionName
+- Auto-generation produces `<adjective>-<noun>` format, all lowercase,
+  matching `[a-z]+-[a-z]+`.
+- Collision retry: generates a new pair if the name already exists on disk.
+- Sanitization: user-provided names are lowercased, spaces → hyphens,
+  non-`[a-z0-9-]` characters stripped, result truncated to a reasonable
+  length.
+- `resume_session/1` by name: `find_by_name` resolves correctly when the
+  name matches exactly; unknown name returns `{:error, :not_found}`.
 
 ### Teams
 - `list_teams/0`: returns aliases with name/description.
