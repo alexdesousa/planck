@@ -51,11 +51,17 @@ TTY detection at startup:
 
 ```elixir
 cond do
-  "--web" in argv               -> Planck.WebMode.start(argv)
+  "--web" in argv                     -> Planck.WebMode.start(argv)
+  "sidecar" in argv                   -> Planck.SidecarMode.start(argv)
   :io.columns() == {:error, :enotsup} -> Planck.PrintMode.start(argv)
-  true                          -> Planck.TUIMode.start(argv)
+  true                                -> Planck.TUIMode.start(argv)
 end
 ```
+
+**`planck sidecar`** starts planck_headless (which starts the sidecar from
+config) and blocks indefinitely. No TUI or Web UI — all interaction is driven
+by the sidecar. Useful for CI pipelines or external integrations (e.g. N8N).
+See `specs/sidecar.md`.
 
 ## Hex library releases
 
