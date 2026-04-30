@@ -185,6 +185,110 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert "list_team" in tool_names
     end
 
+    test "orchestrator and workers have load_skill when skills exist", %{tmp_dir: dir} do
+      skills_dir = Path.join(dir, "skills")
+      File.mkdir_p!(Path.join(skills_dir, "elixir-dev"))
+
+      File.write!(Path.join([skills_dir, "elixir-dev", "SKILL.md"]), """
+      ---
+      name: elixir-dev
+      description: Expert Elixir development.
+      ---
+      """)
+
+      Application.put_env(:planck, :skills_dirs, [skills_dir])
+      Config.reload_skills_dirs()
+      ResourceStore.reload()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :skills_dirs)
+        Config.reload_skills_dirs()
+        ResourceStore.reload()
+      end)
+
+      team_dir = write_team(dir, "skills-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      assert "load_skill" in tool_names
+    end
+
+    test "load_skill is absent when no skills exist", %{tmp_dir: dir} do
+      Application.put_env(:planck, :skills_dirs, [Path.join(dir, "empty-skills")])
+      Config.reload_skills_dirs()
+      ResourceStore.reload()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :skills_dirs)
+        Config.reload_skills_dirs()
+        ResourceStore.reload()
+      end)
+
+      team_dir = write_team(dir, "no-skills-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      refute "load_skill" in tool_names
+    end
+
+    test "list_skills is always present on orchestrator, opt-in for workers", %{tmp_dir: dir} do
+      skills_dir = Path.join(dir, "skills")
+      File.mkdir_p!(Path.join(skills_dir, "elixir-dev"))
+
+      File.write!(Path.join([skills_dir, "elixir-dev", "SKILL.md"]), """
+      ---
+      name: elixir-dev
+      description: Expert Elixir development.
+      ---
+      """)
+
+      Application.put_env(:planck, :skills_dirs, [skills_dir])
+      Config.reload_skills_dirs()
+      ResourceStore.reload()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :skills_dirs)
+        Config.reload_skills_dirs()
+        ResourceStore.reload()
+      end)
+
+      # Orchestrator always gets list_skills when skills exist
+      team_without = write_team(dir, "no-list-skills-team")
+      {:ok, sid1} = Headless.start_session(template: team_without)
+      {:ok, meta1} = Session.get_metadata(sid1)
+      {:ok, pid1} = find_orchestrator(meta1["team_id"])
+      assert "list_skills" in (Agent.get_state(pid1).tools |> Map.keys())
+
+      # Team with list_skills declared
+      team_with = Path.join(dir, "with-list-skills-team")
+      File.mkdir_p!(team_with)
+
+      File.write!(
+        Path.join(team_with, "TEAM.json"),
+        Jason.encode!(%{
+          "name" => "with-list-skills-team",
+          "members" => [
+            %{
+              "type" => "orchestrator",
+              "provider" => "ollama",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You coordinate.",
+              "tools" => ["read", "list_skills"]
+            }
+          ]
+        })
+      )
+
+      {:ok, sid2} = Headless.start_session(template: team_with)
+      {:ok, meta2} = Session.get_metadata(sid2)
+      {:ok, pid2} = find_orchestrator(meta2["team_id"])
+      assert "list_skills" in (Agent.get_state(pid2).tools |> Map.keys())
+    end
+
     test "returns error when no default model configured and template is nil" do
       assert {:error, {:no_default_model_configured, _}} = Headless.start_session(template: nil)
     end

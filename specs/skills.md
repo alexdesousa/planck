@@ -4,8 +4,7 @@ Skills are reusable agent capabilities stored as directories on the filesystem.
 Each skill has a `SKILL.md` file with a name and description, and an optional
 `resources/` directory for supporting files the agent reads at runtime.
 
-No special runtime support is required — skills are just files on disk. Agents
-discover them via the system prompt and access them using the `read` built-in tool.
+Agents load skills on demand via the `load_skill` built-in tool.
 
 ## Directory structure
 
@@ -29,8 +28,14 @@ name: code_review
 description: Reviews code for correctness, style, and performance.
 ---
 
-Full instructions for this skill go here. The agent reads this file via the
-`read` tool when the skill is relevant to the current task.
+# Code Review
+
+Full instructions for this skill go here. The agent loads this file via
+`load_skill` when the skill is relevant to the current task.
+
+## Resources
+
+- `resources/rubric.md` — review rubric (load via `read` with the absolute path)
 ```
 
 Frontmatter is YAML-style (one `key: value` per line). Both `name` and
@@ -39,53 +44,104 @@ parsing.
 
 ## How agents use skills
 
-Skills are a global pool, but each agent sees only the skills it explicitly
-declares in its `AgentSpec.skills` list (or in the TEAM.json `"skills"`
-array). At agent-start time, `Planck.Agent.AgentSpec.to_start_opts/2` resolves
-the names against a `skill_pool:` (typically the full global pool) and
-appends the matching skills' descriptions to `system_prompt` via
-`Skill.system_prompt_section/1`:
+### Declared skills (predictable, pre-configured)
+
+Skills can be declared per-agent in TEAM.json. At start time,
+`Planck.Agent.AgentSpec.to_start_opts/2` resolves the names against the global
+`skill_pool:` and injects a system prompt section listing the agent's skills:
 
 ```
 ## Available skills
 
-- **code_review** — Reviews code for correctness, style, and performance. (skill file: `/home/user/.planck/skills/code_review/SKILL.md`, resources dir: `/home/user/.planck/skills/code_review`)
+- **code_review** — Reviews code for correctness, style, and performance.
+- **elixir-dev** — Expert Elixir development patterns and best practices.
+
+Use `load_skill` with the skill name to load its full instructions when relevant.
 ```
 
-The agent reads the full `SKILL.md` via the `read` tool when a skill is
-relevant, and navigates resource files from the `resources dir` path.
+When the orchestrator delegates a task that requires a skill the worker doesn't
+have declared, it can instruct the worker to use it by name (e.g. "use the
+`n8n-workflows` skill for this"). The worker then calls `load_skill("n8n-workflows")`
+directly — no system prompt update is needed.
 
-Typical usage (via `AgentSpec.to_start_opts/2`):
+### `load_skill` tool (automatic)
+
+Every agent automatically receives the `load_skill` tool when skills are
+available — no TEAM.json declaration needed. It loads a skill's full `SKILL.md`
+content by name:
+
+```json
+{ "name": "elixir-dev" }
+```
+
+Returns the full SKILL.md text, or an error listing available names if not found.
+
+### `list_skills` tool (orchestrator: automatic; workers: opt-in)
+
+The orchestrator always receives `list_skills` when skills are available — it
+needs to know what's in the pool to direct workers effectively.
+
+Workers do not get `list_skills` by default. Add `"list_skills"` to a worker's
+TEAM.json `"tools"` array only when that worker needs autonomous skill discovery
+(rare — workers usually receive skill names from the orchestrator).
+
+## TEAM.json example
+
+```json
+{
+  "name": "dev-team",
+  "members": [
+    {
+      "type": "orchestrator",
+      "provider": "anthropic",
+      "model_id": "claude-opus-4-7",
+      "system_prompt": "You coordinate the team.",
+      "tools": ["read", "write", "edit", "bash", "list_skills"]
+    },
+    {
+      "type": "builder",
+      "name": "Builder",
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-6",
+      "system_prompt": "You implement features.",
+      "tools": ["read", "write", "edit", "bash"],
+      "skills": ["elixir-dev"]
+    }
+  ]
+}
+```
+
+In this setup:
+- The orchestrator can call `list_skills` to discover what's available
+- The builder has `elixir-dev` pre-loaded in its system prompt
+- Both agents automatically have `load_skill` available
+- If a task needs `code_review`, the orchestrator tells the builder to use it
+
+## Typical usage (via `AgentSpec.to_start_opts/2`)
 
 ```elixir
-skills = Planck.Agent.Skill.load_all(Planck.Agent.Config.skills_dirs!())
+skills = Planck.Agent.Skill.load_all(["~/.planck/skills", ".planck/skills"])
 
 start_opts = AgentSpec.to_start_opts(spec,
-  tool_pool:  tools,
+  tool_pool:  builtins ++ custom_tools,
   skill_pool: skills,
   team_id:    team_id
 )
 ```
 
-When `spec.skills` is empty the system prompt passes through unchanged — no
-trailing section, no whitespace. `system_prompt_section/1` is still useful
-directly for callers that want to assemble their own prompt (e.g. the
-orchestrator's fallback default-prompt builder in `planck_headless`).
+`load_skill` is **not** resolved from `tool_pool` — it is injected directly by
+`AgentSpec.resolve_tools/2` after pool resolution, whenever `skill_pool:` is
+non-empty. Every agent gets it automatically regardless of what it declares.
 
-## Why skills are not loaded automatically
-
-`planck_agent` is a library — it does not run startup hooks or read config on
-its own. Loading skills is an application-level decision: which dirs to scan
-and when to do it. That responsibility belongs to `planck_headless`, which
-calls `Skill.load_all/1` at startup and passes the result to agent
-constructors as `skill_pool:`. Which skills any given agent actually sees is
-then a per-agent declaration (`spec.skills`), not a global injection.
+`list_skills` is added to `tool_pool` by `planck_headless` when skills exist.
+Like any other tool, it only reaches an agent if the agent declares
+`"list_skills"` in its TEAM.json `"tools"` array.
 
 ## Configuration
 
-| Env var                      | Config key     | Default                                        |
-|------------------------------|----------------|------------------------------------------------|
-| `PLANCK_AGENT_SKILLS_DIRS`   | `:skills_dirs` | `.planck/skills:~/.planck/skills`              |
+| Env var                      | Config key     | Default                           |
+|------------------------------|----------------|-----------------------------------|
+| `PLANCK_AGENT_SKILLS_DIRS`   | `:skills_dirs` | `.planck/skills:~/.planck/skills` |
 
 Colon-separated list of directories, expanded at runtime. Configured via
 `Planck.Agent.Config.skills_dirs!/0`.
@@ -103,18 +159,13 @@ config :planck_agent, :skills_dirs, [".planck/skills", "~/.planck/skills"]
 # Load a single skill from a SKILL.md file path.
 @spec from_file(Path.t()) :: {:ok, Skill.t()} | {:error, String.t()}
 
-# Build a system-prompt snippet listing skills with file and resources paths.
+# Build a system-prompt snippet listing declared skill names and descriptions.
 # Returns nil when the list is empty.
 @spec system_prompt_section([Skill.t()]) :: String.t() | nil
-```
 
-## Struct
+# Build the load_skill tool (auto-injected when skill_pool is non-empty).
+@spec load_skill_tool([Skill.t()]) :: Tool.t()
 
-```elixir
-%Planck.Agent.Skill{
-  name:          String.t(),
-  description:   String.t(),
-  file_path:     Path.t(),   # absolute path to SKILL.md
-  resources_dir: Path.t()    # absolute path to resources/ (may not exist on disk)
-}
+# Build the list_skills tool (opt-in via TEAM.json "tools" array).
+@spec list_skills_tool([Skill.t()]) :: Tool.t()
 ```

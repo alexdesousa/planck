@@ -2,6 +2,15 @@
 
 ## v0.1.0
 
+### Skills — `list_skills` opt-in tool
+
+- `list_skills` tool added to the agent tool pool when skills are available.
+  Agents that need autonomous skill discovery declare `"list_skills"` in their
+  TEAM.json `"tools"` array. `load_skill` is injected automatically by
+  `AgentSpec.to_start_opts/2` and does not need to be declared.
+
+### Prior entries
+
 First release.
 
 - `Planck.Headless.SidecarManager` — manages the optional sidecar OTP

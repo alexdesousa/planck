@@ -52,6 +52,8 @@ defmodule Planck.Agent.Skill do
 
   require Logger
 
+  alias Planck.Agent.Tool
+
   @skill_file "SKILL.md"
   @frontmatter_re ~r/\A---\n(.*?)\n---/s
 
@@ -110,8 +112,8 @@ defmodule Planck.Agent.Skill do
   @doc """
   Generate a skills section for injection into an agent's system prompt.
 
-  Produces a compact index — name, description, and path — followed by an
-  instruction to load the skill file via the `read` tool. Returns `nil` when
+  Produces a compact index of skill names and descriptions, followed by an
+  instruction to load skills via the `load_skill` tool. Returns `nil` when
   the list is empty.
   """
   @spec system_prompt_section([t()]) :: String.t() | nil
@@ -119,13 +121,8 @@ defmodule Planck.Agent.Skill do
 
   def system_prompt_section(skills) do
     entries =
-      Enum.map_join(skills, "\n", fn %__MODULE__{
-                                       name: name,
-                                       description: desc,
-                                       path: dir,
-                                       skill_file: file
-                                     } ->
-        "- **#{name}** — #{desc} (skill file: `#{file}`, resources dir: `#{dir}`)"
+      Enum.map_join(skills, "\n", fn %__MODULE__{name: name, description: desc} ->
+        "- **#{name}** — #{desc}"
       end)
 
     """
@@ -133,10 +130,71 @@ defmodule Planck.Agent.Skill do
 
     #{entries}
 
-    Use the `read` tool to load a skill's `SKILL.md` when it is relevant to the current task.
-    Resource paths listed inside a skill file are relative to that skill's resources dir — \
-    join the resources dir with the relative path to get the absolute path before calling `read`.
+    Use `load_skill` tool with the skill name to load its full instructions when relevant.
+    Resource files referenced inside a skill are loaded via the `read` tool using
+    the absolute paths provided in the skill's content.
     """
+  end
+
+  @doc """
+  Build a `load_skill` tool that loads a skill's `SKILL.md` by name.
+
+  The tool is a closure over the given skill pool. It is automatically added to
+  every agent when skills are available — agents do not need to declare it in
+  their TEAM.json `"tools"` array.
+  """
+  @spec load_skill_tool([t()]) :: Tool.t()
+  def load_skill_tool(skills) do
+    skill_map = Map.new(skills, &{&1.name, &1})
+
+    Tool.new(
+      name: "load_skill",
+      description:
+        "Load a skill's full instructions by name. Use this when a skill is relevant to the current task.",
+      parameters: %{
+        "type" => "object",
+        "properties" => %{
+          "name" => %{"type" => "string", "description" => "The skill name (e.g. \"elixir-dev\")"}
+        },
+        "required" => ["name"]
+      },
+      execute_fn: fn _id, %{"name" => name} ->
+        case Map.get(skill_map, name) do
+          nil ->
+            available = skill_map |> Map.keys() |> Enum.sort() |> Enum.join(", ")
+            {:error, "Unknown skill: #{name}. Available: #{available}"}
+
+          skill ->
+            File.read(skill.skill_file)
+        end
+      end
+    )
+  end
+
+  @doc """
+  Build a `list_skills` tool that returns all available skill names and descriptions.
+
+  This is an opt-in discovery tool. Add `"list_skills"` to an agent's TEAM.json
+  `"tools"` array when that agent needs to autonomously discover what skills exist.
+  Workers that receive skill names from the orchestrator do not need this tool.
+  """
+  @spec list_skills_tool([t()]) :: Tool.t()
+  def list_skills_tool(skills) do
+    entries =
+      Enum.map_join(skills, "\n", fn %__MODULE__{name: name, description: desc} ->
+        "- **#{name}**: #{desc}"
+      end)
+
+    Tool.new(
+      name: "list_skills",
+      description: "List all available skills with their names and descriptions.",
+      parameters: %{"type" => "object", "properties" => %{}, "required" => []},
+      execute_fn: fn _id, _args ->
+        if entries == "",
+          do: {:ok, "No skills available."},
+          else: {:ok, entries}
+      end
+    )
   end
 
   # ---------------------------------------------------------------------------

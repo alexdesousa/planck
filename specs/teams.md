@@ -123,8 +123,8 @@ lives in the `Planck.Agent.AgentSpec` module docs; the summary is:
 | `system_prompt` |     | Inline text, or a `.md`/`.txt` path relative to the team dir   |
 | `base_url`      |     | Server URL for local providers with multiple instances (e.g. `"http://localhost:11434"`). Required when `config.models` lists more than one server of the same provider type. |
 | `opts`          |     | Provider-specific options (e.g. `{"temperature": 0.7}`)        |
-| `tools`         |     | Tool names resolved from the global tool pool at start (e.g. `["read", "bash"]`) |
-| `skills`        |     | Skill names resolved from the global skill pool at start; appended to `system_prompt` |
+| `tools`         |     | Tool names resolved from the global tool pool at start (e.g. `["read", "bash", "list_skills"]`) |
+| `skills`        |     | Skill names pre-loaded for this agent; names and descriptions are appended to `system_prompt` |
 
 Exactly one member must have `"type": "orchestrator"`; the rest are workers.
 
@@ -151,12 +151,19 @@ shared pool. Each member declares which entries it sees via the `"tools"` and
 `"skills"` arrays in its TEAM.json entry; names are resolved against the pool
 at agent-start time (in `AgentSpec.to_start_opts/2`).
 
-- An **empty** `"tools"`/`"skills"` array (or absent key) means the member
-  gets nothing from that pool by default. The caller can still pass extra
-  tools via the `tools:` override at start time.
-- Resolved skills have their descriptions appended to `system_prompt` via
-  `Planck.Agent.Skill.system_prompt_section/1`. If `"skills"` is empty, the
-  prompt passes through unchanged.
+- An **empty** `"tools"` array (or absent key) means the member gets nothing
+  from the tool pool by default. The caller can still pass extra tools via the
+  `tools:` override at start time.
+- **`load_skill`** is automatically available to every agent when skills exist —
+  it does not need to be declared in `"tools"`. Agents use it to load a skill's
+  full instructions by name.
+- **`list_skills`** is opt-in: add `"list_skills"` to an agent's `"tools"` array
+  to enable autonomous skill discovery. Typically given to the orchestrator.
+- Declared `"skills"` have their names and descriptions appended to
+  `system_prompt` via `Planck.Agent.Skill.system_prompt_section/1`, instructing
+  the agent to use `load_skill`. If `"skills"` is empty, the prompt passes
+  through unchanged — but the agent can still call `load_skill` if the
+  orchestrator tells it which skill to use.
 - There is no filesystem scoping — per-member skill/tool folders do not exist.
   The scoping lives in the TEAM.json declaration alone.
 
