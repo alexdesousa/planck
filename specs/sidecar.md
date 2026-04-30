@@ -34,14 +34,13 @@ defmodule Planck.Agent.Sidecar do
   @callback list_tools() :: [Planck.Agent.Tool.t()]
 
   @doc """
-  Return a compactor function for the given agent type, or `nil` to fall through
-  to the default compactor. The returned function receives the model and the current
-  message list and returns the compacted list.
+  Return a `{module, timeout_ms}` tuple for the given agent type, or `nil` to
+  fall through to the default compactor. `timeout_ms` is used for the RPC call
+  to the sidecar — the compactor module knows its own latency better than any
+  hardcoded default.
   """
   @callback compactor_for(agent_type :: String.t()) ::
-              (Planck.AI.Model.t(), [Planck.Agent.Message.t()] ->
-                 [Planck.Agent.Message.t()])
-              | nil
+              {module(), timeout_ms :: pos_integer()} | nil
 end
 ```
 
@@ -56,8 +55,14 @@ defmodule MySidecar.Planck do
     [
       Planck.Agent.Tool.new(
         name: "run_tests",
-        description: "Run the test suite and return output.",
-        parameters: %{"type" => "object", "properties" => %{}},
+        description: "Run the test suite and return output. Pass timeout_ms to override the default.",
+        parameters: %{
+          "type" => "object",
+          "properties" => %{
+            "timeout_ms" => %{"type" => "integer",
+                              "description" => "Max ms to wait for the test suite (default 120000)"}
+          }
+        },
         execute_fn: fn _id, _args ->
           {output, code} = System.cmd("mix", ["test"])
           if code == 0, do: {:ok, output}, else: {:error, output}
@@ -67,7 +72,7 @@ defmodule MySidecar.Planck do
   end
 
   @impl true
-  def compactor_for("summariser"), do: &MySidecar.Compactors.Summariser.compact/2
+  def compactor_for("summariser"), do: {MySidecar.Compactors.Summariser, 120_000}
   def compactor_for(_), do: nil
 end
 ```
@@ -120,29 +125,68 @@ expose the behaviour module under a well-known registered name.
 
 `Planck.Headless.SidecarManager`:
 
-1. Reads `Config.sidecar!()` (path to the sidecar Mix project). If nil, skips.
-2. Ensures planck_headless is a named node.
-3. Spawns the sidecar process:
+1. Reads `Config.sidecar!()` (path to the sidecar Mix project). If the path does
+   not exist on disk, skips entirely.
+2. Ensures planck_headless is a named node (`Node.start/2` if not already named).
+3. Runs the dependency pipeline using `System.cmd` (blocking — these must complete
+   before the sidecar starts):
    ```
-   cd <sidecar_path> && mix run --no-halt
+   mix deps.get   # fetch dependencies, forwards PLANCK_LOCAL if set
+   mix compile    # compile sidecar and deps
    ```
-   with the env vars above.
-4. Waits for the node to connect (via `:net_kernel.monitor_nodes/1`).
-5. Calls `list_tools/0` on the sidecar node; wraps each tool's `execute_fn` in an
-   RPC call so agents can call sidecar tools transparently.
-6. Stores the wrapped tools in `ResourceStore.sidecar_tools`.
-7. Monitors the node — if the sidecar crashes, ResourceStore is updated and
-   in-flight tool calls receive `{:error, :sidecar_unavailable}`.
+   Emits progress events (see *Startup progress events* below) at each step.
+4. Spawns `mix run --no-halt` as a long-running OS process via **erlexec**
+   (already a dep of `planck_agent`). erlexec is used — not `Port` — because it
+   manages process groups so all children of `mix` are killed when the sidecar
+   crashes, not just the top-level process. If running as a Burrito binary,
+   Elixir and Mix must be installed on the system for sidecar support.
+5. Subscribes to node events via `:net_kernel.monitor_nodes(true)`.
+6. On `{:nodeup, sidecar_node}`: calls `list_tools/0` via RPC, wraps each tool's
+   `execute_fn` in a remote-call closure, stores `{sidecar_node, module, tools}`
+   in state. Emits `{:sidecar_event, :ready, %{node: node, tool_count: n}}`.
+7. Monitors the node — on `{:nodedown, sidecar_node}`: clears sidecar tools from
+   ResourceStore, emits `{:sidecar_event, :disconnected, %{node: node}}`.
+   In-flight tool calls receive `{:error, :sidecar_unavailable}`.
+
+### Startup progress events
+
+`SidecarManager` broadcasts on `Phoenix.PubSub` topic `"planck:sidecar"` so TUI
+and Web UI clients can show startup progress without blocking:
+
+```elixir
+{:sidecar_event, :deps_fetching,  %{path: path}}
+{:sidecar_event, :deps_compiling, %{path: path}}
+{:sidecar_event, :starting,       %{path: path}}
+{:sidecar_event, :ready,          %{node: node, tool_count: n}}
+{:sidecar_event, :error,          %{stage: :deps_get | :compile | :start, reason: reason}}
+{:sidecar_event, :disconnected,   %{node: node}}
+```
+
+Clients subscribe with:
+
+```elixir
+Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
+```
 
 ### Remote `execute_fn` template
 
-For each tool discovered from the sidecar:
+For each tool discovered from the sidecar, `SidecarManager` builds a wrapper that
+reads the AI-supplied `timeout_ms` from the tool arguments. The AI can estimate the
+appropriate timeout from context (file sizes, task complexity) better than any
+hardcoded default.
 
 ```elixir
+@default_tool_timeout_ms 120_000
+
 execute_fn: fn id, args ->
-  :rpc.call(sidecar_node, SidecarModule, :execute_tool, [tool_name, id, args], 30_000)
+  timeout = Map.get(args, "timeout_ms", @default_tool_timeout_ms)
+  :rpc.call(sidecar_node, SidecarModule, :execute_tool, [tool_name, id, args], timeout)
 end
 ```
+
+Every sidecar tool's JSON schema **should** include `timeout_ms` as an optional
+integer parameter so the AI can set it when calling the tool. The sidecar scaffold
+template generates this automatically.
 
 The sidecar module must implement `execute_tool/3` for remote calls:
 
@@ -164,17 +208,21 @@ end
 }
 ```
 
-In `AgentSpec.to_start_opts/2`, if `spec.compactor` is set:
+In `AgentSpec.to_start_opts/2`, if `spec.compactor` is set and a sidecar node is
+active, `SidecarManager` is asked for the `{module, timeout_ms}` pair and an RPC
+closure is built. The timeout comes from the compactor module itself (via
+`compactor_for/1`) — the module knows its own expected latency:
 
 ```elixir
 on_compact =
-  if spec.compactor && sidecar_node do
-    module = String.to_existing_atom(spec.compactor)
+  with true <- not is_nil(spec.compactor),
+       {:ok, sidecar_node} <- SidecarManager.active_node(),
+       {module, timeout_ms} <- SidecarManager.compactor_for(spec.compactor, sidecar_node) do
     fn model, messages ->
-      :rpc.call(sidecar_node, module, :compact, [model, messages], 60_000)
+      :rpc.call(sidecar_node, module, :compact, [model, messages], timeout_ms)
     end
   else
-    Keyword.get(overrides, :on_compact)  # fallback to ResourceStore default
+    _ -> Keyword.get(overrides, :on_compact)  # fallback to default compactor
   end
 ```
 
@@ -190,14 +238,15 @@ In TEAM.json:
 }
 ```
 
-The compactor module must implement:
+The compactor module implements `compact/2`. Its timeout is declared in the
+sidecar's `compactor_for/1` callback — not here:
 
 ```elixir
 defmodule MySidecar.Compactors.Summariser do
   @spec compact(Planck.AI.Model.t(), [Planck.Agent.Message.t()]) ::
           [Planck.Agent.Message.t()]
   def compact(model, messages) do
-    # custom summarisation logic
+    # custom summarisation logic — declared timeout: 120_000 ms in compactor_for/1
     messages
   end
 end
@@ -230,6 +279,11 @@ app_env :sidecar, :planck, :sidecar,
 location without touching the config file. The value is `nil`-treated if the
 resolved path does not exist on disk — planck_headless simply skips sidecar startup
 if the directory is absent.
+
+**Elixir/Mix requirement:** the sidecar is started via `mix deps.get`, `mix compile`,
+and `mix run --no-halt`. When using the Planck Burrito binary, Elixir and Mix must
+be installed on the system if sidecar support is needed. Users without Elixir
+installed can still use planck; they just cannot use a sidecar.
 
 ## `planck sidecar` CLI mode
 
@@ -305,9 +359,13 @@ minimal sidecar under `.planck/sidecar/`:
 
 - `SidecarManager` — starts with no sidecar configured: no-op. Connects a fake
   sidecar node in tests via `:slave.start/3`; verifies tools appear in ResourceStore.
-- `list_tools` remote wrapping — the wrapped `execute_fn` calls the fake sidecar node
-  and returns the result.
-- Per-agent compactor — `AgentSpec.to_start_opts/2` resolves the compactor RPC
-  function when a sidecar node is active.
-- Node disconnection — sidecar crash removes tools from ResourceStore; in-flight
-  calls return `{:error, :sidecar_unavailable}`.
+- `list_tools` remote wrapping — the wrapped `execute_fn` reads `timeout_ms` from
+  args, calls the fake sidecar node, and returns the result.
+- Progress events — `SidecarManager` emits startup events on `"planck:sidecar"`;
+  subscriber receives them in order: `deps_fetching` → `deps_compiling` → `starting`
+  → `ready`.
+- Per-agent compactor — `AgentSpec.to_start_opts/2` resolves `{module, timeout_ms}`
+  from `compactor_for/1` and builds the RPC closure with the declared timeout.
+- Node disconnection — sidecar crash removes tools from ResourceStore, emits
+  `{:sidecar_event, :disconnected, ...}`; in-flight calls return
+  `{:error, :sidecar_unavailable}`.
