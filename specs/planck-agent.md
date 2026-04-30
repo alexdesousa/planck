@@ -40,7 +40,7 @@ has in its list.
   terminated when the orchestrator exits (via process linking)
 - Token usage tracking across all LLM calls in a turn; broadcast in real-time and
   included in `:turn_end`
-- `rewind/2` — removes the last `n` user turns from message history; syncs session store
+- `rewind_to_message/2` — truncates both session and in-memory history to before a given message id; used by the edit-message feature
 - Built-in inter-agent tools: `ask_agent`, `delegate_task`, `send_response`, `list_team`
 - Built-in orchestrator-only tools: `spawn_agent`, `destroy_agent`, `interrupt_agent`,
   `list_models`
@@ -171,13 +171,19 @@ Internal GenServer state — not part of the public API.
 `role` is derived at start time from whether `spawn_agent` is present in the tool list.
 `delegator_id` is set automatically by `spawn_agent`; the LLM never addresses it.
 `turn_checkpoints` is a stack of message-list lengths at the start of each user turn,
-used by `rewind/2`.
+used internally for context management.
 
 ## Public API
 
 ```elixir
 # Start an agent (standalone or under DynamicSupervisor).
 @spec start_link(keyword()) :: GenServer.on_start()
+
+# Truncate both the SQLite session and in-memory history to strictly before the
+# message with the given db_id (Message.id == db_id for persisted messages).
+# Also reloads the message list from the session DB to ensure canonical order.
+# No-op for ephemeral agents (no session_id).
+@spec rewind_to_message(agent(), message_id :: pos_integer()) :: :ok
 
 # Send a user message and kick off the agent loop.
 # Synchronous — returns :ok once the agent has set status to :streaming.
@@ -190,9 +196,6 @@ used by `rewind/2`.
 
 # Graceful shutdown — cancels any in-flight work.
 @spec stop(agent()) :: :ok
-
-# Remove the last n user-initiated turns from message history.
-@spec rewind(agent(), pos_integer()) :: :ok
 
 # Synchronous state snapshot (for tests and UI initial render).
 @spec get_state(agent()) :: %Planck.Agent{}
@@ -377,6 +380,19 @@ in `planck_headless`. Callers pass the resolved dirs explicitly to `load_all/1`.
 `{:session, session_id}`. Agents with a `session_id` append every message (including
 summary checkpoints) to the session automatically.
 
+Each row returned by `Session.messages/1` (and the pagination variants) is a map with:
+
+```elixir
+%{
+  db_id:       pos_integer(),   # SQLite autoincrement row id
+  agent_id:    String.t(),
+  message:     Planck.Agent.Message.t(),
+  inserted_at: integer()        # Unix seconds
+}
+```
+
+`db_id` is the stable SQLite row id and is used to anchor `truncate_after/2`.
+
 Messages with role `{:custom, :summary}` are stored with `checkpoint = 1`, enabling
 efficient pagination:
 
@@ -387,6 +403,16 @@ efficient pagination:
 # Load more — previous chapter
 {:ok, rows, prev_id} = Session.messages_before_checkpoint(session_id, checkpoint_id)
 # prev_id == nil means no more history
+```
+
+Additional Session API:
+
+```elixir
+# Delete all messages with db_id >= db_id across ALL agents in the session.
+# Used when editing a previous message: truncate the store, then call
+# Agent.rewind_to_message/2 and re-prompt.
+@spec Session.truncate_after(session_id(), db_id :: pos_integer()) ::
+        :ok | {:error, :not_found}
 ```
 
 ## Compaction

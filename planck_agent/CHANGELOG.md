@@ -25,7 +25,6 @@ First release.
 - Parallel tool execution via `Task.async_stream`
 - Phoenix.PubSub broadcasting on `"agent:#{id}"` and `"session:#{session_id}"` topics
 - Token usage tracking: `:usage_delta` events in real-time and `usage` in `:turn_end`
-- `rewind/2` — removes last `n` turns from message history; syncs session store
 - `stop/1` — graceful shutdown; cancels in-flight stream via `terminate/2`
 - `get_info/1` — lightweight metadata snapshot
 - `Planck.Agent.BuiltinTools` — `read/0`, `write/0`, `edit/0`, `bash/0` tool factories
@@ -41,6 +40,36 @@ First release.
 - `Planck.AI.Model.providers/0` — valid provider atoms
 - Pluggable `on_compact` hook — `Compactor.build/2` returns a ready-to-use function
 - `@type agent` and `@type t` now have full `@typedoc` documentation with all fields typed
+
+### Session API additions
+
+- `Session.append/3` changed from fire-and-forget cast to synchronous call —
+  returns `pos_integer() | nil` (the SQLite autoincrement row id, or `nil` when
+  the session is not found); enables the agent to set `Message.id = db_id`
+  immediately after each persist
+- `Session.truncate_after/2` — deletes all messages with `id >= db_id` across all
+  agents in a session; used by the edit-message feature
+- `Session.messages/1` rows now include `db_id: pos_integer()` — the SQLite row id
+- `Message.id` is now the SQLite row id after persistence (previously a random UUID);
+  this unifies the two identifiers so callers never need to track both
+- `Message.id` is **not** stored in the serialised blob — the field is stripped
+  before writing and set from the DB `id` column on every read; the row id is
+  therefore authoritative for all rows, including legacy ones that stored a UUID
+- `Agent.rewind_to_message/2` — truncates both the session and in-memory history to
+  strictly before the given db_id, then reloads from the DB to restore canonical
+  order and rebuild `turn_checkpoints`; replaces the old `rewind/2` (removed)
+- `Agent.rewind/2` removed — replaced by `rewind_to_message/2`
+
+### Message persistence ordering
+
+- Queued messages (received while the agent is streaming) are no longer persisted
+  immediately; they retain a UUID id in memory and are flushed to the session at
+  the start of the next LLM turn via `flush_unpersisted_messages`. This guarantees
+  that the queued message's db_id is always greater than the current turn's
+  assistant response, preserving correct insertion order in the DB
+- `flush_unpersisted_messages` and `reload_messages_from_session` are internal
+  helpers that keep in-memory message order consistent with DB order after queuing
+  or rewind; `turn_checkpoints` is rebuilt from the reloaded list
 
 ### Agent API
 

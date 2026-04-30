@@ -4,7 +4,7 @@ defmodule Planck.Agent.AgentTest do
   import Mox
 
   alias Planck.Agent
-  alias Planck.Agent.{Message, MockAI, Tool}
+  alias Planck.Agent.{Message, MockAI, Session, Tool}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global
@@ -25,6 +25,21 @@ defmodule Planck.Agent.AgentTest do
   end
 
   defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+
+  defp start_agent_with_session(overrides \\ []) do
+    session_id = unique_id()
+    dir = Path.join(System.tmp_dir!(), "planck_test_#{session_id}")
+    {:ok, _} = Session.start(session_id, name: "test", dir: dir)
+
+    on_exit(fn ->
+      Session.stop(session_id)
+      File.rm_rf!(dir)
+    end)
+
+    defaults = [id: unique_id(), model: @model, system_prompt: "helpful.", session_id: session_id]
+    opts = Keyword.merge(defaults, overrides)
+    {start_supervised!({Agent, opts}), session_id}
+  end
 
   defp stream_events(events) do
     stub(MockAI, :stream, fn _model, _context, _opts ->
@@ -311,73 +326,46 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
-  # --- rewind ---
+  # --- rewind_to_message ---
 
-  describe "rewind/2" do
-    test "removes messages from the last turn" do
+  describe "rewind_to_message/2" do
+    test "truncates history to strictly before the given message id (reloads from session)" do
+      # Requires a session so truncate_after + reload works
+      {agent, _session_id} = start_agent_with_session()
       stream_events([{:text_delta, "ok"}, {:done, %{}}])
-      agent = start_agent()
-      Agent.subscribe(agent)
-      Agent.prompt(agent, "hello")
-      assert_receive {:agent_event, :turn_end, _}, 1_000
-
-      assert length(Agent.get_state(agent).messages) == 2
-
-      Agent.rewind(agent)
-      assert Agent.get_state(agent).messages == []
-    end
-
-    test "rewinds n turns" do
-      stream_events([{:text_delta, "ok"}, {:done, %{}}])
-      agent = start_agent()
       Agent.subscribe(agent)
 
-      Agent.prompt(agent, "first")
-      assert_receive {:agent_event, :turn_end, _}, 1_000
-      Agent.prompt(agent, "second")
+      Agent.prompt(agent, "first prompt")
       assert_receive {:agent_event, :turn_end, _}, 1_000
 
-      assert length(Agent.get_state(agent).messages) == 4
-
-      Agent.rewind(agent, 2)
-      assert Agent.get_state(agent).messages == []
-    end
-
-    test "rewind beyond available turns is a no-op" do
       stream_events([{:text_delta, "ok"}, {:done, %{}}])
-      agent = start_agent()
-      Agent.subscribe(agent)
-      Agent.prompt(agent, "hello")
+      Agent.prompt(agent, "second prompt")
       assert_receive {:agent_event, :turn_end, _}, 1_000
 
-      Agent.rewind(agent, 99)
-      assert length(Agent.get_state(agent).messages) == 2
-    end
+      messages = Agent.get_state(agent).messages
+      first_user_msg = Enum.find(messages, &(&1.role == :user))
 
-    test "broadcasts :rewind event with message_count" do
-      stream_events([{:text_delta, "ok"}, {:done, %{}}])
-      agent = start_agent()
-      Agent.subscribe(agent)
-      Agent.prompt(agent, "hello")
-      assert_receive {:agent_event, :turn_end, _}, 1_000
-
-      Agent.rewind(agent)
-      assert_receive {:agent_event, :rewind, %{message_count: 0}}
-    end
-
-    test "rewind is ignored while streaming" do
-      stub(MockAI, :stream, fn _model, _ctx, _opts ->
-        Process.sleep(5_000)
-        []
-      end)
-
-      agent = start_agent()
-      Agent.prompt(agent, "slow")
+      Agent.rewind_to_message(agent, first_user_msg.id)
       Process.sleep(50)
 
-      Agent.rewind(agent)
-      assert Agent.get_state(agent).status == :streaming
-      Agent.abort(agent)
+      assert Agent.get_state(agent).messages == []
+    end
+
+    test "is a no-op for ephemeral agents (no session_id)" do
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      agent = start_agent()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      messages_before = Agent.get_state(agent).messages
+      first_user_msg = Enum.find(messages_before, &(&1.role == :user))
+
+      Agent.rewind_to_message(agent, first_user_msg.id)
+      Process.sleep(50)
+
+      assert Agent.get_state(agent).messages == messages_before
     end
   end
 
@@ -446,6 +434,127 @@ defmodule Planck.Agent.AgentTest do
       # A fresh turn_start and turn_end must arrive after the abort
       assert_receive {:agent_event, :turn_start, _}, 2_000
       assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+  end
+
+  # --- persistence ordering ---
+
+  describe "message persistence ordering" do
+    test "queued user message is persisted after the current assistant response" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(100)
+        [{:text_delta, "response"}, {:done, %{}}]
+      end)
+
+      {agent, session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(30)
+      assert Agent.get_state(agent).status == :streaming
+
+      # Queue while streaming — must NOT be persisted until after the current turn
+      Agent.prompt(agent, "second")
+
+      # first
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      # first ends, re-triggers
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      # second turn
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      # second ends
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, rows} = Session.messages(session_id)
+      db_ids = Enum.map(rows, & &1.db_id)
+      roles = Enum.map(rows, & &1.message.role)
+
+      # Must be strictly ascending (no ordering violations)
+      assert db_ids == Enum.sort(db_ids)
+
+      # assistant response to "first" must come before the queued "second"
+      assistant_idx = Enum.find_index(roles, &(&1 == :assistant))
+
+      second_user_idx =
+        roles
+        |> Enum.with_index()
+        |> Enum.filter(fn {r, _} -> r == :user end)
+        |> Enum.at(1)
+        |> elem(1)
+
+      assert assistant_idx < second_user_idx
+    end
+
+    test "queued message id is a UUID (not yet a db_id) while streaming" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(200)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      {agent, _session_id} = start_agent_with_session()
+      Agent.prompt(agent, "first")
+      Process.sleep(30)
+
+      Agent.prompt(agent, "second")
+      messages = Agent.get_state(agent).messages
+      queued = List.last(messages)
+
+      # Still a UUID (binary), not yet assigned a db_id integer
+      assert is_binary(queued.id)
+    end
+
+    test "queued message has an integer db_id after its turn completes" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(100)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      {agent, _session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(30)
+      Agent.prompt(agent, "second")
+
+      # Wait for both turns to complete
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      messages = Agent.get_state(agent).messages
+      second_user = messages |> Enum.filter(&(&1.role == :user)) |> Enum.at(1)
+
+      assert is_integer(second_user.id)
+    end
+
+    test "agent_response message is persisted and gets a db_id" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(50)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      {agent, session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "go")
+      Process.sleep(10)
+      send(agent, {:agent_response, "worker done", nil})
+
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, rows} = Session.messages(session_id)
+      agent_response_row = Enum.find(rows, &(&1.message.role == {:custom, :agent_response}))
+
+      assert agent_response_row != nil
+      assert is_integer(agent_response_row.db_id)
+
+      # db_id ordering: agent_response must come after assistant, before next assistant
+      db_ids = Enum.map(rows, & &1.db_id)
+      assert db_ids == Enum.sort(db_ids)
     end
   end
 
@@ -523,6 +632,95 @@ defmodule Planck.Agent.AgentTest do
 
       # No third turn — both responses were in the LLM context for the second call
       refute_receive {:agent_event, :turn_start, _}, 300
+    end
+  end
+
+  describe "flush_unpersisted_messages ordering" do
+    test "queued user message appears after the current turn's assistant response in state.messages" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(100)
+        [{:text_delta, "first response"}, {:done, %{}}]
+      end)
+
+      {agent, _session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(30)
+
+      # Queue while streaming
+      Agent.prompt(agent, "second")
+
+      # Both turns complete
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      roles =
+        Agent.get_state(agent).messages
+        |> Enum.map(fn msg ->
+          case msg.role do
+            :user -> :user
+            :assistant -> :assistant
+            _ -> :other
+          end
+        end)
+
+      # Correct order: user("first"), assistant, user("second"), assistant
+      assert roles == [:user, :assistant, :user, :assistant]
+    end
+
+    test "db_ids in state.messages are strictly ascending after queuing" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(100)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      {agent, _session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(30)
+      Agent.prompt(agent, "second")
+
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      ids = Agent.get_state(agent).messages |> Enum.map(& &1.id)
+      assert ids == Enum.sort(ids)
+    end
+
+    test "turn_checkpoints covers all user messages after queuing" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(100)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      {agent, _session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(30)
+      Agent.prompt(agent, "second")
+
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      state = Agent.get_state(agent)
+
+      user_indices =
+        state.messages
+        |> Enum.with_index()
+        |> Enum.filter(fn {msg, _} -> msg.role == :user end)
+        |> Enum.map(fn {_, idx} -> idx end)
+
+      # Every user message must have a corresponding checkpoint
+      assert length(state.turn_checkpoints) == length(user_indices)
     end
   end
 

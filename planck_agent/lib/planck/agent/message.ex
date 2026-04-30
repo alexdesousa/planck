@@ -10,7 +10,7 @@ defmodule Planck.Agent.Message do
   @type role :: :user | :assistant | :tool_result | {:custom, atom()}
 
   @type t :: %__MODULE__{
-          id: String.t(),
+          id: non_neg_integer() | String.t(),
           role: role(),
           content: [Planck.AI.Message.content_part()],
           timestamp: DateTime.t(),

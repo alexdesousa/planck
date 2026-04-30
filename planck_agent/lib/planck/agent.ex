@@ -28,7 +28,6 @@ defmodule Planck.Agent do
   | `:usage_delta` | `delta`, `total` |
   | `:tool_start` | `id`, `name`, `args` |
   | `:tool_end` | `id`, `name`, `result`, `error` |
-  | `:rewind` | `message_count` |
   | `:worker_exit` | `pid`, `reason` |
   | `:error` | `reason` |
 
@@ -85,7 +84,7 @@ defmodule Planck.Agent do
   - `stream_task` / `stream_ref` — in-flight async LLM stream
   - `stream_start` — length of `messages` when the current stream began; used to
     detect messages appended *during* streaming that the LLM did not see
-  - `turn_checkpoints` — message-count stack for `rewind/2`
+  - `turn_checkpoints` — message-count stack used internally
   - `pending_tool_calls` — tool calls waiting for execution after stream end
   - `text_buffer` / `thinking_buffer` — partial text accumulated during streaming
   - `on_compact` — optional compaction callback
@@ -190,21 +189,22 @@ defmodule Planck.Agent do
     GenServer.cast(agent, :abort)
   end
 
+  @doc """
+  Truncate the session to strictly before `message_id`, then reload the
+  agent's in-memory message history from the DB (the source of truth).
+  `turn_checkpoints` is rebuilt from the reloaded message list.
+
+  Only meaningful for agents with a `session_id`. A no-op for ephemeral agents.
+  """
+  @spec rewind_to_message(agent(), pos_integer()) :: :ok
+  def rewind_to_message(agent, message_id) do
+    GenServer.cast(agent, {:rewind_to_message, message_id})
+  end
+
   @doc "Stop the agent. Cancels any in-flight work and removes it from the supervisor."
   @spec stop(agent()) :: :ok
   def stop(agent) do
     GenServer.stop(agent)
-  end
-
-  @doc """
-  Remove the last `n` user-initiated turns from the agent's message history.
-
-  Only takes effect when the agent is idle — ignored while streaming or executing
-  tools. Syncs the session store if a `session_id` is set.
-  """
-  @spec rewind(agent(), pos_integer()) :: :ok
-  def rewind(agent, n \\ 1) do
-    GenServer.cast(agent, {:rewind, n})
   end
 
   @doc "Synchronous state snapshot."
@@ -315,30 +315,17 @@ defmodule Planck.Agent do
   end
 
   def handle_call({:prompt, content, _opts}, _from, %{status: :idle} = state) do
-    parts = normalize_content(content)
-    msg = Message.new(:user, parts)
-    checkpoint = length(state.messages)
-
-    new_state = %{
-      state
-      | messages: state.messages ++ [msg],
-        turn_checkpoints: [checkpoint | state.turn_checkpoints]
-    }
-
-    maybe_append_to_session(new_state, msg)
-    broadcast(new_state, :turn_start, %{index: new_state.turn_index})
-    {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
+    do_prompt(content, state)
   end
 
   def handle_call({:prompt, content, _opts}, _from, state) do
-    # Agent is busy — append the message without starting a new turn.
-    # stream_done will detect the queued input and re-trigger after the
-    # current turn ends.
+    # Agent is busy — append without persisting yet. Persisting now would give
+    # the queued message a db_id smaller than the current turn's assistant
+    # response, breaking edit-message truncation order. The message is flushed
+    # to the session in handle_continue(:run_llm) after the current turn ends.
     parts = normalize_content(content)
     msg = Message.new(:user, parts)
-    new_state = %{state | messages: state.messages ++ [msg]}
-    maybe_append_to_session(new_state, msg)
-    {:reply, :ok, new_state}
+    {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
   end
 
   @impl true
@@ -353,32 +340,19 @@ defmodule Planck.Agent do
     {:noreply, state}
   end
 
-  def handle_cast({:rewind, _n}, %{status: status} = state) when status != :idle do
-    {:noreply, state}
-  end
-
-  def handle_cast({:rewind, n}, state) do
-    case Enum.at(state.turn_checkpoints, n - 1) do
-      nil ->
-        {:noreply, state}
-
-      checkpoint ->
-        new_state = %{
-          state
-          | messages: Enum.take(state.messages, checkpoint),
-            turn_checkpoints: Enum.drop(state.turn_checkpoints, n)
-        }
-
-        maybe_truncate_session(new_state, checkpoint)
-        broadcast(new_state, :rewind, %{message_count: checkpoint})
-        {:noreply, new_state}
-    end
-  end
-
   def handle_cast(:abort, state) do
     cancel_stream(state)
     new_state = reset_streaming(state)
     maybe_turn_start(new_state)
+  end
+
+  def handle_cast({:rewind_to_message, _message_id}, %{session_id: nil} = state) do
+    {:noreply, state}
+  end
+
+  def handle_cast({:rewind_to_message, message_id}, state) do
+    Session.truncate_after(state.session_id, message_id)
+    {:noreply, reload_messages_from_session(state)}
   end
 
   def handle_cast({:add_tool, tool}, state) do
@@ -393,7 +367,79 @@ defmodule Planck.Agent do
   def handle_continue(message, state)
 
   def handle_continue(:run_llm, state) do
+    {:noreply, do_run_llm(state)}
+  end
+
+  def handle_continue({:execute_tools, calls}, state) do
+    {:noreply, do_execute_tools(calls, state), {:continue, :run_llm}}
+  end
+
+  @impl true
+  def handle_info(event, state)
+
+  def handle_info({:stream_event, ref, event}, %{stream_ref: ref} = state) do
+    {:noreply, process_event(state, event)}
+  end
+
+  def handle_info({:stream_event, _stale, _event}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:stream_done, ref}, %{stream_ref: ref} = state) do
+    do_stream_done(state)
+  end
+
+  def handle_info({:stream_done, _stale}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:tool_result, _id, _name, _result}, state) do
+    # Results are collected synchronously in execute_tools via Task.async_stream.
+    # This clause handles any late-arriving messages after an abort.
+    {:noreply, state}
+  end
+
+  def handle_info({:agent_response, response, sender}, state) do
+    do_agent_response(response, sender, state)
+  end
+
+  def handle_info({:EXIT, pid, reason}, state) do
+    broadcast(state, :worker_exit, %{pid: pid, reason: reason})
+    {:noreply, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    cancel_stream(state)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Callback implementations
+  # ---------------------------------------------------------------------------
+
+  @spec do_prompt(String.t() | [Planck.AI.Message.content_part()], t()) ::
+          {:reply, :ok, t(), {:continue, :run_llm}}
+  defp do_prompt(content, state) do
+    parts = normalize_content(content)
+    msg = Message.new(:user, parts)
+    checkpoint = length(state.messages)
+    msg = persist_message(state, msg)
+
+    new_state = %{
+      state
+      | messages: state.messages ++ [msg],
+        turn_checkpoints: [checkpoint | state.turn_checkpoints]
+    }
+
+    broadcast(new_state, :turn_start, %{index: new_state.turn_index})
+    {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
+  end
+
+  defp do_run_llm(state)
+
+  defp do_run_llm(state) do
     {messages, state} = apply_compact(state)
+    state = flush_unpersisted_messages(state)
     stream_start = length(state.messages)
     ai_tools = state.tools |> Map.values() |> Enum.map(&Tool.to_ai_tool/1)
 
@@ -414,18 +460,18 @@ defmodule Planck.Agent do
         send(parent, {:stream_done, ref})
       end)
 
-    {:noreply,
-     %{
-       state
-       | stream_task: task,
-         stream_ref: ref,
-         stream_start: stream_start,
-         status: :streaming,
-         turn_index: state.turn_index + 1
-     }}
+    %{
+      state
+      | stream_task: task,
+        stream_ref: ref,
+        stream_start: stream_start,
+        status: :streaming,
+        turn_index: state.turn_index + 1
+    }
   end
 
-  def handle_continue({:execute_tools, tool_calls}, state) do
+  @spec do_execute_tools([map()], t()) :: t()
+  defp do_execute_tools(tool_calls, state) do
     parent = self()
 
     results =
@@ -467,32 +513,23 @@ defmodule Planck.Agent do
       |> Enum.reject(&is_nil/1)
 
     tool_result_msg = build_tool_result_message(results)
+    tool_result_msg = persist_message(state, tool_result_msg)
 
     new_state = %{state | messages: state.messages ++ [tool_result_msg], pending_tool_calls: []}
-    maybe_append_to_session(new_state, tool_result_msg)
-    {:noreply, %{new_state | status: :streaming}, {:continue, :run_llm}}
+    %{new_state | status: :streaming}
   end
 
-  @impl true
-  def handle_info(event, state)
-
-  def handle_info({:stream_event, ref, event}, %{stream_ref: ref} = state) do
-    {:noreply, process_event(state, event)}
-  end
-
-  def handle_info({:stream_event, _stale, _event}, state) do
-    {:noreply, state}
-  end
-
-  def handle_info({:stream_done, ref}, %{stream_ref: ref} = state) do
+  @spec do_stream_done(t()) ::
+          {:noreply, t()} | {:noreply, t(), {:continue, {:execute_tools, [map()]}}}
+  defp do_stream_done(state) do
     pending = state.pending_tool_calls
     assistant_msg = build_assistant_message(state)
+
+    assistant_msg = persist_message(state, assistant_msg)
 
     new_state =
       %{state | messages: state.messages ++ [assistant_msg]}
       |> reset_streaming()
-
-    maybe_append_to_session(new_state, assistant_msg)
 
     case pending do
       [] ->
@@ -504,17 +541,9 @@ defmodule Planck.Agent do
     end
   end
 
-  def handle_info({:stream_done, _stale}, state) do
-    {:noreply, state}
-  end
-
-  def handle_info({:tool_result, _id, _name, _result}, state) do
-    # Results are collected synchronously in execute_tools via Task.async_stream.
-    # This clause handles any late-arriving messages after an abort.
-    {:noreply, state}
-  end
-
-  def handle_info({:agent_response, response, sender}, state) do
+  @spec do_agent_response(String.t(), term(), t()) ::
+          {:noreply, t()} | {:noreply, t(), {:continue, :run_llm}}
+  defp do_agent_response(response, sender, state) do
     metadata =
       case sender do
         %{id: id, name: name} -> %{sender_id: id, sender_name: name}
@@ -522,8 +551,8 @@ defmodule Planck.Agent do
       end
 
     msg = Message.new({:custom, :agent_response}, [{:text, response}], metadata)
+    msg = persist_message(state, msg)
     new_state = %{state | messages: state.messages ++ [msg]}
-    maybe_append_to_session(new_state, msg)
 
     if state.status == :idle do
       broadcast(new_state, :turn_start, %{index: new_state.turn_index})
@@ -533,19 +562,11 @@ defmodule Planck.Agent do
     end
   end
 
-  def handle_info({:EXIT, pid, reason}, state) do
-    broadcast(state, :worker_exit, %{pid: pid, reason: reason})
-    {:noreply, state}
-  end
-
-  @impl true
-  def terminate(_reason, state), do: cancel_stream(state)
-
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  @spec link_to_orchestrator(%__MODULE__{}) :: :ok
+  @spec link_to_orchestrator(t()) :: :ok
   defp link_to_orchestrator(%{delegator_id: nil}), do: :ok
 
   defp link_to_orchestrator(%{delegator_id: id}) do
@@ -555,7 +576,7 @@ defmodule Planck.Agent do
     end
   end
 
-  @spec register_agent(%__MODULE__{}) :: :ok
+  @spec register_agent(t()) :: :ok
   defp register_agent(%{id: id, team_id: team_id, type: type, name: name, description: desc}) do
     Registry.register(Planck.Agent.Registry, {:agent, id}, nil)
 
@@ -569,7 +590,7 @@ defmodule Planck.Agent do
     :ok
   end
 
-  @spec broadcast(%__MODULE__{}, atom(), map()) :: :ok
+  @spec broadcast(t(), atom(), map()) :: :ok
   defp broadcast(%{id: id, session_id: session_id}, type, payload) do
     event = {:agent_event, type, payload}
     Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "agent:#{id}", event)
@@ -580,21 +601,67 @@ defmodule Planck.Agent do
     end
   end
 
-  @spec maybe_append_to_session(%__MODULE__{}, Message.t()) :: :ok
-  defp maybe_append_to_session(%{session_id: nil}, _msg), do: :ok
+  # Persist any messages with a UUID id (not yet written to the session),
+  # then reload all messages from the DB to get the canonical id-ordered sequence
+  # and rebuild turn_checkpoints. Called at the start of handle_continue(:run_llm)
+  # so queued messages are always written AFTER the previous turn's assistant
+  # response and the in-memory list reflects the correct DB order.
+  @spec flush_unpersisted_messages(t()) :: t()
+  defp flush_unpersisted_messages(state)
 
-  defp maybe_append_to_session(%{session_id: sid, id: agent_id}, msg) do
-    Session.append(sid, agent_id, msg)
+  defp flush_unpersisted_messages(%__MODULE__{session_id: nil} = state) do
+    state
   end
 
-  @spec maybe_truncate_session(%__MODULE__{}, non_neg_integer()) :: :ok
-  defp maybe_truncate_session(%{session_id: nil}, _count), do: :ok
+  defp flush_unpersisted_messages(state) do
+    unpersisted = Enum.filter(state.messages, &is_binary(&1.id))
 
-  defp maybe_truncate_session(%{session_id: sid, id: agent_id}, count) do
-    Session.truncate_agent(sid, agent_id, count)
+    if unpersisted == [] do
+      state
+    else
+      Enum.each(unpersisted, &Session.append(state.session_id, state.id, &1))
+      reload_messages_from_session(state)
+    end
   end
 
-  @spec process_event(%__MODULE__{}, Planck.AI.Stream.t()) :: %__MODULE__{}
+  # Reload the agent's message history from the session DB and rebuild
+  # turn_checkpoints. Used after any operation that changes the canonical
+  # sequence (rewind, flush of queued messages).
+  @spec reload_messages_from_session(t()) :: t()
+  defp reload_messages_from_session(state) do
+    case Session.messages(state.session_id, agent_id: state.id) do
+      {:ok, rows} ->
+        messages = Enum.map(rows, & &1.message)
+
+        checkpoints =
+          messages
+          |> Enum.with_index()
+          |> Enum.filter(fn {msg, _} -> msg.role == :user end)
+          |> Enum.map(fn {_, idx} -> idx end)
+          |> Enum.reverse()
+
+        %{state | messages: messages, turn_checkpoints: checkpoints}
+
+      _ ->
+        # Session unavailable (e.g. no GenServer running for this session_id);
+        # keep current in-memory state unchanged.
+        state
+    end
+  end
+
+  # Persist a message and return it with its DB row id set. For ephemeral
+  # agents (no session_id), the message is returned unchanged.
+  @spec persist_message(t(), Message.t()) :: Message.t()
+  defp persist_message(%{session_id: nil}, msg), do: msg
+
+  defp persist_message(%{session_id: sid, id: agent_id}, msg) do
+    case Session.append(sid, agent_id, msg) do
+      nil -> msg
+      db_id -> %{msg | id: db_id}
+    end
+  end
+
+  @spec process_event(t(), Planck.AI.Stream.t()) :: t()
   defp process_event(state, {:text_delta, text}) do
     broadcast(state, :text_delta, %{text: text})
     %{state | text_buffer: state.text_buffer <> text}
@@ -632,7 +699,7 @@ defmodule Planck.Agent do
 
   defp process_event(state, _other), do: state
 
-  @spec build_assistant_message(%__MODULE__{}) :: Message.t()
+  @spec build_assistant_message(t()) :: Message.t()
   defp build_assistant_message(%{
          text_buffer: text,
          thinking_buffer: thinking,
@@ -669,26 +736,30 @@ defmodule Planck.Agent do
     Message.new(:tool_result, content)
   end
 
-  @spec apply_compact(%__MODULE__{}) :: {[Message.t()], %__MODULE__{}}
-  defp apply_compact(%{on_compact: nil, messages: messages} = state) do
+  @spec apply_compact(t()) :: {[Message.t()], t()}
+  defp apply_compact(state)
+
+  defp apply_compact(%__MODULE__{on_compact: nil, messages: messages} = state) do
     {messages_since_last_summary(messages), state}
   end
 
-  defp apply_compact(%{on_compact: fun, messages: messages} = state) do
+  defp apply_compact(%__MODULE__{on_compact: fun, messages: messages} = state)
+       when is_function(fun) do
     recent = messages_since_last_summary(messages)
 
     case fun.(recent) do
       :skip ->
         {recent, state}
 
-      {:compact, summary_msg, kept} ->
+      {:compact, %Message{} = summary_msg, kept} ->
         broadcast(state, :compacting, %{})
+
+        summary_msg = persist_message(state, summary_msg)
 
         prefix_len = length(messages) - length(recent)
         prefix = Enum.take(messages, prefix_len)
         new_messages = prefix ++ [summary_msg | kept]
         new_state = %{state | messages: new_messages}
-        maybe_append_to_session(new_state, summary_msg)
 
         broadcast(new_state, :compacted, %{})
         {[summary_msg | kept], new_state}
@@ -725,23 +796,23 @@ defmodule Planck.Agent do
 
   @spec messages_since_last_summary([Message.t()]) :: [Message.t()]
   defp messages_since_last_summary(messages) do
-    reversed = Enum.reverse(messages)
-    {tail_rev, rest} = Enum.split_while(reversed, &(not match?(%{role: {:custom, :summary}}, &1)))
-
-    case rest do
-      [] -> messages
-      [summary_msg | _] -> [summary_msg | Enum.reverse(tail_rev)]
+    messages
+    |> Enum.reverse()
+    |> Enum.split_while(&(not match?(%Message{role: {:custom, :summary}}, &1)))
+    |> case do
+      {_tail_rev, []} -> messages
+      {tail_rev, [%Message{} = summary | _]} -> [summary | Enum.reverse(tail_rev)]
     end
   end
 
-  @spec cancel_stream(%__MODULE__{}) :: :ok
+  @spec cancel_stream(t()) :: :ok
   defp cancel_stream(%{stream_task: nil}), do: :ok
 
   defp cancel_stream(%{stream_task: task}) do
     Task.Supervisor.terminate_child(Planck.Agent.TaskSupervisor, task)
   end
 
-  @spec reset_streaming(%__MODULE__{}) :: %__MODULE__{}
+  @spec reset_streaming(t()) :: t()
   defp reset_streaming(state) do
     %{
       state

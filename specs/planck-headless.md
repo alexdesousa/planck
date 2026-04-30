@@ -114,6 +114,16 @@ session crashing does not affect others.
 # Send a user prompt to the orchestrator of a session.
 @spec prompt(String.t(), String.t()) :: :ok | {:error, term()}
 
+# Edit a previous user message: calls Agent.rewind_to_message/2 which truncates
+# both the session and in-memory history to strictly before db_id, then
+# re-prompts the orchestrator with new_text.
+# Powers the edit-message UI feature.
+@spec rewind_to_message(
+        session_id :: String.t(),
+        db_id      :: pos_integer(),
+        new_text   :: String.t()
+      ) :: :ok | {:error, term()}
+
 # List all sessions on disk (active and inactive) with their id, name, and
 # whether they are currently running.
 @spec list_sessions() ::
