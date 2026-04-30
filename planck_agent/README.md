@@ -23,7 +23,8 @@ export PLANCK_AGENT_SESSIONS_DIR=/var/data/planck/sessions
 
 ```elixir
 alias Planck.AI
-alias Planck.Agent.{Agent, Tool}
+alias Planck.Agent
+alias Planck.Agent.Tool
 
 # 1. Get a model from planck_ai
 {:ok, model} = AI.get_model(:anthropic, "claude-sonnet-4-6")
@@ -292,19 +293,41 @@ message in the agent's history and persisted to the session. Future LLM calls
 are built from the latest summary onward — the full history remains in the
 session for audit and UI pagination.
 
-Bring your own compaction strategy by passing any function:
+Bring your own compaction strategy by implementing the `Planck.Agent.Compactor`
+behaviour in a module and loading it from a `.exs` file:
+
+```elixir
+# my_compactor.exs
+defmodule MyApp.Compactor do
+  @behaviour Planck.Agent.Compactor
+
+  @impl true
+  def compact(messages) do
+    case summarise(messages) do
+      {:ok, text} ->
+        summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
+        kept = Enum.take(messages, -5)
+        {:compact, summary_msg, kept}
+
+      :error ->
+        :skip
+    end
+  end
+
+  defp summarise(messages), do: ...
+end
+```
+
+```elixir
+{:ok, on_compact} = Planck.Agent.Compactor.load("my_compactor.exs")
+```
+
+Or pass any `function/1` directly for inline use:
 
 ```elixir
 on_compact = fn messages ->
-  case my_summarise(messages) do
-    {:ok, text} ->
-      summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
-      kept = Enum.take(messages, -5)
-      {:compact, summary_msg, kept}
-
-    :error ->
-      :skip
-  end
+  summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, "..."}])
+  {:compact, summary_msg, Enum.take(messages, -5)}
 end
 ```
 
@@ -340,6 +363,26 @@ Define a team in JSON and load it at runtime:
 `system_prompt` accepts an inline string or a `.md`/`.txt` path resolved
 relative to the template file. Valid providers are `"anthropic"`, `"openai"`,
 `"google"`, `"ollama"`, `"llama_cpp"`.
+
+The optional `"tools"` array lists tool names the agent should receive. Names are
+resolved at start time from the `tool_pool:` keyword passed to `AgentSpec.to_start_opts/2`:
+
+```json
+{ "type": "coder", "tools": ["read", "write", "bash"], ... }
+```
+
+```elixir
+pool = Planck.Agent.BuiltinTools.all() ++ Planck.Agent.ExternalTool.load_all(dirs)
+
+start_opts = AgentSpec.to_start_opts(spec,
+  tool_pool:  pool,
+  team_id:    team_id,
+  session_id: session_id
+)
+```
+
+Unknown names are silently ignored. When `spec.tools` is empty, `to_start_opts/2`
+falls back to the `tools:` keyword — the behaviour before this feature was added.
 
 ```elixir
 alias Planck.Agent.{Agent, AgentSpec, Compactor, TeamTemplate}
@@ -438,11 +481,15 @@ Subscribers receive `{:agent_event, :rewind, %{message_count: n}}`.
 |---|---|---|---|
 | `PLANCK_AGENT_SESSIONS_DIR` | `:sessions_dir` | `.planck/sessions` | Directory for SQLite session files |
 | `PLANCK_AGENT_SKILLS_DIRS` | `:skills_dirs` | `.planck/skills:~/.planck/skills` | Colon-separated list of skill directories |
+| `PLANCK_AGENT_TOOLS_DIRS` | `:tools_dirs` | `.planck/tools:~/.planck/tools` | Colon-separated list of external tool directories |
+| `PLANCK_AGENT_COMPACTOR` | `:compactor` | `nil` | Path to a `.exs` file returning a custom `on_compact` function/1 |
 
 ```elixir
 # config/runtime.exs
 config :planck_agent, :sessions_dir, "/var/data/planck/sessions"
 config :planck_agent, :skills_dirs, ["/app/skills", "~/.planck/skills"]
+config :planck_agent, :tools_dirs, ["/app/tools", "~/.planck/tools"]
+config :planck_agent, :compactor, "/app/config/compactor.exs"
 ```
 
 ## Supervision tree
@@ -455,8 +502,8 @@ Planck.Agent.Supervisor  (strategy: :one_for_all)
 ├── DynamicSupervisor     (name: Planck.Agent.SessionSupervisor)
 │   └── Planck.Agent.Session  (restart: :temporary)
 └── DynamicSupervisor     (name: Planck.Agent.AgentSupervisor)
-    ├── Planck.Agent.Agent (role: :orchestrator)
-    └── Planck.Agent.Agent (role: :worker)
+    ├── Planck.Agent (role: :orchestrator)
+    └── Planck.Agent (role: :worker)
 ```
 
 `:one_for_all` on the top-level supervisor ensures the Registry and PubSub

@@ -42,7 +42,7 @@ defmodule Planck.Agent.Skill do
 
       system_prompt = base_prompt <> Planck.Agent.Skill.system_prompt_section(skills)
 
-      {Planck.Agent.Agent,
+      {Planck.Agent,
        id: ...,
        system_prompt: system_prompt,
        tools: [BuiltinTools.read(), BuiltinTools.bash()]}

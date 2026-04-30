@@ -3,7 +3,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
   import Mox
 
-  alias Planck.Agent.{Agent, BuiltinTools, MockAI, Session, Tools}
+  alias Planck.Agent
+  alias Planck.Agent.{BuiltinTools, MockAI, Session, Tools}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global

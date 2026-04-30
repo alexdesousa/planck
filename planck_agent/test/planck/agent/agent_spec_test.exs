@@ -105,6 +105,71 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:on_compact] == fun
     end
 
+    test "resolves tools by name from tool_pool when spec.tools is set" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      read = %Planck.Agent.Tool{
+        name: "read",
+        description: "r",
+        parameters: %{},
+        execute_fn: fn _, _ -> :ok end
+      }
+
+      bash = %Planck.Agent.Tool{
+        name: "bash",
+        description: "b",
+        parameters: %{},
+        execute_fn: fn _, _ -> :ok end
+      }
+
+      spec = %{@base_spec | tools: ["read"]}
+      opts = AgentSpec.to_start_opts(spec, tool_pool: [read, bash])
+      assert opts[:tools] == [read]
+    end
+
+    test "ignores unknown tool names in spec.tools" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      spec = %{@base_spec | tools: ["unknown"]}
+      opts = AgentSpec.to_start_opts(spec, tool_pool: [])
+      assert opts[:tools] == []
+    end
+
+    test "appends explicit tools: after resolved ones when spec.tools is set" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      read = %Planck.Agent.Tool{
+        name: "read",
+        description: "r",
+        parameters: %{},
+        execute_fn: fn _, _ -> :ok end
+      }
+
+      extra = %Planck.Agent.Tool{
+        name: "extra",
+        description: "e",
+        parameters: %{},
+        execute_fn: fn _, _ -> :ok end
+      }
+
+      spec = %{@base_spec | tools: ["read"]}
+      opts = AgentSpec.to_start_opts(spec, tool_pool: [read], tools: [extra])
+      assert opts[:tools] == [read, extra]
+    end
+
+    test "falls back to tools: override when spec.tools is empty" do
+      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+
+      read = %Planck.Agent.Tool{
+        name: "read",
+        description: "r",
+        parameters: %{},
+        execute_fn: fn _, _ -> :ok end
+      }
+
+      opts = AgentSpec.to_start_opts(@base_spec, tools: [read])
+      assert opts[:tools] == [read]
+    end
+
     test "raises when model not found" do
       expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:error, :not_found} end)
 

@@ -88,6 +88,23 @@ defmodule Planck.Agent.TeamTemplateTest do
       assert {:ok, spec} = TeamTemplate.from_map(entry)
       assert spec.system_prompt == ""
     end
+
+    test "parses tools array into spec.tools" do
+      entry = valid_entry(%{"tools" => ["read", "bash"]})
+      assert {:ok, spec} = TeamTemplate.from_map(entry)
+      assert spec.tools == ["read", "bash"]
+    end
+
+    test "tools defaults to empty list when absent" do
+      assert {:ok, spec} = TeamTemplate.from_map(valid_entry())
+      assert spec.tools == []
+    end
+
+    test "tools filters out non-string entries" do
+      entry = valid_entry(%{"tools" => ["read", 42, nil, "bash"]})
+      assert {:ok, spec} = TeamTemplate.from_map(entry)
+      assert spec.tools == ["read", "bash"]
+    end
   end
 
   # --- file path resolution ---

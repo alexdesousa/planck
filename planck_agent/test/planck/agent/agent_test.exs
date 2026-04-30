@@ -3,7 +3,8 @@ defmodule Planck.Agent.AgentTest do
 
   import Mox
 
-  alias Planck.Agent.{Agent, MockAI, Tool}
+  alias Planck.Agent
+  alias Planck.Agent.{MockAI, Tool}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global

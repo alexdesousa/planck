@@ -1,22 +1,33 @@
 defmodule Planck.Agent.Compactor do
   @moduledoc """
-  Builds an `on_compact` function for use with `Planck.Agent.Agent`.
+  Behaviour and default implementation for context compaction in `Planck.Agent`.
 
-  Triggers when the estimated token count of the message history exceeds a
-  configurable ratio of the model's `context_window`. When triggered, it calls
-  the LLM to produce a summary that preserves the active goal and recent
-  context, then replaces the older messages with that summary.
+  ## Behaviour
 
-  ## Usage
+  Implement this behaviour to supply a custom compaction strategy:
+
+      defmodule MyApp.Compactor do
+        @behaviour Planck.Agent.Compactor
+
+        @impl true
+        def compact(messages) do
+          summary = summarise(messages)
+          kept    = Enum.take(messages, -5)
+          {:compact, summary, kept}
+        end
+
+        defp summarise(messages), do: ...
+      end
+
+  Load the module from a `.exs` file:
+
+      {:ok, on_compact} = Planck.Agent.Compactor.load("my_compactor.exs")
+
+  ## Default compactor
+
+  `build/2` returns a ready-to-use `on_compact` function backed by the LLM:
 
       on_compact = Planck.Agent.Compactor.build(model, ratio: 0.8)
-
-      start_opts = AgentSpec.to_start_opts(spec,
-        tools: tools,
-        team_id: team_id,
-        session_id: session_id,
-        on_compact: on_compact
-      )
 
   ## Compaction strategy
 
@@ -33,6 +44,9 @@ defmodule Planck.Agent.Compactor do
 
   alias Planck.Agent.{AIBehaviour, Message}
   alias Planck.AI.{Context, Model}
+
+  @callback compact(messages :: [Message.t()]) ::
+              {:compact, summary :: Message.t(), kept :: [Message.t()]} | :skip
 
   @default_ratio 0.8
   @default_keep_recent 10
@@ -57,6 +71,27 @@ defmodule Planck.Agent.Compactor do
 
   Prioritize recency — the active task and latest requests take priority over earlier history.
   """
+
+  @doc """
+  Load a custom compactor from a `.exs` file.
+
+  The file must define a module that implements the `Planck.Agent.Compactor`
+  behaviour (i.e. exports `compact/1`). Returns `{:error, reason}` if the file
+  is missing, fails to compile, or contains no module with a `compact/1`
+  function.
+  """
+  @spec load(Path.t()) :: {:ok, ([Message.t()] -> term())} | {:error, String.t()}
+  def load(path) do
+    expanded = Path.expand(path)
+    modules = Code.compile_file(expanded)
+
+    case Enum.find(modules, fn {mod, _binary} -> function_exported?(mod, :compact, 1) end) do
+      {mod, _binary} -> {:ok, &mod.compact/1}
+      nil -> {:error, "no module implementing Planck.Agent.Compactor found in #{path}"}
+    end
+  rescue
+    e -> {:error, "failed to load compactor #{path}: #{Exception.message(e)}"}
+  end
 
   @doc """
   Build an `on_compact` function for the given model.

@@ -33,7 +33,8 @@ defmodule Planck.Agent.Tools do
   | `list_models` | orchestrator only | no |
   """
 
-  alias Planck.Agent.{Agent, Tool}
+  alias Planck.Agent
+  alias Planck.Agent.Tool
 
   @doc """
   Returns the three inter-agent tools available to all agents in a team:
@@ -52,7 +53,7 @@ defmodule Planck.Agent.Tools do
 
   These tools, combined with `worker_tools/2`, make up the full orchestrator set.
   The presence of `spawn_agent` in the tool list is what marks an agent as an
-  orchestrator — `Planck.Agent.Agent` derives `role: :orchestrator` from it.
+  orchestrator — `Planck.Agent` derives `role: :orchestrator` from it.
 
   `grantable_tools` is the list of built-in tools the orchestrator may delegate
   to spawned agents — typically the same built-in tools the orchestrator itself
@@ -264,7 +265,7 @@ defmodule Planck.Agent.Tools do
 
             case DynamicSupervisor.start_child(
                    Planck.Agent.AgentSupervisor,
-                   {Planck.Agent.Agent, start_opts}
+                   {Planck.Agent, start_opts}
                  ) do
               {:ok, _pid} -> {:ok, agent_id}
               {:error, reason} -> {:error, "Failed to start agent: #{inspect(reason)}"}

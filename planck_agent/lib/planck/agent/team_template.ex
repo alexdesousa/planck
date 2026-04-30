@@ -50,7 +50,7 @@ defmodule Planck.Agent.TeamTemplate do
           team_id: team_id,
           session_id: session_id
         )
-        DynamicSupervisor.start_child(Planck.Agent.AgentSupervisor, {Planck.Agent.Agent, start_opts})
+        DynamicSupervisor.start_child(Planck.Agent.AgentSupervisor, {Planck.Agent, start_opts})
       end)
 
   ## Loading from a pre-decoded list
@@ -134,7 +134,8 @@ defmodule Planck.Agent.TeamTemplate do
          provider: provider,
          model_id: model_id,
          system_prompt: system_prompt,
-         opts: parse_opts(entry["opts"])
+         opts: parse_opts(entry["opts"]),
+         tools: parse_tool_names(entry["tools"])
        )}
     end
   end
@@ -199,4 +200,9 @@ defmodule Planck.Agent.TeamTemplate do
   end
 
   defp parse_opts(_), do: []
+
+  @spec parse_tool_names(term()) :: [String.t()]
+  defp parse_tool_names(nil), do: []
+  defp parse_tool_names(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
+  defp parse_tool_names(_), do: []
 end
