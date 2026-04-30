@@ -295,6 +295,34 @@ defmodule Planck.Web.Live.ChatEntries do
   # Orchestrator detection
   # ---------------------------------------------------------------------------
 
+  @spec inter_agent_call?([tuple()]) :: boolean()
+  defp inter_agent_call?(content) do
+    Enum.any?(content, fn
+      {:tool_call, _, name, _} when name in @inter_agent_tools -> true
+      _ -> false
+    end)
+  end
+
+  @spec agent_response_entry(Planck.Agent.Message.t()) :: entry()
+  defp agent_response_entry(msg) do
+    author =
+      case msg.metadata do
+        %{sender_id: sid, sender_name: sname} -> {:agent, sid, sname}
+        _ -> :user
+      end
+
+    %{
+      id: msg.id,
+      type: :agent_response,
+      side: :right,
+      author: author,
+      text: extract_text(msg.content),
+      streaming: false,
+      expanded: false,
+      timestamp: msg.timestamp
+    }
+  end
+
   @spec orchestrator?(String.t() | nil, agents()) :: boolean()
   defp orchestrator?(id, agents)
   defp orchestrator?(nil, _agents), do: false
@@ -309,12 +337,7 @@ defmodule Planck.Web.Live.ChatEntries do
 
     from_rows =
       Enum.find_value(rows, fn %{agent_id: aid, message: msg} ->
-        if msg.role == :assistant and
-             Enum.any?(msg.content, fn
-               {:tool_call, _, name, _} when name in @inter_agent_tools -> true
-               _ -> false
-             end),
-           do: aid
+        if msg.role == :assistant and inter_agent_call?(msg.content), do: aid
       end)
 
     from_map || from_rows || List.first(rows, %{})[:agent_id]
@@ -327,7 +350,7 @@ defmodule Planck.Web.Live.ChatEntries do
   @spec classify_row(row(), String.t() | nil, agents(), boolean()) :: [entry()]
   defp classify_row(row, perspective_id, agents, is_orch)
 
-  defp classify_row(%{agent_id: aid, message: msg} = row, aid, agents, is_orch) do
+  defp classify_row(%{agent_id: aid, message: msg} = _row, aid, agents, is_orch) do
     author = agent_author(aid, agents)
 
     case msg.role do
@@ -368,24 +391,7 @@ defmodule Planck.Web.Live.ChatEntries do
         ]
 
       {:custom, :agent_response} ->
-        entry_author =
-          case msg.metadata do
-            %{sender_id: sid, sender_name: sname} -> {:agent, sid, sname}
-            _ -> :user
-          end
-
-        [
-          %{
-            id: msg.id,
-            type: :agent_response,
-            side: :right,
-            author: entry_author,
-            text: extract_text(msg.content),
-            streaming: false,
-            expanded: false,
-            timestamp: msg.timestamp
-          }
-        ]
+        [agent_response_entry(msg)]
 
       _ ->
         []

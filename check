@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# Run format check, compile, credo, tests, and dialyzer across all planck_* packages.
+# Uses PLANCK_LOCAL=true so packages resolve each other as path dependencies.
+#
+# Usage: ./check [package...]   — run for specific packages only
+#        ./check                — run for all packages
+
+PACKAGES=(planck_ai planck_agent planck_headless planck_cli)
+ROOT=$(cd "$(dirname "$0")" && pwd)
+export PLANCK_LOCAL=true
+
+FAILURES=()
+PASSED=0
+
+# Restrict to requested packages if arguments were given
+if [ $# -gt 0 ]; then
+  PACKAGES=("$@")
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+separator() { printf '\n%s\n' "────────────────────────────────────────"; }
+
+run() {
+  local pkg=$1 label=$2
+  shift 2
+  printf "  %-10s %s\n" "$label" "..."
+  if (cd "$ROOT/$pkg" && "$@" > /tmp/planck_check_out 2>&1); then
+    printf "  %-10s ✓\n" "$label"
+    return 0
+  else
+    printf "  %-10s ✗\n" "$label"
+    echo ""
+    cat /tmp/planck_check_out
+    FAILURES+=("$pkg / $label")
+    return 1
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+for pkg in "${PACKAGES[@]}"; do
+  separator
+  echo " $pkg"
+  separator
+
+  run "$pkg" format   mix format --dry-run --check-formatted
+  run "$pkg" compile  mix compile --warnings-as-errors
+  run "$pkg" credo    mix credo
+  run "$pkg" test     mix test --warnings-as-errors
+  run "$pkg" dialyzer mix dialyzer
+
+  if [ $? -eq 0 ]; then
+    PASSED=$((PASSED + 1))
+  fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+separator
+echo ""
+
+if [ ${#FAILURES[@]} -eq 0 ]; then
+  echo "  All checks passed (${#PACKAGES[@]} packages)"
+  echo ""
+  exit 0
+else
+  echo "  Passed: $PASSED / ${#PACKAGES[@]} packages"
+  echo ""
+  echo "  Failures:"
+  for f in "${FAILURES[@]}"; do
+    echo "    ✗ $f"
+  done
+  echo ""
+  exit 1
+fi

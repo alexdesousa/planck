@@ -32,30 +32,11 @@ defmodule Planck.Web.SessionLive do
       Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
 
       sessions = Headless.list_sessions()
-      active = Enum.find(sessions, & &1.active) || List.first(sessions)
 
       socket =
-        cond do
-          active && active.active ->
-            load_session(socket, active.session_id)
-
-          active ->
-            case Headless.resume_session(active.session_id) do
-              {:ok, session_id} ->
-                load_session(socket, session_id)
-
-              {:error, _} ->
-                case Headless.start_session() do
-                  {:ok, session_id} -> load_session(socket, session_id)
-                  {:error, _} -> socket
-                end
-            end
-
-          true ->
-            case Headless.start_session() do
-              {:ok, session_id} -> load_session(socket, session_id)
-              {:error, _} -> socket
-            end
+        case find_initial_session(sessions) do
+          {:ok, session_id} -> load_session(socket, session_id)
+          {:error, _} -> socket
         end
 
       teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
@@ -189,34 +170,11 @@ defmodule Planck.Web.SessionLive do
 
   def handle_event("delete_session", %{"id" => session_id}, socket) do
     Headless.delete_session(session_id)
-
     sessions = Headless.list_sessions()
 
-    # If we deleted the active session, switch to the next one or create a new one
     socket =
       if socket.assigns.active_session == session_id do
-        case List.first(sessions) do
-          nil ->
-            case Headless.start_session() do
-              {:ok, sid} ->
-                socket |> load_session(sid) |> assign(:sessions, Headless.list_sessions())
-
-              {:error, _} ->
-                assign(socket, :sessions, sessions)
-            end
-
-          %{session_id: sid, active: true} ->
-            socket |> load_session(sid) |> assign(:sessions, sessions)
-
-          %{session_id: sid} ->
-            case Headless.resume_session(sid) do
-              {:ok, resumed_id} ->
-                socket |> load_session(resumed_id) |> assign(:sessions, Headless.list_sessions())
-
-              {:error, _} ->
-                assign(socket, :sessions, sessions)
-            end
-        end
+        next_session_after_delete(socket, sessions)
       else
         assign(socket, :sessions, sessions)
       end
@@ -389,6 +347,78 @@ defmodule Planck.Web.SessionLive do
   # Private
   # ---------------------------------------------------------------------------
 
+  @spec find_initial_session([map()]) :: {:ok, String.t()} | {:error, term()}
+  defp find_initial_session(sessions) do
+    case Enum.find(sessions, & &1.active) || List.first(sessions) do
+      nil ->
+        Headless.start_session()
+
+      %{active: true, session_id: id} ->
+        {:ok, id}
+
+      %{session_id: id} ->
+        case Headless.resume_session(id) do
+          {:ok, _} = ok -> ok
+          {:error, _} -> Headless.start_session()
+        end
+    end
+  end
+
+  @spec next_session_after_delete(Phoenix.LiveView.Socket.t(), [map()]) ::
+          Phoenix.LiveView.Socket.t()
+  defp next_session_after_delete(socket, sessions) do
+    case List.first(sessions) do
+      nil ->
+        case Headless.start_session() do
+          {:ok, sid} -> socket |> load_session(sid) |> assign(:sessions, Headless.list_sessions())
+          {:error, _} -> assign(socket, :sessions, sessions)
+        end
+
+      %{session_id: sid, active: true} ->
+        socket |> load_session(sid) |> assign(:sessions, sessions)
+
+      %{session_id: sid} ->
+        case Headless.resume_session(sid) do
+          {:ok, resumed_id} ->
+            socket |> load_session(resumed_id) |> assign(:sessions, Headless.list_sessions())
+
+          {:error, _} ->
+            assign(socket, :sessions, sessions)
+        end
+    end
+  end
+
+  @spec build_agent_entry({pid(), map()}, {map(), [String.t()], String.t() | nil}) ::
+          {map(), [String.t()], String.t() | nil}
+  defp build_agent_entry({pid, meta}, {acc, ord, orch}) do
+    info = Agent.get_info(pid)
+    {model_cost, model_id} = agent_model_info(pid)
+    color_index = length(ord)
+
+    entry = %{
+      id: meta.id,
+      name: meta.name || meta.type,
+      type: meta.type,
+      model: model_id,
+      status: info.status,
+      usage: info.usage || %{input_tokens: 0, output_tokens: 0},
+      cost: 0.0,
+      model_cost: model_cost,
+      color_index: color_index
+    }
+
+    new_orch = if meta.type == "orchestrator", do: meta.id, else: orch
+    {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
+  end
+
+  @spec agent_model_info(pid()) :: {map(), String.t()}
+  defp agent_model_info(pid) do
+    case Agent.get_state(pid) do
+      %{model: %Planck.AI.Model{cost: cost, name: name, id: id}} -> {cost, name || id}
+      _ -> {%{input: 0.0, output: 0.0}, "unknown"}
+    end
+  end
+
   @spec load_session(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   defp load_session(socket, session_id) do
     Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
@@ -438,36 +468,7 @@ defmodule Planck.Web.SessionLive do
         members = Registry.lookup(Planck.Agent.Registry, {team_id, :member})
 
         {agents, order, orch_id} =
-          Enum.reduce(members, {%{}, [], nil}, fn {pid, meta}, {acc, ord, orch} ->
-            info = Agent.get_info(pid)
-
-            {model_cost, model_id} =
-              case Agent.get_state(pid) do
-                %{model: %Planck.AI.Model{cost: cost, name: name, id: id}} ->
-                  {cost, name || id}
-
-                _ ->
-                  {%{input: 0.0, output: 0.0}, "unknown"}
-              end
-
-            color_index = length(ord)
-            is_orchestrator = meta.type == "orchestrator"
-
-            entry = %{
-              id: meta.id,
-              name: meta.name || meta.type,
-              type: meta.type,
-              model: model_id,
-              status: info.status,
-              usage: info.usage || %{input_tokens: 0, output_tokens: 0},
-              cost: 0.0,
-              model_cost: model_cost,
-              color_index: color_index
-            }
-
-            new_orch = if is_orchestrator, do: meta.id, else: orch
-            {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
-          end)
+          Enum.reduce(members, {%{}, [], nil}, &build_agent_entry/2)
 
         {agents, order, orch_id}
 
