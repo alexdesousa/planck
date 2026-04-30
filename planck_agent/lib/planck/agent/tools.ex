@@ -76,7 +76,8 @@ defmodule Planck.Agent.Tools do
           String.t(),
           [Planck.AI.Model.t()],
           [Tool.t()],
-          [Skill.t()]
+          [Skill.t()],
+          String.t()
         ) :: [Tool.t()]
   def orchestrator_tools(
         session_id,
@@ -84,10 +85,11 @@ defmodule Planck.Agent.Tools do
         orchestrator_id,
         available_models,
         grantable_tools \\ [],
-        grantable_skills \\ []
+        grantable_skills \\ [],
+        cwd \\ ""
       ) do
     [
-      spawn_agent(session_id, team_id, orchestrator_id, grantable_tools, grantable_skills),
+      spawn_agent(session_id, team_id, orchestrator_id, grantable_tools, grantable_skills, cwd),
       destroy_agent(team_id),
       interrupt_agent(team_id),
       list_models(available_models)
@@ -236,14 +238,16 @@ defmodule Planck.Agent.Tools do
           String.t(),
           String.t(),
           [Tool.t()],
-          [Skill.t()]
+          [Skill.t()],
+          String.t()
         ) :: Tool.t()
   def spawn_agent(
         session_id,
         team_id,
         orchestrator_id,
         grantable_tools \\ [],
-        grantable_skills \\ []
+        grantable_skills \\ [],
+        cwd \\ ""
       ) do
     grantable_tool_map = Map.new(grantable_tools, &{&1.name, &1})
     grantable_skill_map = Map.new(grantable_skills, &{&1.name, &1})
@@ -330,13 +334,19 @@ defmodule Planck.Agent.Tools do
 
             sender = %{id: agent_id, name: args["name"]}
 
+            system_prompt =
+              args["system_prompt"]
+              |> prepend_agents_md(cwd)
+              |> build_system_prompt(granted_skills)
+
             start_opts = [
               id: agent_id,
               type: type,
               name: args["name"],
               description: args["description"],
               model: model,
-              system_prompt: build_system_prompt(args["system_prompt"], granted_skills),
+              cwd: cwd,
+              system_prompt: system_prompt,
               session_id: session_id,
               team_id: team_id,
               delegator_id: orchestrator_id,
@@ -359,6 +369,31 @@ defmodule Planck.Agent.Tools do
         end
       end
     )
+  end
+
+  @doc "Prepend `AGENTS.md` content (if found by walking up from `cwd`) to `system_prompt`."
+  @spec prepend_agents_md(String.t() | nil, String.t()) :: String.t()
+  def prepend_agents_md(system_prompt, cwd) when cwd != "" do
+    case find_agents_md(Path.expand(cwd)) do
+      nil -> system_prompt || ""
+      content when system_prompt in [nil, ""] -> content
+      content -> content <> "\n\n" <> system_prompt
+    end
+  end
+
+  def prepend_agents_md(system_prompt, _cwd), do: system_prompt || ""
+
+  @spec find_agents_md(Path.t()) :: String.t() | nil
+  defp find_agents_md(dir) do
+    path = Path.join(dir, "AGENTS.md")
+    parent = Path.dirname(dir)
+
+    cond do
+      File.exists?(path) -> File.read!(path)
+      File.dir?(Path.join(dir, ".git")) -> nil
+      dir == parent -> nil
+      true -> find_agents_md(parent)
+    end
   end
 
   @spec build_system_prompt(String.t(), [Skill.t()]) :: String.t()

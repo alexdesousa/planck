@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### AGENTS.md prepended to all agents
+
+- Static workers now receive `AGENTS.md` prepended to their system prompt, on
+  par with the orchestrator. `start_workers` calls `Tools.prepend_agents_md/2`
+  (the now-public function from `planck_agent`) and passes `cwd` to each worker's
+  start opts so the field is populated in agent state.
+- `prepend_agents_md/2` and `find_agents_md/1` removed from `planck_headless` —
+  replaced by `Planck.Agent.Tools.prepend_agents_md/2`, which is the single
+  implementation used by both static worker/orchestrator startup and dynamic
+  `spawn_agent` calls.
+
 ## v0.1.0
 
 ### Inter-agent tools — orchestrator improvements

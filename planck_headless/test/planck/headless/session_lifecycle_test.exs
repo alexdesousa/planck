@@ -164,6 +164,29 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert system_prompt == "You coordinate."
     end
 
+    test "AGENTS.md is prepended to static worker system prompts", %{tmp_dir: dir} do
+      team_dir = write_team_with_worker(dir, "worker-agents-md-team")
+      File.write!(Path.join(dir, "AGENTS.md"), "Project conventions go here.")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      system_prompt = Agent.get_state(worker_pid).system_prompt
+      assert String.starts_with?(system_prompt, "Project conventions go here.")
+      assert system_prompt =~ "You implement."
+    end
+
+    test "static workers store cwd in their state", %{tmp_dir: dir} do
+      team_dir = write_team_with_worker(dir, "worker-cwd-team")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      assert Agent.get_state(worker_pid).cwd == dir
+    end
+
     test "orchestrator has built-in tools and inter-agent tools", %{tmp_dir: dir} do
       team_dir = write_team(dir, "builtin-tools-team")
 
@@ -771,8 +794,45 @@ defmodule Planck.Headless.SessionLifecycleTest do
   # Private helpers
   # ---------------------------------------------------------------------------
 
+  defp write_team_with_worker(dir, alias_name) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "ollama",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read"]
+          },
+          %{
+            "type" => "worker",
+            "provider" => "ollama",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You implement.",
+            "tools" => ["read", "write", "edit", "bash"]
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
   defp find_orchestrator(team_id) do
     case Registry.lookup(Agent.Registry, {team_id, "orchestrator"}) do
+      [{pid, _} | _] -> {:ok, pid}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  defp find_worker(team_id) do
+    case Registry.lookup(Agent.Registry, {team_id, "worker"}) do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :not_found}
     end

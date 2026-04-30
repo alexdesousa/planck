@@ -417,7 +417,16 @@ defmodule Planck.Headless do
              metadata
            ),
          :ok <-
-           start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids, metadata) do
+           start_workers(
+             session_id,
+             team_id,
+             orchestrator_id,
+             workers,
+             store,
+             cwd,
+             prev_ids,
+             metadata
+           ) do
       {:ok, team_id}
     end
   end
@@ -450,18 +459,20 @@ defmodule Planck.Headless do
         orchestrator_id,
         store.available_models,
         resolved,
-        store.skills
+        store.skills,
+        cwd
       ) ++
         Tools.worker_tools(team_id, nil, orchestrator_id) ++
         skill_discovery_tools(store.skills) ++
         resolved
 
-    system_prompt = prepend_agents_md(base_opts[:system_prompt], cwd)
+    system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
     {usage, cost} = load_agent_usage(metadata, orchestrator_id)
 
     opts =
       base_opts
       |> Keyword.put(:id, orchestrator_id)
+      |> Keyword.put(:cwd, cwd)
       |> Keyword.put(:tools, full_tools)
       |> Keyword.put(:system_prompt, system_prompt)
       |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
@@ -477,10 +488,20 @@ defmodule Planck.Headless do
           String.t(),
           [AgentSpec.t()],
           ResourceStore.t(),
+          Path.t(),
           map(),
           map()
         ) :: :ok | {:error, term()}
-  defp start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids, metadata) do
+  defp start_workers(
+         session_id,
+         team_id,
+         orchestrator_id,
+         workers,
+         store,
+         cwd,
+         prev_ids,
+         metadata
+       ) do
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
       base_opts =
         AgentSpec.to_start_opts(spec,
@@ -495,14 +516,17 @@ defmodule Planck.Headless do
       worker_id = Map.get(prev_ids, spec.name, base_opts[:id])
       sender = %{id: worker_id, name: spec.name}
       {usage, cost} = load_agent_usage(metadata, worker_id)
+      system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
 
       opts =
         base_opts
         |> Keyword.put(:id, worker_id)
+        |> Keyword.put(:cwd, cwd)
         |> Keyword.put(
           :tools,
           Tools.worker_tools(team_id, orchestrator_id, worker_id, sender) ++ resolved
         )
+        |> Keyword.put(:system_prompt, system_prompt)
         |> Keyword.put(:delegator_id, orchestrator_id)
         |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
         |> Keyword.put(:usage, usage)
@@ -869,28 +893,6 @@ defmodule Planck.Headless do
 
   @spec builtin_tool_names() :: [String.t()]
   defp builtin_tool_names, do: Enum.map(builtins(), & &1.name)
-
-  @spec prepend_agents_md(String.t() | nil, Path.t()) :: String.t() | nil
-  defp prepend_agents_md(system_prompt, cwd) do
-    case find_agents_md(Path.expand(cwd)) do
-      nil -> system_prompt
-      content when system_prompt in [nil, ""] -> content
-      content -> content <> "\n\n" <> system_prompt
-    end
-  end
-
-  @spec find_agents_md(Path.t()) :: String.t() | nil
-  defp find_agents_md(dir) do
-    path = Path.join(dir, "AGENTS.md")
-    parent = Path.dirname(dir)
-
-    cond do
-      File.exists?(path) -> File.read!(path)
-      File.dir?(Path.join(dir, ".git")) -> nil
-      dir == parent -> nil
-      true -> find_agents_md(parent)
-    end
-  end
 
   @spec generate_id() :: String.t()
   defp generate_id do
