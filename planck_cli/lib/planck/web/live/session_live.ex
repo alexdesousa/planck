@@ -7,7 +7,7 @@ defmodule Planck.Web.SessionLive do
   alias Planck.Agent.Session
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
-  alias Planck.Web.Live.ChatComponent
+  alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -19,8 +19,6 @@ defmodule Planck.Web.SessionLive do
       |> assign(:agents, %{})
       |> assign(:agent_order, [])
       |> assign(:orchestrator_id, nil)
-      |> assign(:usage, %{input_tokens: 0, output_tokens: 0, cost: 0.0})
-      |> assign(:sidecar, :idle)
       |> assign(:streaming, false)
       |> assign(:waiting, false)
       |> assign(:overlay, nil)
@@ -82,8 +80,14 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_turn_start(agent_id, event, socket)}
   end
 
-  def handle_info({:agent_event, :turn_end, %{usage: usage, agent_id: agent_id}} = event, socket) do
-    {:noreply, do_turn_end(agent_id, usage, event, socket)}
+  def handle_info({:agent_event, :turn_end, %{agent_id: agent_id}} = event, socket) do
+    {:noreply, do_turn_end(agent_id, event, socket)}
+  end
+
+  def handle_info({:agent_event, :usage_delta, _} = event, socket) do
+    send_to_sidebar(event)
+    send_to_status_bar(event)
+    {:noreply, socket}
   end
 
   def handle_info({:agent_event, :text_delta, %{agent_id: agent_id}} = event, socket) do
@@ -127,14 +131,18 @@ defmodule Planck.Web.SessionLive do
   # PubSub events — sidecar
   # ---------------------------------------------------------------------------
 
-  def handle_info({:building, _dir}, socket), do: {:noreply, do_set_sidecar(socket, :building)}
-  def handle_info({:starting, _dir}, socket), do: {:noreply, do_set_sidecar(socket, :starting)}
-  def handle_info({:connected, _node}, socket), do: {:noreply, do_set_sidecar(socket, :connected)}
-  def handle_info({:disconnected, _node}, socket), do: {:noreply, do_set_sidecar(socket, :idle)}
-  def handle_info({:exited, _reason}, socket), do: {:noreply, do_set_sidecar(socket, :failed)}
+  def handle_info({sidecar_event, _} = event, socket)
+      when sidecar_event in [:building, :starting, :connected, :disconnected, :exited] do
+    send_to_sidebar(event)
+    send_to_status_bar(event)
+    {:noreply, socket}
+  end
 
-  def handle_info({:error, _step, _reason}, socket),
-    do: {:noreply, do_set_sidecar(socket, :failed)}
+  def handle_info({:error, _step, _reason} = event, socket) do
+    send_to_sidebar(event)
+    send_to_status_bar(event)
+    {:noreply, socket}
+  end
 
   # ---------------------------------------------------------------------------
   # User events
@@ -285,40 +293,17 @@ defmodule Planck.Web.SessionLive do
   @spec do_turn_start(String.t(), tuple(), Phoenix.LiveView.Socket.t()) ::
           Phoenix.LiveView.Socket.t()
   defp do_turn_start(agent_id, event, socket) do
-    socket =
-      socket
-      |> assign(:streaming, true)
-      |> assign(:waiting, false)
-      |> update_agent_status(agent_id, :streaming)
-
+    send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
-    socket
+    socket |> assign(:streaming, true) |> assign(:waiting, false)
   end
 
-  @spec do_turn_end(String.t(), map(), tuple(), Phoenix.LiveView.Socket.t()) ::
+  @spec do_turn_end(String.t(), tuple(), Phoenix.LiveView.Socket.t()) ::
           Phoenix.LiveView.Socket.t()
-  defp do_turn_end(agent_id, usage, event, socket) do
-    model_cost =
-      get_in(socket.assigns.agents, [agent_id, :model_cost]) || %{input: 0.0, output: 0.0}
-
-    socket =
-      socket
-      |> assign(:streaming, false)
-      |> assign(:waiting, false)
-      |> update_agent_status(agent_id, :idle)
-      |> update_agent_usage(agent_id, usage, model_cost)
-      |> update_total_usage(usage, model_cost)
-
+  defp do_turn_end(agent_id, event, socket) do
+    send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
-    socket
-  end
-
-  @spec do_set_sidecar(Phoenix.LiveView.Socket.t(), atom()) :: Phoenix.LiveView.Socket.t()
-  defp do_set_sidecar(socket, status)
-
-  defp do_set_sidecar(socket, status)
-       when status in [:building, :starting, :connected, :idle, :failed] do
-    assign(socket, :sidecar, status)
+    socket |> assign(:streaming, false) |> assign(:waiting, false)
   end
 
   @spec do_prompt_submit(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -411,21 +396,23 @@ defmodule Planck.Web.SessionLive do
     {agents, agent_order, orchestrator_id} = load_agents(session_id)
     session_name = get_session_name(session_id)
     sidecar_status = SidecarManager.status() |> map_sidecar_status()
+    initial_usage = derive_total_usage(agents)
 
-    socket =
-      socket
-      |> assign(:active_session, session_id)
-      |> assign(:session_name, session_name)
-      |> assign(:agents, agents)
-      |> assign(:agent_order, agent_order)
-      |> assign(:orchestrator_id, orchestrator_id)
-      |> assign(:sidecar, sidecar_status)
-      |> assign(:streaming, false)
-      |> assign(:waiting, false)
+    send_update(AgentsSidebar,
+      id: "agents-sidebar",
+      action: :load,
+      agents: agents,
+      agent_order: agent_order,
+      sidecar: sidecar_status
+    )
 
-    # Load main chat from session
-    # Main chat shows all session messages — no perspective filtering.
-    # Perspective filtering is only used in the overlay (single agent view).
+    send_update(StatusBar,
+      id: "status-bar",
+      action: :load,
+      usage: initial_usage,
+      sidecar: sidecar_status
+    )
+
     send_update(ChatComponent,
       id: "chat-main",
       action: :load,
@@ -435,6 +422,13 @@ defmodule Planck.Web.SessionLive do
     )
 
     socket
+    |> assign(:active_session, session_id)
+    |> assign(:session_name, session_name)
+    |> assign(:agents, agents)
+    |> assign(:agent_order, agent_order)
+    |> assign(:orchestrator_id, orchestrator_id)
+    |> assign(:streaming, false)
+    |> assign(:waiting, false)
   end
 
   @spec load_agents(String.t()) :: {%{String.t() => map()}, [String.t()], String.t() | nil}
@@ -576,48 +570,25 @@ defmodule Planck.Web.SessionLive do
       (worker[:name] && args["name"] == worker[:name])
   end
 
-  @spec update_agent_status(Phoenix.LiveView.Socket.t(), String.t(), atom()) ::
-          Phoenix.LiveView.Socket.t()
-  defp update_agent_status(socket, agent_id, status) do
-    update(socket, :agents, fn agents ->
-      case Map.fetch(agents, agent_id) do
-        {:ok, agent} -> Map.put(agents, agent_id, %{agent | status: status})
-        :error -> agents
-      end
+  @spec send_to_sidebar(tuple()) :: :ok
+  defp send_to_sidebar(event) do
+    send_update(AgentsSidebar, id: "agents-sidebar", action: :event, event: event)
+  end
+
+  @spec send_to_status_bar(tuple()) :: :ok
+  defp send_to_status_bar(event) do
+    send_update(StatusBar, id: "status-bar", action: :event, event: event)
+  end
+
+  @spec derive_total_usage(%{String.t() => map()}) ::
+          %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer(), cost: float()}
+  defp derive_total_usage(agents) do
+    Enum.reduce(agents, %{input_tokens: 0, output_tokens: 0, cost: 0.0}, fn {_id, agent}, acc ->
+      %{
+        input_tokens: acc.input_tokens + agent.usage.input_tokens,
+        output_tokens: acc.output_tokens + agent.usage.output_tokens,
+        cost: acc.cost + agent.cost
+      }
     end)
   end
-
-  @spec update_agent_usage(Phoenix.LiveView.Socket.t(), String.t(), map(), map()) ::
-          Phoenix.LiveView.Socket.t()
-  defp update_agent_usage(socket, agent_id, usage, model_cost) do
-    update(socket, :agents, fn agents ->
-      case Map.fetch(agents, agent_id) do
-        {:ok, agent} ->
-          cost = calculate_cost(usage, model_cost)
-          Map.put(agents, agent_id, %{agent | usage: usage, cost: agent.cost + cost})
-
-        :error ->
-          agents
-      end
-    end)
-  end
-
-  @spec update_total_usage(Phoenix.LiveView.Socket.t(), map(), map()) ::
-          Phoenix.LiveView.Socket.t()
-  defp update_total_usage(socket, %{input_tokens: i, output_tokens: o}, model_cost) do
-    cost = calculate_cost(%{input_tokens: i, output_tokens: o}, model_cost)
-
-    update(socket, :usage, fn u ->
-      %{input_tokens: u.input_tokens + i, output_tokens: u.output_tokens + o, cost: u.cost + cost}
-    end)
-  end
-
-  defp update_total_usage(socket, _, _), do: socket
-
-  @spec calculate_cost(map(), map()) :: float()
-  defp calculate_cost(%{input_tokens: i, output_tokens: o}, %{input: in_rate, output: out_rate}) do
-    (i * in_rate + o * out_rate) / 1_000_000
-  end
-
-  defp calculate_cost(_, _), do: 0.0
 end

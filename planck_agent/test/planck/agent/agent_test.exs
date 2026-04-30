@@ -724,6 +724,140 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  # --- cost tracking ---
+
+  describe "cost tracking" do
+    @model_with_cost %Model{
+      id: "gpt-4o",
+      name: "GPT-4o",
+      provider: :openai,
+      context_window: 128_000,
+      max_tokens: 4_096,
+      cost: %{input: 2.5, output: 10.0}
+    }
+
+    test "cost starts at zero" do
+      agent = start_agent()
+      assert Agent.get_state(agent).cost == 0.0
+    end
+
+    test "cost is zero when model has no cost rates" do
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert Agent.get_state(agent).cost == 0.0
+    end
+
+    test "cost is calculated correctly from model rates" do
+      # (100 * 2.5 + 50 * 10.0) / 1_000_000 = 750 / 1_000_000 = 0.00075
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      agent = start_agent(model: @model_with_cost)
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_in_delta Agent.get_state(agent).cost, 0.00075, 1.0e-10
+    end
+
+    test "cost accumulates across turns" do
+      # Turn 1: (100 * 2.5 + 50 * 10.0) / 1M = 0.00075
+      # Turn 2: (60 * 2.5 + 20 * 10.0) / 1M = 0.00035
+      # Total: 0.00110
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      agent = start_agent(model: @model_with_cost)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      stream_events([{:done, %{usage: %{input_tokens: 60, output_tokens: 20}}}])
+      Agent.prompt(agent, "second")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      assert_in_delta Agent.get_state(agent).cost, 0.00110, 1.0e-10
+    end
+
+    test "usage_delta includes cost in delta and total" do
+      # (100 * 2.5 + 50 * 10.0) / 1M = 0.00075
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      agent = start_agent(model: @model_with_cost)
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+
+      assert_receive {:agent_event, :usage_delta,
+                      %{
+                        delta: %{input_tokens: 100, output_tokens: 50, cost: delta_cost},
+                        total: %{input_tokens: 100, output_tokens: 50, cost: total_cost}
+                      }},
+                     1_000
+
+      assert_in_delta delta_cost, 0.00075, 1.0e-10
+      assert_in_delta total_cost, 0.00075, 1.0e-10
+    end
+
+    test "usage_delta total reflects accumulated cost across multiple :done events" do
+      # Turn 1 :done: delta = 0.00075, total = 0.00075
+      # Turn 2 :done: delta = 0.00035, total = 0.00110
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      agent = start_agent(model: @model_with_cost)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :usage_delta, %{total: %{cost: total1}}}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_in_delta total1, 0.00075, 1.0e-10
+
+      stream_events([{:done, %{usage: %{input_tokens: 60, output_tokens: 20}}}])
+      Agent.prompt(agent, "second")
+
+      assert_receive {:agent_event, :usage_delta,
+                      %{delta: %{cost: delta2}, total: %{cost: total2}}},
+                     1_000
+
+      assert_in_delta delta2, 0.00035, 1.0e-10
+      assert_in_delta total2, 0.00110, 1.0e-10
+    end
+
+    test "agent initializes with provided usage and cost" do
+      agent =
+        start_agent(usage: %{input_tokens: 500, output_tokens: 200}, cost: 0.005)
+
+      state = Agent.get_state(agent)
+      assert state.usage == %{input_tokens: 500, output_tokens: 200}
+      assert state.cost == 0.005
+    end
+
+    test "new cost adds on top of initial cost" do
+      # initial cost: 0.001, new turn: (100 * 2.5 + 50 * 10.0) / 1M = 0.00075
+      # total: 0.00175
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      agent = start_agent(model: @model_with_cost, cost: 0.001)
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_in_delta Agent.get_state(agent).cost, 0.00175, 1.0e-10
+    end
+
+    test "usage and cost are persisted to session metadata on :done" do
+      stream_events([{:done, %{usage: %{input_tokens: 100, output_tokens: 50}}}])
+      {agent, session_id} = start_agent_with_session(model: @model_with_cost)
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      agent_id = Agent.get_state(agent).id
+      {:ok, metadata} = Session.get_metadata(session_id)
+      json = Map.get(metadata, "agent_usage:#{agent_id}")
+      assert json != nil
+
+      {:ok, stored} = Jason.decode(json)
+      assert stored["input_tokens"] == 100
+      assert stored["output_tokens"] == 50
+      assert_in_delta stored["cost"], 0.00075, 1.0e-10
+    end
+  end
+
   describe "whereis/1" do
     test "returns {:ok, pid} for a running agent" do
       id = unique_id()

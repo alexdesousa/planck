@@ -25,7 +25,7 @@ defmodule Planck.Agent do
   | `:turn_end` | `message`, `usage` |
   | `:text_delta` | `text` |
   | `:thinking_delta` | `text` |
-  | `:usage_delta` | `delta`, `total` |
+  | `:usage_delta` | `delta` (`input_tokens`, `output_tokens`, `cost`), `total` (`input_tokens`, `output_tokens`, `cost`) |
   | `:tool_start` | `id`, `name`, `args` |
   | `:tool_end` | `id`, `name`, `result`, `error` |
   | `:worker_exit` | `pid`, `reason` |
@@ -79,6 +79,7 @@ defmodule Planck.Agent do
   - `status` — `:idle`, `:streaming`, or `:executing_tools`
   - `turn_index` — monotonically increasing turn counter
   - `usage` — accumulated `%{input_tokens, output_tokens}` for this session
+  - `cost` — accumulated cost in USD; never decreases (rewinding messages does not reduce it)
 
   Internal fields (not part of the public API):
   - `stream_task` / `stream_ref` — in-flight async LLM stream
@@ -116,7 +117,8 @@ defmodule Planck.Agent do
           pending_tool_calls: [map()],
           text_buffer: String.t(),
           thinking_buffer: String.t(),
-          usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()}
+          usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()},
+          cost: float()
         }
 
   defstruct [
@@ -144,7 +146,8 @@ defmodule Planck.Agent do
     pending_tool_calls: [],
     text_buffer: "",
     thinking_buffer: "",
-    usage: %{input_tokens: 0, output_tokens: 0}
+    usage: %{input_tokens: 0, output_tokens: 0},
+    cost: 0.0
   ]
 
   # ---------------------------------------------------------------------------
@@ -280,7 +283,9 @@ defmodule Planck.Agent do
       tools: tool_map,
       opts: Keyword.get(opts, :opts, []),
       available_models: Keyword.get(opts, :available_models, []),
-      on_compact: Keyword.get(opts, :on_compact)
+      on_compact: Keyword.get(opts, :on_compact),
+      usage: Keyword.get(opts, :usage, %{input_tokens: 0, output_tokens: 0}),
+      cost: Keyword.get(opts, :cost, 0.0)
     }
 
     register_agent(state)
@@ -651,6 +656,20 @@ defmodule Planck.Agent do
 
   # Persist a message and return it with its DB row id set. For ephemeral
   # agents (no session_id), the message is returned unchanged.
+  @spec persist_usage(t()) :: :ok
+  defp persist_usage(%{session_id: nil}), do: :ok
+
+  defp persist_usage(%{session_id: sid, id: agent_id, usage: usage, cost: cost}) do
+    data =
+      Jason.encode!(%{
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cost: cost
+      })
+
+    Session.save_metadata(sid, %{"agent_usage:#{agent_id}" => data})
+  end
+
   @spec persist_message(t(), Message.t()) :: Message.t()
   defp persist_message(%{session_id: nil}, msg), do: msg
 
@@ -687,11 +706,30 @@ defmodule Planck.Agent do
       output_tokens: state.usage.output_tokens + o
     }
 
-    new_state = %{state | usage: usage}
+    turn_cost =
+      case state.model do
+        %{cost: %{input: in_rate, output: out_rate}} ->
+          (i * in_rate + o * out_rate) / 1_000_000
+
+        _ ->
+          0.0
+      end
+
+    new_state = %{state | usage: usage, cost: state.cost + turn_cost}
+
+    persist_usage(new_state)
 
     broadcast(new_state, :usage_delta, %{
-      delta: %{input_tokens: i, output_tokens: o},
-      total: usage
+      delta: %{
+        input_tokens: i,
+        output_tokens: o,
+        cost: turn_cost
+      },
+      total: %{
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cost: new_state.cost
+      }
     })
 
     new_state

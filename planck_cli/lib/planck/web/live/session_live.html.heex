@@ -105,19 +105,18 @@
     </main>
 
     <%!-- Right sidebar: agents — inline on md+, drawer on smaller --%>
-    <.agents_sidebar
+    <.live_component
+      module={Planck.Web.Live.AgentsSidebar}
+      id="agents-sidebar"
       open={@right_open}
-      agents={@agents}
-      agent_order={@agent_order}
-      sidecar={@sidecar}
     />
   </div>
 
   <%!-- Status bar --%>
-  <.status_bar
+  <.live_component
+    module={Planck.Web.Live.StatusBar}
+    id="status-bar"
     session_name={@session_name}
-    usage={@usage}
-    sidecar={@sidecar}
   />
 
   <%!-- Agent context overlay — centered panel, not full-screen on large displays --%>

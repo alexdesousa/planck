@@ -71,7 +71,7 @@ defmodule Planck.Headless do
          {:ok, team} <- resolve_team(metadata["team_alias"]),
          prev_ids = decode_agent_ids(Map.get(metadata, "agent_ids")),
          {:ok, team_id} <-
-           materialize_team(session_id, team, metadata["cwd"] || File.cwd!(), prev_ids),
+           materialize_team(session_id, team, metadata["cwd"] || File.cwd!(), prev_ids, metadata),
          :ok <-
            save_metadata(
              session_id,
@@ -396,11 +396,9 @@ defmodule Planck.Headless do
   # Private — team materialization
   # ---------------------------------------------------------------------------
 
-  @spec materialize_team(String.t(), Team.t(), Path.t()) ::
+  @spec materialize_team(String.t(), Team.t(), Path.t(), map(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  @spec materialize_team(String.t(), Team.t(), Path.t(), map()) ::
-          {:ok, String.t()} | {:error, term()}
-  defp materialize_team(session_id, team, cwd, prev_ids \\ %{}) do
+  defp materialize_team(session_id, team, cwd, prev_ids \\ %{}, metadata \\ %{}) do
     store = ResourceStore.get()
     team_id = generate_id()
 
@@ -409,8 +407,17 @@ defmodule Planck.Headless do
     orchestrator_id = Map.get(prev_ids, orch_spec.name || orch_spec.type, generate_id())
 
     with {:ok, _} <-
-           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store, cwd),
-         :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids) do
+           start_orchestrator(
+             session_id,
+             team_id,
+             orchestrator_id,
+             orch_spec,
+             store,
+             cwd,
+             metadata
+           ),
+         :ok <-
+           start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids, metadata) do
       {:ok, team_id}
     end
   end
@@ -421,9 +428,10 @@ defmodule Planck.Headless do
           String.t(),
           AgentSpec.t(),
           ResourceStore.t(),
-          Path.t()
+          Path.t(),
+          map()
         ) :: {:ok, pid()} | {:error, term()}
-  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd) do
+  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, metadata) do
     base_opts =
       AgentSpec.to_start_opts(spec,
         tool_pool: builtins() ++ store.tools,
@@ -447,6 +455,7 @@ defmodule Planck.Headless do
         resolved
 
     system_prompt = prepend_agents_md(base_opts[:system_prompt], cwd)
+    {usage, cost} = load_agent_usage(metadata, orchestrator_id)
 
     opts =
       base_opts
@@ -454,6 +463,8 @@ defmodule Planck.Headless do
       |> Keyword.put(:tools, full_tools)
       |> Keyword.put(:system_prompt, system_prompt)
       |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
+      |> Keyword.put(:usage, usage)
+      |> Keyword.put(:cost, cost)
 
     start_agent(opts)
   end
@@ -464,9 +475,10 @@ defmodule Planck.Headless do
           String.t(),
           [AgentSpec.t()],
           ResourceStore.t(),
+          map(),
           map()
         ) :: :ok | {:error, term()}
-  defp start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids) do
+  defp start_workers(session_id, team_id, orchestrator_id, workers, store, prev_ids, metadata) do
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
       base_opts =
         AgentSpec.to_start_opts(spec,
@@ -480,6 +492,7 @@ defmodule Planck.Headless do
       resolved = base_opts[:tools]
       worker_id = Map.get(prev_ids, spec.name, base_opts[:id])
       sender = %{id: worker_id, name: spec.name}
+      {usage, cost} = load_agent_usage(metadata, worker_id)
 
       opts =
         base_opts
@@ -487,6 +500,8 @@ defmodule Planck.Headless do
         |> Keyword.put(:tools, Tools.worker_tools(team_id, orchestrator_id, sender) ++ resolved)
         |> Keyword.put(:delegator_id, orchestrator_id)
         |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
+        |> Keyword.put(:usage, usage)
+        |> Keyword.put(:cost, cost)
 
       case start_agent(opts) do
         {:ok, _pid} -> {:cont, :ok}
@@ -504,6 +519,17 @@ defmodule Planck.Headless do
   end
 
   defp build_on_compact(_spec, nil), do: nil
+
+  @spec load_agent_usage(map(), String.t()) ::
+          {%{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()}, float()}
+  defp load_agent_usage(metadata, agent_id) do
+    with json when not is_nil(json) <- Map.get(metadata, "agent_usage:#{agent_id}"),
+         {:ok, %{"input_tokens" => i, "output_tokens" => o, "cost" => c}} <- Jason.decode(json) do
+      {%{input_tokens: i, output_tokens: o}, c}
+    else
+      _ -> {%{input_tokens: 0, output_tokens: 0}, 0.0}
+    end
+  end
 
   @spec start_agent(keyword()) :: {:ok, pid()} | {:error, term()}
   defp start_agent(opts) do

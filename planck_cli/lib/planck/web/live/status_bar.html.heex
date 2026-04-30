@@ -1,0 +1,12 @@
+<div class="border-t-2 border-border px-3 py-1.5 flex justify-between items-center
+            bg-card font-mono text-xs text-muted-foreground">
+  <div class="flex gap-4">
+    <span><%= @session_name || "no session" %></span>
+    <span class="opacity-50">v0.1.0</span>
+  </div>
+  <div class="flex gap-4 items-center">
+    <span>↓<%= format_number(@usage.input_tokens) %> ↑<%= format_number(@usage.output_tokens) %></span>
+    <span><%= format_cost(@usage.cost) %></span>
+    <.sidecar_status status={@sidecar} />
+  </div>
+</div>
