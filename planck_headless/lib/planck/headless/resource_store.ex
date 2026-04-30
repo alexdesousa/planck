@@ -59,7 +59,7 @@ defmodule Planck.Headless.ResourceStore do
   end
 
   @doc "Replace the sidecar tool list. Called by SidecarManager on nodeup."
-  @spec put_tools([Planck.AI.Tool.t()]) :: :ok
+  @spec put_tools([Planck.Agent.Tool.t()]) :: :ok
   def put_tools(tools) do
     GenServer.call(__MODULE__, {:put_tools, tools})
   end
