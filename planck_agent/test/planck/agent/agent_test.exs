@@ -451,6 +451,81 @@ defmodule Planck.Agent.AgentTest do
 
   # --- whereis ---
 
+  describe "agent_response re-trigger" do
+    test "agent_response arriving during streaming triggers exactly one follow-up turn" do
+      # An agent_response that arrives while the LLM is streaming was not seen
+      # by the LLM. It should trigger one re-run. After that run processes the
+      # response, no further turns should fire.
+      parent = self()
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        has_response =
+          Enum.any?(msgs, fn msg ->
+            msg.role == :user and
+              Enum.any?(msg.content, &match?({:text, "worker done"}, &1))
+          end)
+
+        if has_response do
+          send(parent, :second_turn)
+          [{:text_delta, "acknowledged"}, {:done, %{}}]
+        else
+          Process.sleep(100)
+          [{:text_delta, "working"}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+
+      # Inject while the first LLM call is sleeping (at 30ms, LLM finishes at 100ms)
+      Process.sleep(30)
+      send(agent, {:agent_response, "worker done", nil})
+
+      # initial turn
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      # first turn ends
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      # re-triggered by response
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      assert_receive :second_turn, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # No third turn — the response is in stream_start context for the second call
+      refute_receive {:agent_event, :turn_start, _}, 300
+    end
+
+    test "agent_responses already in LLM context do not cause infinite re-triggers" do
+      # Both responses arrive during the FIRST stream. The re-triggered second turn
+      # sees both in its context. After it completes, no further turn must fire.
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(50)
+        [{:text_delta, "summary"}, {:done, %{}}]
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+
+      # Inject both while the first LLM is sleeping
+      Process.sleep(10)
+      send(agent, {:agent_response, "response A", nil})
+      send(agent, {:agent_response, "response B", nil})
+
+      # initial turn
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      # first turn ends, re-triggers
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      # second turn sees both responses
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      # second turn ends
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # No third turn — both responses were in the LLM context for the second call
+      refute_receive {:agent_event, :turn_start, _}, 300
+    end
+  end
+
   describe "whereis/1" do
     test "returns {:ok, pid} for a running agent" do
       id = unique_id()
