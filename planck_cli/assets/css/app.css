@@ -73,3 +73,10 @@
 
 /* LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
+
+@utility auto-grow {
+  field-sizing: content;
+  min-height: 2.5rem;
+  max-height: 25vh;
+  overflow-y: auto;
+}

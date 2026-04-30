@@ -1,0 +1,210 @@
+<div class="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+
+  <%!-- Mobile toolbar — hidden when both sidebars are inline --%>
+  <div class="flex md:hidden items-center justify-between border-b-2 border-border px-3 py-2 bg-card">
+    <button class="border-2 border-black px-2 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] bg-card"
+            phx-click="toggle_left">
+      ☰ Sessions
+    </button>
+    <span class="font-bold font-mono text-sm">planck</span>
+    <button class="border-2 border-black px-2 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] bg-card"
+            phx-click="toggle_right">
+      Agents ☰
+    </button>
+  </div>
+
+  <%!-- Backdrop — only visible on narrow screens when a drawer is open --%>
+  <%= if (@left_open or @right_open) do %>
+    <div class="fixed inset-0 z-30 bg-black/40 md:hidden"
+         phx-click="close_drawers" />
+  <% end %>
+
+  <%!-- Main three-column layout --%>
+  <div class="flex flex-1 overflow-hidden">
+
+    <%!-- Left sidebar: sessions — inline on md+, drawer on smaller --%>
+    <aside class={[
+      "flex flex-col bg-card overflow-hidden border-r-2 border-border",
+      "w-56 md:w-44 md:static md:translate-x-0",
+      "fixed inset-y-0 left-0 z-40 transition-transform duration-200",
+      if(@left_open, do: "translate-x-0", else: "-translate-x-full md:translate-x-0")
+    ]}>
+      <div class="border-b-2 border-border px-3 py-2">
+        <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Sessions</p>
+      </div>
+      <div class="flex-1 overflow-y-auto p-2 space-y-1">
+        <%= for session <- @sessions do %>
+          <button
+            class={[
+              "w-full text-left px-2 py-1.5 font-mono text-xs border-2 border-transparent",
+              "hover:border-border hover:bg-muted transition-colors",
+              if(session.session_id == @active_session, do: "border-border bg-muted font-bold", else: "")
+            ]}
+            phx-click="switch_session"
+            phx-value-id={session.session_id}
+          >
+            <span class={["inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle",
+                           if(session.active, do: "bg-green-500", else: "bg-muted")]} />
+            <%= session.name || session.session_id %>
+          </button>
+        <% end %>
+      </div>
+      <div class="p-2 border-t-2 border-border">
+        <button
+          class="w-full border-2 border-black py-1 font-bold font-mono text-xs
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                 bg-primary text-primary-foreground"
+          phx-click="new_session"
+        >
+          + New
+        </button>
+      </div>
+    </aside>
+
+    <%!-- Centre: chat --%>
+    <main class="flex-1 flex flex-col overflow-hidden">
+      <%!-- Messages --%>
+      <div class="flex-1 overflow-y-auto p-4 space-y-4" id="chat-messages" phx-hook="ScrollBottom">
+        <%= for entry <- @messages do %>
+          <%= cond do %>
+            <% entry.type == :user -> %>
+              <div class="flex justify-end">
+                <div class="max-w-2xl border-2 border-black px-3 py-2 bg-muted shadow-[2px_2px_0px_#000]">
+                  <p class="font-mono text-xs text-muted-foreground mb-1">you</p>
+                  <p class="text-sm whitespace-pre-wrap"><%= entry.text %></p>
+                </div>
+              </div>
+
+            <% entry.type == :assistant -> %>
+              <div class="max-w-2xl">
+                <p class="font-mono text-xs text-muted-foreground mb-1">
+                  <%= agent_label(@agents, entry.agent_id) %>
+                  <%= if entry.streaming do %><span class="animate-pulse">▊</span><% end %>
+                </p>
+                <p class="text-sm whitespace-pre-wrap leading-relaxed"><%= entry.text %></p>
+              </div>
+
+            <% entry.type == :tool -> %>
+              <.tool_block entry={entry} />
+
+            <% entry.type == :thinking -> %>
+              <.thinking_block entry={entry} />
+
+            <% true -> %>
+          <% end %>
+        <% end %>
+
+        <%= if @messages == [] do %>
+          <div class="flex items-center justify-center h-full text-center">
+            <div>
+              <p class="font-bold font-mono text-lg text-foreground">planck</p>
+              <p class="font-mono text-sm text-muted-foreground mt-2">
+                Ask me anything, or tell me to configure your project.
+              </p>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <%!-- Prompt input --%>
+      <div class="border-t-2 border-border p-3 bg-card">
+        <form phx-submit="prompt_submit" phx-change="prompt_change" class="flex gap-2">
+          <textarea
+            name="prompt"
+            value={@prompt}
+            class="auto-grow flex-1 border-2 border-black px-3 py-2 font-mono text-sm
+                   bg-background resize-none focus:outline-none
+                   focus:shadow-[2px_2px_0px_#000] placeholder:text-muted-foreground"
+            placeholder="Message planck…"
+            id="prompt-input"
+            phx-hook="PromptInput"
+            disabled={@streaming}
+          ></textarea>
+          <button
+            type="submit"
+            class="border-2 border-black px-4 font-bold font-mono text-sm
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                   bg-primary text-primary-foreground disabled:opacity-50"
+            disabled={@streaming}
+          >
+            Send
+          </button>
+        </form>
+      </div>
+    </main>
+
+    <%!-- Right sidebar: agents — inline on md+, drawer on smaller --%>
+    <aside class={[
+      "flex flex-col bg-card overflow-hidden border-l-2 border-border",
+      "w-56 md:w-52 md:static md:translate-x-0",
+      "fixed inset-y-0 right-0 z-40 transition-transform duration-200",
+      if(@right_open, do: "translate-x-0", else: "translate-x-full md:translate-x-0")
+    ]}>
+      <div class="border-b-2 border-border px-3 py-2">
+        <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Agents</p>
+      </div>
+      <div class="flex-1 overflow-y-auto p-2 space-y-2">
+        <%= for agent_id <- @agent_order do %>
+          <%= case Map.get(@agents, agent_id) do %>
+            <% nil -> %>
+            <% agent -> %>
+              <%= if agent.type == "orchestrator" do %>
+                <.orchestrator_card agent={agent} />
+              <% else %>
+                <.agent_card agent={agent} color_index={agent.color_index - 1} />
+              <% end %>
+          <% end %>
+        <% end %>
+
+        <%= if @agent_order == [] do %>
+          <p class="font-mono text-xs text-muted-foreground px-2 pt-2">No agents yet</p>
+        <% end %>
+      </div>
+
+      <div class="border-t-2 border-border p-2">
+        <.sidecar_status status={@sidecar} />
+      </div>
+    </aside>
+  </div>
+
+  <%!-- Status bar --%>
+  <.status_bar
+    session_name={@session_name}
+    usage={@usage}
+    sidecar={@sidecar}
+  />
+
+  <%!-- Agent context overlay --%>
+  <%= if @overlay do %>
+    <div class="fixed inset-0 z-50 bg-background flex flex-col">
+      <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
+        <p class="font-bold font-mono"><%= agent_label(@agents, @overlay) %></p>
+        <button
+          class="border-2 border-black px-3 py-1 font-mono text-sm font-bold
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+          phx-click="close_overlay"
+          phx-window-keydown="close_overlay"
+          phx-key="Escape"
+        >
+          ✕ Close
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 font-mono text-sm">
+        <%!-- Agent-specific messages filtered from @messages --%>
+        <%= for entry <- Enum.filter(@messages, & &1.agent_id == @overlay or &1.type == :user) do %>
+          <div class="mb-4">
+            <p class="text-xs text-muted-foreground mb-1">
+              <%= if entry.type == :user, do: "you", else: agent_label(@agents, entry.agent_id) %>
+            </p>
+            <p class="whitespace-pre-wrap"><%= entry.text %></p>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+</div>

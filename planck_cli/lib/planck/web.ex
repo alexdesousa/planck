@@ -42,6 +42,8 @@ defmodule Planck.Web do
 
   defp html_helpers do
     quote do
+      import Planck.Web.Components
+
       alias Phoenix.LiveView.JS
       alias Planck.Web.Layouts
 
