@@ -1,5 +1,10 @@
 # Compactors
 
+> **Deprecated.** The `.exs` file / `compactor` config key mechanism is replaced
+> by the sidecar. Per-agent compactors are now defined as modules in a sidecar
+> application and referenced by name in `AgentSpec.compactor` / TEAM.json.
+> See `specs/sidecar.md`. The content below is kept for historical reference.
+
 A compactor is an optional hook that `Planck.Agent` calls before each LLM turn
 to manage context length. When context grows too long, the compactor summarises
 older messages into a single checkpoint, keeping only recent messages verbatim.

@@ -1,5 +1,10 @@
 # External Tools
 
+> **Deprecated.** The `TOOL.json` / `tools_dirs` mechanism is replaced by the
+> sidecar. External tools are now defined in a sidecar application that implements
+> `Planck.Agent.Sidecar` and returns `[Tool.t()]` from `list_tools/0`.
+> See `specs/sidecar.md`. The content below is kept for historical reference.
+
 External tools extend the built-in `read`, `write`, `edit`, and `bash` tools
 with CLI commands defined on the filesystem. They are loaded at startup by
 `Planck.Agent.ExternalTool.load_all/1` and produce `Planck.Agent.Tool` structs
