@@ -1,0 +1,12 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+planck_agent-*.tar
+/tmp/
+/priv/
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
