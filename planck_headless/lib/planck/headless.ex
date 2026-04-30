@@ -510,7 +510,7 @@ defmodule Planck.Headless do
             skill_pool: store.skills,
             team_id: team_id,
             session_id: session_id,
-            available_models: store.available_models,
+            available_models: store.available_models
           )
 
         opts =
