@@ -64,6 +64,10 @@ defmodule Planck.Agent.AgentSpec do
   - `:base_url` — base URL of the model server for local providers that run multiple
     instances (e.g. `"http://localhost:11434"` for a specific Ollama server). When
     `nil`, the provider's default URL is used.
+  - `:compactor` — fully-qualified module name of a sidecar compactor for this agent,
+    e.g. `"MySidecar.Compactors.Builder"`. The module must implement `compact/2`.
+    planck_headless resolves this via `Planck.Agent.Sidecar.compactor_for/1` when
+    materialising the agent. `nil` means the default compactor is used.
   """
   @type t :: %__MODULE__{
           type: String.t(),
@@ -75,7 +79,8 @@ defmodule Planck.Agent.AgentSpec do
           system_prompt: String.t(),
           opts: keyword(),
           tools: [String.t()],
-          skills: [String.t()]
+          skills: [String.t()],
+          compactor: String.t() | nil
         }
 
   @enforce_keys [:type, :provider, :model_id, :system_prompt]
@@ -89,7 +94,8 @@ defmodule Planck.Agent.AgentSpec do
     :system_prompt,
     opts: [],
     tools: [],
-    skills: []
+    skills: [],
+    compactor: nil
   ]
 
   @provider_atoms Map.new(Planck.AI.Model.providers(), fn p -> {Atom.to_string(p), p} end)
@@ -115,7 +121,8 @@ defmodule Planck.Agent.AgentSpec do
       system_prompt: Keyword.fetch!(fields, :system_prompt),
       opts: Keyword.get(fields, :opts, []),
       tools: Keyword.get(fields, :tools, []),
-      skills: Keyword.get(fields, :skills, [])
+      skills: Keyword.get(fields, :skills, []),
+      compactor: Keyword.get(fields, :compactor)
     }
   end
 
@@ -177,7 +184,8 @@ defmodule Planck.Agent.AgentSpec do
          system_prompt: system_prompt,
          opts: parse_opts(entry["opts"]),
          tools: parse_string_list(entry["tools"]),
-         skills: parse_string_list(entry["skills"])
+         skills: parse_string_list(entry["skills"]),
+         compactor: entry["compactor"]
        )}
     end
   end

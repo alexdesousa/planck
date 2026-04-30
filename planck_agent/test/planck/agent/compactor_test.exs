@@ -26,21 +26,50 @@ defmodule Planck.Agent.CompactorTest do
     Enum.map(1..count, fn _ -> text_message(:user, text) end)
   end
 
-  describe "build/2" do
+  # --- __using__ and compact_timeout/0 ---
+
+  describe "use Planck.Agent.Compactor" do
+    defmodule DefaultTimeoutCompactor do
+      use Planck.Agent.Compactor
+
+      @impl true
+      def compact(_model, messages), do: {:compact, hd(messages), []}
+    end
+
+    defmodule CustomTimeoutCompactor do
+      use Planck.Agent.Compactor
+
+      @impl true
+      def compact(_model, messages), do: {:compact, hd(messages), []}
+
+      @impl true
+      def compact_timeout, do: 60_000
+    end
+
+    test "provides default compact_timeout/0" do
+      assert DefaultTimeoutCompactor.compact_timeout() == Compactor.default_compact_timeout()
+    end
+
+    test "compact_timeout/0 can be overridden" do
+      assert CustomTimeoutCompactor.compact_timeout() == 60_000
+    end
+  end
+
+  # --- build/2 (local) ---
+
+  describe "build/2 local" do
     test "returns a function" do
       compact_fn = Compactor.build(@model)
       assert is_function(compact_fn, 1)
     end
 
     test "returns :skip when below threshold" do
-      # 1_000 * 0.8 = 800 token threshold; 5 messages × 10 chars = ~13 tokens
       compact_fn = Compactor.build(@model)
       messages = make_messages(5, 10)
       assert compact_fn.(messages) == :skip
     end
 
     test "returns {:compact, summary_msg, kept} when tokens exceed threshold" do
-      # Each message: 4_000 chars ÷ 4 = 1_000 tokens > 800 threshold
       stub(MockAI, :stream, fn _model, _context, _opts ->
         [{:text_delta, "Summary of old messages."}, {:done, %{}}]
       end)
@@ -69,7 +98,6 @@ defmodule Planck.Agent.CompactorTest do
     end
 
     test "respects custom ratio" do
-      # ratio: 0.01 → threshold is 10 tokens; any real content triggers it
       stub(MockAI, :stream, fn _model, _context, _opts ->
         [{:text_delta, "Compact."}, {:done, %{}}]
       end)
@@ -103,76 +131,68 @@ defmodule Planck.Agent.CompactorTest do
     end
   end
 
-  # --- load/1 ---
+  # --- build/2 (remote, same-node simulation) ---
 
-  defp unique_mod, do: :"TestCompactor#{System.unique_integer([:positive])}"
+  defmodule FakeCompactor do
+    use Planck.Agent.Compactor
 
-  describe "load/1" do
-    @moduletag :tmp_dir
+    @impl true
+    def compact(_model, _messages), do: :skip
 
-    test "loads a valid compactor module from a .exs file", %{tmp_dir: dir} do
-      mod = unique_mod()
-      path = Path.join(dir, "compactor.exs")
+    @impl true
+    def compact_timeout, do: 5_000
+  end
 
-      File.write!(path, """
-      defmodule #{mod} do
-        @behaviour Planck.Agent.Compactor
-        @impl true
-        def compact(_messages), do: :skip
-      end
-      """)
+  defmodule FailingCompactor do
+    use Planck.Agent.Compactor
 
-      assert {:ok, fun} = Compactor.load(path)
+    @impl true
+    def compact(_model, _messages), do: raise("boom")
+  end
+
+  describe "build/2 remote" do
+    test "sidecar_node: nil falls through to local" do
+      fun = Compactor.build(@model, sidecar_node: nil, compactor: "Some.Module")
       assert is_function(fun, 1)
-      assert fun.([]) == :skip
+      # local: below threshold so :skip
+      assert fun.(make_messages(1, 10)) == :skip
     end
 
-    test "loaded module can return {:compact, summary, kept}", %{tmp_dir: dir} do
-      mod = unique_mod()
-      path = Path.join(dir, "compactor.exs")
-
-      File.write!(path, """
-      defmodule #{mod} do
-        @behaviour Planck.Agent.Compactor
-        @impl true
-        def compact(messages) do
-          summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "summary"}])
-          {:compact, summary, Enum.take(messages, -1)}
-        end
-      end
-      """)
-
-      assert {:ok, fun} = Compactor.load(path)
-      msgs = [Planck.Agent.Message.new(:user, [{:text, "hi"}])]
-      assert {:compact, %{role: {:custom, :summary}}, _kept} = fun.(msgs)
+    test "compactor: nil falls through to local" do
+      fun = Compactor.build(@model, sidecar_node: Node.self(), compactor: nil)
+      assert fun.(make_messages(1, 10)) == :skip
     end
 
-    test "returns error for a missing file" do
-      assert {:error, reason} = Compactor.load("/no/such/compactor.exs")
-      assert reason =~ "failed to load compactor"
+    test "calls compact/2 on the remote module (same-node)" do
+      fun =
+        Compactor.build(@model,
+          sidecar_node: Node.self(),
+          compactor: "Planck.Agent.CompactorTest.FakeCompactor"
+        )
+
+      assert :skip = fun.(make_messages(1, 10))
     end
 
-    test "returns error when file defines no module with compact/1", %{tmp_dir: dir} do
-      mod = unique_mod()
-      path = Path.join(dir, "bad.exs")
+    test "falls back to local compactor when RPC fails" do
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "fallback summary"}, {:done, %{}}]
+      end)
 
-      File.write!(path, """
-      defmodule #{mod} do
-        def other_fn(_), do: :ok
-      end
-      """)
+      # Use an atom node that doesn't exist — RPC will return {:badrpc, _}.
+      fun =
+        Compactor.build(@model,
+          sidecar_node: :nonexistent_node@localhost,
+          compactor: "Some.Remote.Compactor",
+          ratio: 0.01,
+          keep_recent: 1
+        )
 
-      assert {:error, reason} = Compactor.load(path)
-      assert reason =~ "no module implementing Planck.Agent.Compactor"
-    end
-
-    test "returns error for syntax errors in the file", %{tmp_dir: dir} do
-      path = Path.join(dir, "syntax_error.exs")
-      File.write!(path, "defmodule Oops {")
-      assert {:error, reason} = Compactor.load(path)
-      assert reason =~ "failed to load compactor"
+      # Should fall back to local, which triggers LLM summary (not :skip).
+      assert {:compact, _summary, _kept} = fun.(make_messages(3, 100))
     end
   end
+
+  # --- integration with Agent ---
 
   describe "integration with Agent" do
     alias Planck.Agent

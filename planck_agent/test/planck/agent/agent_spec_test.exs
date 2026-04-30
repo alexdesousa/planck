@@ -23,7 +23,8 @@ defmodule Planck.Agent.AgentSpecTest do
     model_id: "llama3.2",
     system_prompt: "You are a builder.",
     opts: [],
-    skills: []
+    skills: [],
+    compactor: nil
   }
 
   # --- to_start_opts/2 ---
@@ -344,6 +345,17 @@ defmodule Planck.Agent.AgentSpecTest do
       entry = valid_entry(%{"skills" => ["ok", 42, nil, "good"]})
       assert {:ok, spec} = AgentSpec.from_map(entry)
       assert spec.skills == ["ok", "good"]
+    end
+
+    test "parses compactor module name when present" do
+      entry = valid_entry(%{"compactor" => "MySidecar.Compactors.Builder"})
+      assert {:ok, spec} = AgentSpec.from_map(entry)
+      assert spec.compactor == "MySidecar.Compactors.Builder"
+    end
+
+    test "compactor defaults to nil when absent" do
+      assert {:ok, spec} = AgentSpec.from_map(valid_entry())
+      assert spec.compactor == nil
     end
   end
 
