@@ -320,7 +320,7 @@ defmodule Planck.Agent.AgentTest do
   # --- abort ---
 
   describe "abort/1" do
-    test "returns agent to idle" do
+    test "returns agent to idle while streaming" do
       stub(MockAI, :stream, fn _model, _ctx, _opts ->
         Process.sleep(5_000)
         []
@@ -329,6 +329,73 @@ defmodule Planck.Agent.AgentTest do
       agent = start_agent()
       Agent.prompt(agent, "slow task")
       Process.sleep(50)
+      Agent.abort(agent)
+      assert Agent.get_state(agent).status == :idle
+    end
+
+    test "returns agent to idle while executing tools" do
+      parent = self()
+      call = %{id: "t1", name: "slow", args: %{}}
+
+      tool =
+        Tool.new(
+          name: "slow",
+          description: "slow tool",
+          parameters: %{},
+          execute_fn: fn _id, _args ->
+            send(parent, :tool_started)
+            Process.sleep(5_000)
+            {:ok, "done"}
+          end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:done, %{}}]
+        else
+          [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "use slow tool")
+
+      # Wait until the tool is actually running
+      assert_receive :tool_started, 2_000
+
+      # Abort while tool is mid-execution — must return immediately
+      Agent.abort(agent)
+
+      assert Agent.get_state(agent).status == :idle
+      # No turn_end should arrive after abort
+      refute_receive {:agent_event, :turn_end, _}, 300
+    end
+
+    test "abort after tool execution completes is a no-op" do
+      call = %{id: "t2", name: "fast", args: %{}}
+
+      tool =
+        Tool.new(
+          name: "fast",
+          description: "fast tool",
+          parameters: %{},
+          execute_fn: fn _id, _args -> {:ok, "done"} end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:done, %{}}]
+        else
+          [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "use fast tool")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
       Agent.abort(agent)
       assert Agent.get_state(agent).status == :idle
     end

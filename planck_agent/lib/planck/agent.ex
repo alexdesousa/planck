@@ -118,7 +118,9 @@ defmodule Planck.Agent do
           text_buffer: String.t(),
           thinking_buffer: String.t(),
           usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()},
-          cost: float()
+          cost: float(),
+          running_tools: %{String.t() => map()},
+          tool_results_acc: list()
         }
 
   defstruct [
@@ -147,7 +149,9 @@ defmodule Planck.Agent do
     text_buffer: "",
     thinking_buffer: "",
     usage: %{input_tokens: 0, output_tokens: 0},
-    cost: 0.0
+    cost: 0.0,
+    running_tools: %{},
+    tool_results_acc: []
   ]
 
   # ---------------------------------------------------------------------------
@@ -347,6 +351,19 @@ defmodule Planck.Agent do
     {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
   end
 
+  def handle_call(:abort, _from, state) do
+    cancel_stream(state)
+    cancel_running_tools(state)
+    new_state = reset_streaming(state)
+
+    if has_pending_input?(new_state.messages, new_state.stream_start) do
+      broadcast(new_state, :turn_start, %{index: new_state.turn_index})
+      {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
+    else
+      {:reply, :ok, new_state}
+    end
+  end
+
   @impl true
   def handle_cast(event, state)
 
@@ -357,12 +374,6 @@ defmodule Planck.Agent do
 
   def handle_cast(:nudge, state) do
     {:noreply, state}
-  end
-
-  def handle_cast(:abort, state) do
-    cancel_stream(state)
-    new_state = reset_streaming(state)
-    maybe_turn_start(new_state)
   end
 
   def handle_cast({:rewind_to_message, _message_id}, %{session_id: nil} = state) do
@@ -390,7 +401,7 @@ defmodule Planck.Agent do
   end
 
   def handle_continue({:execute_tools, calls}, state) do
-    {:noreply, do_execute_tools(calls, state), {:continue, :run_llm}}
+    {:noreply, start_tool_tasks(calls, state)}
   end
 
   @impl true
@@ -412,10 +423,23 @@ defmodule Planck.Agent do
     {:noreply, state}
   end
 
-  def handle_info({:tool_result, _id, _name, _result}, state) do
-    # Results are collected synchronously in execute_tools via Task.async_stream.
-    # This clause handles any late-arriving messages after an abort.
-    {:noreply, state}
+  def handle_info({:tool_done, call_id, name, result}, state) do
+    case Map.pop(state.running_tools, call_id) do
+      {nil, _} ->
+        # Stale result arriving after an abort — ignore.
+        {:noreply, state}
+
+      {_task, remaining} ->
+        error = match?({:error, _}, result)
+        broadcast(state, :tool_end, %{id: call_id, name: name, result: result, error: error})
+        new_results = [{call_id, result} | state.tool_results_acc]
+
+        if map_size(remaining) == 0 do
+          {:noreply, finish_tool_execution(new_results, state), {:continue, :run_llm}}
+        else
+          {:noreply, %{state | running_tools: remaining, tool_results_acc: new_results}}
+        end
+    end
   end
 
   def handle_info({:agent_response, response, sender}, state) do
@@ -430,6 +454,7 @@ defmodule Planck.Agent do
   @impl true
   def terminate(_reason, state) do
     cancel_stream(state)
+    cancel_running_tools(state)
   end
 
   # ---------------------------------------------------------------------------
@@ -489,53 +514,55 @@ defmodule Planck.Agent do
     }
   end
 
-  @spec do_execute_tools([map()], t()) :: t()
-  defp do_execute_tools(tool_calls, state) do
+  @spec start_tool_tasks([map()], t()) :: t()
+  defp start_tool_tasks(tool_calls, state) do
     parent = self()
 
-    results =
-      tool_calls
-      |> Task.async_stream(
-        fn %{id: id, name: name, args: args} = call ->
-          broadcast(state, :tool_start, %{id: id, name: name, args: args})
+    running =
+      Map.new(tool_calls, fn %{id: id, name: name, args: args} ->
+        broadcast(state, :tool_start, %{id: id, name: name, args: args})
+        execute_fn = resolve_tool_fn(state.tools, name, id, args)
 
-          result =
-            case Map.get(state.tools, name) do
-              nil -> {:error, "unknown tool: #{name}"}
-              %Tool{execute_fn: fun} -> safe_execute(fun, id, args)
-            end
+        {:ok, pid} =
+          Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
+            send(parent, {:tool_done, id, name, execute_fn.()})
+          end)
 
-          send(parent, {:tool_result, id, name, result})
-          {call, result}
-        end,
-        max_concurrency: 4,
-        timeout: Keyword.get(state.opts, :tool_timeout, 300_000),
-        on_timeout: :kill_task
-      )
-      |> Enum.map(fn
-        {:ok, {call, result}} ->
-          error = match?({:error, _}, result)
-
-          broadcast(state, :tool_end, %{
-            id: call.id,
-            name: call.name,
-            result: result,
-            error: error
-          })
-
-          {call.id, result}
-
-        {:exit, reason} ->
-          Logger.warning("Tool task exited: #{inspect(reason)}")
-          nil
+        {id, %{name: name, pid: pid}}
       end)
-      |> Enum.reject(&is_nil/1)
 
-    tool_result_msg = build_tool_result_message(results)
+    %{state | running_tools: running, tool_results_acc: [], status: :executing_tools}
+  end
+
+  @spec finish_tool_execution(list(), t()) :: t()
+  defp finish_tool_execution(results, state) do
+    tool_result_msg = results |> Enum.reverse() |> build_tool_result_message()
     tool_result_msg = persist_message(state, tool_result_msg)
 
-    new_state = %{state | messages: state.messages ++ [tool_result_msg], pending_tool_calls: []}
-    %{new_state | status: :streaming}
+    %{
+      state
+      | messages: state.messages ++ [tool_result_msg],
+        pending_tool_calls: [],
+        running_tools: %{},
+        tool_results_acc: [],
+        status: :streaming
+    }
+  end
+
+  @spec resolve_tool_fn(%{String.t() => Tool.t()}, String.t(), String.t(), map()) ::
+          (-> {:ok, String.t()} | {:error, term()})
+  defp resolve_tool_fn(tools, name, id, args) do
+    case Map.get(tools, name) do
+      nil -> fn -> {:error, "unknown tool: #{name}"} end
+      %Tool{execute_fn: fun} -> fn -> safe_execute(fun, id, args) end
+    end
+  end
+
+  @spec cancel_running_tools(t()) :: :ok
+  defp cancel_running_tools(%{running_tools: tools}) when map_size(tools) == 0, do: :ok
+
+  defp cancel_running_tools(%{running_tools: tools}) do
+    Enum.each(tools, fn {_id, %{pid: pid}} -> Process.exit(pid, :kill) end)
   end
 
   @spec do_stream_done(t()) ::
@@ -874,7 +901,9 @@ defmodule Planck.Agent do
         stream_ref: nil,
         text_buffer: "",
         thinking_buffer: "",
-        pending_tool_calls: []
+        pending_tool_calls: [],
+        running_tools: %{},
+        tool_results_acc: []
     }
   end
 
