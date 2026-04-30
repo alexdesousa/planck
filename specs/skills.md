@@ -39,41 +39,47 @@ parsing.
 
 ## How agents use skills
 
-`Planck.Agent.Skill.system_prompt_section/1` builds a prompt snippet that lists
-all loaded skills with the path to their `SKILL.md` and `resources/` directory:
+Skills are a global pool, but each agent sees only the skills it explicitly
+declares in its `AgentSpec.skills` list (or in the TEAM.json `"skills"`
+array). At agent-start time, `Planck.Agent.AgentSpec.to_start_opts/2` resolves
+the names against a `skill_pool:` (typically the full global pool) and
+appends the matching skills' descriptions to `system_prompt` via
+`Skill.system_prompt_section/1`:
 
 ```
-Available skills:
-- code_review: Reviews code for correctness, style, and performance.
-  skill file: /home/user/.planck/skills/code_review/SKILL.md
-  resources dir: /home/user/.planck/skills/code_review/resources
+## Available skills
+
+- **code_review** — Reviews code for correctness, style, and performance. (skill file: `/home/user/.planck/skills/code_review/SKILL.md`, resources dir: `/home/user/.planck/skills/code_review`)
 ```
 
 The agent reads the full `SKILL.md` via the `read` tool when a skill is
 relevant, and navigates resource files from the `resources dir` path.
 
-Typical usage:
+Typical usage (via `AgentSpec.to_start_opts/2`):
 
 ```elixir
 skills = Planck.Agent.Skill.load_all(Planck.Agent.Config.skills_dirs!())
 
-system_prompt =
-  [base_prompt, Planck.Agent.Skill.system_prompt_section(skills)]
-  |> Enum.reject(&is_nil/1)
-  |> Enum.join("\n\n")
+start_opts = AgentSpec.to_start_opts(spec,
+  tool_pool:  tools,
+  skill_pool: skills,
+  team_id:    team_id
+)
 ```
 
-`system_prompt_section/1` returns `nil` when the list is empty, so it composes
-cleanly with other prompt fragments.
+When `spec.skills` is empty the system prompt passes through unchanged — no
+trailing section, no whitespace. `system_prompt_section/1` is still useful
+directly for callers that want to assemble their own prompt (e.g. the
+orchestrator's fallback default-prompt builder in `planck_headless`).
 
 ## Why skills are not loaded automatically
 
 `planck_agent` is a library — it does not run startup hooks or read config on
-its own. Loading skills and injecting them into a system prompt is an
-application-level decision: which dirs to scan, which agents get the skill
-index, and when to do it. That responsibility belongs to `planck_headless`,
-which calls `Skill.load_all/1` at startup and passes the result to agent
-constructors.
+its own. Loading skills is an application-level decision: which dirs to scan
+and when to do it. That responsibility belongs to `planck_headless`, which
+calls `Skill.load_all/1` at startup and passes the result to agent
+constructors as `skill_pool:`. Which skills any given agent actually sees is
+then a per-agent declaration (`spec.skills`), not a global injection.
 
 ## Configuration
 

@@ -52,8 +52,12 @@ has in its list.
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination
 - `Planck.Agent.Config` — Skogsra config for `sessions_dir`, `skills_dirs`, `tools_dirs`, and `compactor`
 - `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`
-- `Planck.Agent.TeamTemplate` — loads static agent definitions from JSON; tools merged
-  in programmatically by the caller
+- `Planck.Agent.Team` — loads a team directory (TEAM.json + members/) and exposes
+  `%Team{}` as the runtime representation; tools merged in programmatically by the
+  caller. See `specs/teams.md`.
+- `Planck.Agent.AgentSpec` — member-entry struct and JSON parsers (`from_map/2`,
+  `from_list/2`) shared by `Team.load/1` and any other code building specs from
+  user-supplied maps
 
 `planck_agent` does **not**:
 
@@ -100,19 +104,23 @@ model.
 
 ### `Planck.Agent.AgentSpec`
 
-Intermediate struct returned by `TeamTemplate` — static data only, no `execute_fn`.
-The caller merges tools in before spawning.
+Static, serializable member-entry struct — no `execute_fn`. Produced by
+`AgentSpec.from_map/2` (single entry) and `AgentSpec.from_list/2` (JSON array
+of entries), and consumed by `Planck.Agent.Team.load/1` when it parses
+TEAM.json. The caller merges tools in before spawning.
 
 ```elixir
 %Planck.Agent.AgentSpec{
   type:          String.t(),
-  name:          String.t() | nil,
+  name:          String.t(),            # defaults to type when not provided
   description:   String.t() | nil,
   provider:      atom(),
   model_id:      String.t(),
-  system_prompt: String.t(),   # already resolved from file path if applicable
+  system_prompt: String.t(),            # already resolved from file path if applicable
   opts:          keyword(),
-  tools:         [String.t()]  # tool names resolved from tool_pool: at start time
+  tools:         [String.t()],          # tool names resolved from tool_pool: at start time
+  skills:        [String.t()]           # skill names resolved from skill_pool: at start time;
+                                        # appended to system_prompt via system_prompt_section/1
 }
 ```
 
@@ -417,44 +425,23 @@ Planck.Agent.Supervisor  (strategy: :one_for_all)
 restart together — a stale Registry after a crash would leave agents unable to find
 each other.
 
-## Team templates
+## Teams
 
-```json
-[
-  {
-    "type":          "builder",
-    "name":          "Builder Joe",
-    "description":   "Writes and edits code",
-    "provider":      "anthropic",
-    "model_id":      "claude-sonnet-4-6",
-    "system_prompt": "You are an expert builder.",
-    "opts": { "temperature": 0.7 }
-  },
-  {
-    "type":          "tester",
-    "name":          "Tester Alice",
-    "description":   "Writes and runs tests",
-    "provider":      "ollama",
-    "model_id":      "llama3.2",
-    "system_prompt": "prompts/tester.md"
-  }
-]
-```
-
-`system_prompt` accepts an inline string or a `.md`/`.txt` file path resolved relative
-to the template file. Valid providers are derived from `Planck.AI.Model.providers/0`.
+Teams are defined by a directory containing a `TEAM.json` file and optional
+per-member folders. See `specs/teams.md` for the full directory convention,
+scoping rules, and dynamic-vs-static model. The short form:
 
 ```elixir
 alias Planck.Agent
-alias Planck.Agent.{AgentSpec, Compactor, TeamTemplate}
+alias Planck.Agent.{AgentSpec, Compactor, Team}
 
-{:ok, specs} = TeamTemplate.load("config/team.json")
+{:ok, team} = Team.load(".planck/teams/elixir-dev-workflow")
 
 team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 session_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 on_compact = Compactor.build(model)
 
-Enum.each(specs, fn spec ->
+Enum.each(team.members, fn spec ->
   tools = Map.get(tools_by_type, spec.type, [])
   start_opts = AgentSpec.to_start_opts(spec,
     tools: tools,
@@ -466,15 +453,22 @@ Enum.each(specs, fn spec ->
 end)
 ```
 
+Individual member entries follow the JSON schema documented on
+`Planck.Agent.AgentSpec`. `Team.load/1` invokes `AgentSpec.from_list/2`
+internally, so any code that needs to build an `AgentSpec` from a decoded map
+(e.g. `spawn_agent`) shares the same parser.
+
 ## Testing strategy
 
 ### Unit tests
 
 - `Tool.new/1` — struct construction, missing required fields
 - `Message` filtering — `{:custom, _}` dropped; `{:custom, :summary}` converted to `:user`
-- `TeamTemplate.load/1` / `from_list/1` — valid entries, missing fields, file path
-  resolution, invalid JSON, provider validation
+- `AgentSpec.from_map/2` / `from_list/2` — valid entries, missing fields, file
+  path resolution, provider validation
 - `AgentSpec.new/1` / `to_start_opts/2` — field merging, model resolution
+- `Team.load/1` — valid directories, missing TEAM.json, member validation,
+  name-uniqueness, skills/tools field parsing (see `specs/teams.md`)
 - `Session` — append, messages, truncate, checkpoint pagination, persistence across restart
 - `Compactor` — threshold check, summary generation, fallback on LLM error, keep_recent
 - `BuiltinTools` — each of the four tools exercised directly via `tool.execute_fn`:

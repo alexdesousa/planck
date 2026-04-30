@@ -17,7 +17,8 @@ only — they never call `planck_agent` directly.
   the filesystem at application start; make them available to all sessions
 - **Session lifecycle** — create and resume named sessions; start the SQLite-backed
   `Planck.Agent.Session` and the agent team together; tear both down on close
-- **Team bootstrap** — instantiate a team from a `TeamTemplate` (or a default config)
+- **Team bootstrap** — instantiate a team from a `%Planck.Agent.Team{}` (loaded
+  from disk by alias, or built dynamically from config for the no-template case)
   with tools, skills, compactor, and models already wired; caller gets a `session_id`
 - **Model availability** — detect which providers have API keys set; expose a filtered
   `available_models` list to callers and to the orchestrator's `list_models` tool
