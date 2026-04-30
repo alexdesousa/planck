@@ -155,69 +155,23 @@ defmodule Planck.Headless.ResourceStore do
     end
   end
 
-  # All providers are checked in parallel. API-key providers are skipped if
-  # the key is absent. Local providers (ollama, llama_cpp) are always
-  # attempted — if their server is not running they return [] after a
-  # short timeout. The per-provider timeout caps latency so a slow or
-  # retrying HTTP call does not block the full boot sequence.
-  #
-  # Set `config :planck_headless, :skip_model_detection, true` to skip in
-  # test environments where local servers are not running.
-  @provider_timeout_ms 2_000
-
+  # Cloud models: static LLMDB catalog filtered by API key presence (no network).
+  # Local/custom models: explicitly declared in Config.models!() and already
+  # parsed to Planck.AI.Model structs by the Models Skogsra type — no network,
+  # no timeouts.
   @spec detect_available_models() :: [Planck.AI.Model.t()]
   defp detect_available_models do
-    if Application.get_env(:planck_headless, :skip_model_detection, false) do
-      []
-    else
-      do_detect_available_models()
-    end
-  end
-
-  @spec do_detect_available_models() :: [Planck.AI.Model.t()]
-  defp do_detect_available_models do
-    # Cloud providers with API keys — no base_url needed.
-    cloud_tasks =
+    cloud =
       [:anthropic, :openai, :google]
-      |> Enum.filter(&cloud_provider_enabled?/1)
-      |> Enum.map(fn provider ->
-        {provider, nil, Task.async(fn -> Planck.AI.list_models(provider) end)}
-      end)
+      |> Enum.filter(&api_key_set?/1)
+      |> Enum.flat_map(&Planck.AI.list_models/1)
 
-    # Local servers explicitly configured in local_servers.
-    local_tasks =
-      Config.local_servers!()
-      |> Enum.map(fn %{type: type, base_url: base_url} ->
-        {type, base_url, Task.async(fn -> Planck.AI.list_models(type, base_url: base_url) end)}
-      end)
-
-    all_tasks = cloud_tasks ++ local_tasks
-    tasks = Enum.map(all_tasks, fn {_provider, _base_url, task} -> task end)
-    results = Task.yield_many(tasks, @provider_timeout_ms)
-
-    results
-    |> Enum.zip(all_tasks)
-    |> Enum.flat_map(&collect_models/1)
+    cloud ++ Config.models!()
   end
 
-  @spec collect_models({{Task.t(), term()}, {atom(), String.t() | nil, Task.t()}}) ::
-          [Planck.AI.Model.t()]
-  defp collect_models({{task, result}, {provider, base_url, _task}}) do
-    case result do
-      {:ok, models} ->
-        models
-
-      nil ->
-        Task.shutdown(task, :brutal_kill)
-        label = if base_url, do: "#{provider} at #{base_url}", else: "#{provider}"
-        Logger.warning("[Planck.Headless.ResourceStore] timed out listing models for #{label}")
-        []
-    end
-  end
-
-  @spec cloud_provider_enabled?(atom()) :: boolean()
-  defp cloud_provider_enabled?(:anthropic), do: Config.anthropic_api_key!() != nil
-  defp cloud_provider_enabled?(:openai), do: Config.openai_api_key!() != nil
-  defp cloud_provider_enabled?(:google), do: Config.google_api_key!() != nil
-  defp cloud_provider_enabled?(_), do: false
+  @spec api_key_set?(atom()) :: boolean()
+  defp api_key_set?(:anthropic), do: Config.anthropic_api_key!() != nil
+  defp api_key_set?(:openai), do: Config.openai_api_key!() != nil
+  defp api_key_set?(:google), do: Config.google_api_key!() != nil
+  defp api_key_set?(_), do: false
 end

@@ -28,7 +28,7 @@ defmodule Planck.Headless.ConfigTest do
       assert config.tools_dirs == [".planck/tools", "~/.planck/tools"]
       assert config.teams_dirs == [".planck/teams", "~/.planck/teams"]
       assert config.compactor == nil
-      assert config.local_servers == []
+      assert config.models == []
     end
   end
 

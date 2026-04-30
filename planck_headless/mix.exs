@@ -48,6 +48,7 @@ defmodule Planck.Headless.MixProject do
       local_or_hex(:planck_agent, "~> 0.1"),
       {:jason, "~> 1.4"},
       {:skogsra, "~> 2.5"},
+      {:mox, "~> 1.2", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},

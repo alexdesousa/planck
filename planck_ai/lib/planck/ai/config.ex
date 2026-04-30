@@ -52,7 +52,7 @@ defmodule Planck.AI.Config do
 
   alias Planck.AI.Model
 
-  @valid_providers ~w(anthropic openai google ollama llama_cpp)
+  @valid_providers Planck.AI.list_providers() |> Enum.map(&to_string/1)
 
   @doc """
   Loads models from a JSON file at `path`.
@@ -116,24 +116,26 @@ defmodule Planck.AI.Config do
   def from_map(%{"id" => _}), do: {:error, "missing required field: provider"}
   def from_map(_), do: {:error, "missing required field: id"}
 
-  defp parse_provider(p) when p in @valid_providers, do: {:ok, String.to_existing_atom(p)}
+  @spec parse_provider(String.t()) :: {:ok, atom()} | {:error, String.t()}
+  defp parse_provider(p) when p in @valid_providers do
+    {:ok, String.to_atom(p)}
+  end
 
   defp parse_provider(p) do
     {:error, "unknown provider #{inspect(p)}; valid: #{Enum.join(@valid_providers, ", ")}"}
   end
 
+  @spec parse_input_types(term()) :: [atom()]
   defp parse_input_types(nil), do: [:text]
 
   defp parse_input_types(list) when is_list(list) do
-    types =
-      list
-      |> Enum.flat_map(&parse_input_type/1)
-
+    types = Enum.flat_map(list, &parse_input_type/1)
     if types == [], do: [:text], else: types
   end
 
   defp parse_input_types(_), do: [:text]
 
+  @spec parse_input_type(String.t()) :: [atom()]
   defp parse_input_type("text"), do: [:text]
   defp parse_input_type("image"), do: [:image]
   defp parse_input_type("image_url"), do: [:image_url]
@@ -141,6 +143,7 @@ defmodule Planck.AI.Config do
   defp parse_input_type("video_url"), do: [:video_url]
   defp parse_input_type(_), do: []
 
+  @spec parse_default_opts(map() | nil | term()) :: keyword()
   defp parse_default_opts(nil), do: []
 
   defp parse_default_opts(map) when is_map(map) do
