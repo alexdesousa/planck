@@ -7,7 +7,7 @@ defmodule Planck.Web.SessionLive do
   alias Planck.Agent.Session
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
-  alias Planck.Web.Live.{ChatComponent, PromptInput}
+  alias Planck.Web.Live.ChatComponent
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,9 +21,9 @@ defmodule Planck.Web.SessionLive do
       |> assign(:orchestrator_id, nil)
       |> assign(:usage, %{input_tokens: 0, output_tokens: 0, cost: 0.0})
       |> assign(:sidecar, :idle)
-      |> assign(:overlay, nil)
       |> assign(:streaming, false)
       |> assign(:waiting, false)
+      |> assign(:overlay, nil)
       |> assign(:left_open, false)
       |> assign(:right_open, false)
       |> assign(:edit_message, nil)
@@ -79,36 +79,19 @@ defmodule Planck.Web.SessionLive do
   # ---------------------------------------------------------------------------
 
   def handle_info({:agent_event, :turn_start, %{agent_id: agent_id}} = event, socket) do
-    socket = socket |> assign(:waiting, false) |> assign(:streaming, true)
-    socket = update_agent_status(socket, agent_id, :streaming)
-    send_to_chats(socket, agent_id, event)
-    {:noreply, socket}
+    {:noreply, do_turn_start(agent_id, event, socket)}
   end
 
   def handle_info({:agent_event, :turn_end, %{usage: usage, agent_id: agent_id}} = event, socket) do
-    model_cost =
-      get_in(socket.assigns.agents, [agent_id, :model_cost]) || %{input: 0.0, output: 0.0}
-
-    socket =
-      socket
-      |> update_agent_status(agent_id, :idle)
-      |> update_agent_usage(agent_id, usage, model_cost)
-      |> update_total_usage(usage, model_cost)
-      |> assign(:streaming, false)
-      |> assign(:waiting, false)
-
-    send_to_chats(socket, agent_id, event)
-    {:noreply, socket}
+    {:noreply, do_turn_end(agent_id, usage, event, socket)}
   end
 
   def handle_info({:agent_event, :text_delta, %{agent_id: agent_id}} = event, socket) do
-    socket = assign(socket, :streaming, true)
     send_to_chats(socket, agent_id, event)
     {:noreply, socket}
   end
 
   def handle_info({:agent_event, :thinking_delta, %{agent_id: agent_id}} = event, socket) do
-    socket = assign(socket, :streaming, true)
     send_to_chats(socket, agent_id, event)
     {:noreply, socket}
   end
@@ -119,13 +102,7 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_info({:agent_event, :tool_end, _payload} = event, socket) do
-    # tool_end doesn't carry agent_id — broadcast to all open chats
-    send_update(ChatComponent, id: "chat-main", action: :event, event: event)
-
-    if socket.assigns.overlay do
-      send_update(ChatComponent, id: "chat-overlay", action: :event, event: event)
-    end
-
+    send_to_chats(socket, nil, event)
     {:noreply, socket}
   end
 
@@ -144,61 +121,35 @@ defmodule Planck.Web.SessionLive do
     {:noreply, socket}
   end
 
-  def handle_info({:agent_event, _type, _payload}, socket) do
-    {:noreply, socket}
-  end
+  def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
 
   # ---------------------------------------------------------------------------
   # PubSub events — sidecar
   # ---------------------------------------------------------------------------
 
-  def handle_info({:building, _dir}, socket) do
-    {:noreply, assign(socket, :sidecar, :building)}
-  end
+  def handle_info({:building, _dir}, socket), do: {:noreply, do_set_sidecar(socket, :building)}
+  def handle_info({:starting, _dir}, socket), do: {:noreply, do_set_sidecar(socket, :starting)}
+  def handle_info({:connected, _node}, socket), do: {:noreply, do_set_sidecar(socket, :connected)}
+  def handle_info({:disconnected, _node}, socket), do: {:noreply, do_set_sidecar(socket, :idle)}
+  def handle_info({:exited, _reason}, socket), do: {:noreply, do_set_sidecar(socket, :failed)}
 
-  def handle_info({:starting, _dir}, socket) do
-    {:noreply, assign(socket, :sidecar, :starting)}
-  end
-
-  def handle_info({:connected, _node}, socket) do
-    {:noreply, assign(socket, :sidecar, :connected)}
-  end
-
-  def handle_info({:disconnected, _node}, socket) do
-    {:noreply, assign(socket, :sidecar, :idle)}
-  end
-
-  def handle_info({:exited, _reason}, socket) do
-    {:noreply, assign(socket, :sidecar, :failed)}
-  end
-
-  def handle_info({:error, _step, _reason}, socket) do
-    {:noreply, assign(socket, :sidecar, :failed)}
-  end
+  def handle_info({:error, _step, _reason}, socket),
+    do: {:noreply, do_set_sidecar(socket, :failed)}
 
   # ---------------------------------------------------------------------------
   # User events
   # ---------------------------------------------------------------------------
 
   def handle_info({:prompt_submit, text}, socket) when byte_size(text) > 0 do
-    session_id = socket.assigns.active_session
-
-    user_event = {:agent_event, :user_message, %{text: text, agent_id: nil}}
-    send_update(ChatComponent, id: "chat-main", action: :event, event: user_event)
-
-    socket = assign(socket, :waiting, true)
-
-    if session_id, do: Headless.prompt(session_id, text)
-
-    {:noreply, socket}
+    {:noreply, do_prompt_submit(text, socket)}
   end
 
   def handle_info(:prompt_abort, socket) do
-    {:noreply, handle_event("abort", %{}, socket) |> elem(1)}
+    {:noreply, do_abort(socket)}
   end
 
   def handle_info(:prompt_abort_all, socket) do
-    {:noreply, handle_event("abort_all", %{}, socket) |> elem(1)}
+    {:noreply, do_abort_all(socket)}
   end
 
   def handle_info({:open_edit_message, %{db_id: db_id, text: text}}, socket) do
@@ -210,66 +161,18 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_info({:resend_message, %{db_id: db_id, text: text}}, socket) do
-    session_id = socket.assigns.active_session
-
-    if session_id do
-      # rewind_to_message returns only after both the truncation and the new
-      # prompt call have been processed by the agent, so the session is in the
-      # correct state when we reload the component.
-      Headless.rewind_to_message(session_id, db_id, text)
-
-      send_update(ChatComponent,
-        id: "chat-main",
-        action: :load,
-        session_id: session_id,
-        perspective_agent_id: socket.assigns[:perspective_agent_id],
-        agents: socket.assigns[:agents]
-      )
-    end
-
-    {:noreply, socket |> assign(:edit_message, nil) |> assign(:waiting, true)}
+    {:noreply, do_resend_message(db_id, text, socket)}
   end
+
+  # ---------------------------------------------------------------------------
+  # Handled events
+  # ---------------------------------------------------------------------------
 
   @impl true
   def handle_event(event, params, socket)
 
   def handle_event("open_agent", %{"id" => agent_id}, socket) do
-    send_update(ChatComponent,
-      id: "chat-overlay",
-      action: :load,
-      session_id: socket.assigns.active_session,
-      perspective_agent_id: agent_id,
-      agents: socket.assigns.agents
-    )
-
-    {:noreply, assign(socket, :overlay, agent_id)}
-  end
-
-  def handle_event("abort", _params, socket) do
-    abort_agent(socket.assigns.orchestrator_id)
-
-    send_update(ChatComponent,
-      id: "chat-main",
-      action: :event,
-      event: {:agent_event, :aborted, %{}}
-    )
-
-    {:noreply, assign(socket, streaming: false, waiting: false)}
-  end
-
-  def handle_event("abort_all", _params, socket) do
-    socket.assigns.agent_order
-    |> Enum.each(fn agent_id ->
-      abort_agent(agent_id)
-    end)
-
-    send_update(ChatComponent,
-      id: "chat-main",
-      action: :event,
-      event: {:agent_event, :aborted, %{}}
-    )
-
-    {:noreply, assign(socket, streaming: false, waiting: false)}
+    {:noreply, do_open_agent(agent_id, socket)}
   end
 
   def handle_event("close_overlay", _params, socket) do
@@ -376,6 +279,128 @@ defmodule Planck.Web.SessionLive do
   end
 
   # ---------------------------------------------------------------------------
+  # Private events
+  # ---------------------------------------------------------------------------
+
+  @spec do_turn_start(String.t(), tuple(), Phoenix.LiveView.Socket.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp do_turn_start(agent_id, event, socket) do
+    socket =
+      socket
+      |> assign(:streaming, true)
+      |> assign(:waiting, false)
+      |> update_agent_status(agent_id, :streaming)
+
+    send_to_chats(socket, agent_id, event)
+    socket
+  end
+
+  @spec do_turn_end(String.t(), map(), tuple(), Phoenix.LiveView.Socket.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp do_turn_end(agent_id, usage, event, socket) do
+    model_cost =
+      get_in(socket.assigns.agents, [agent_id, :model_cost]) || %{input: 0.0, output: 0.0}
+
+    socket =
+      socket
+      |> assign(:streaming, false)
+      |> assign(:waiting, false)
+      |> update_agent_status(agent_id, :idle)
+      |> update_agent_usage(agent_id, usage, model_cost)
+      |> update_total_usage(usage, model_cost)
+
+    send_to_chats(socket, agent_id, event)
+    socket
+  end
+
+  @spec do_set_sidecar(Phoenix.LiveView.Socket.t(), atom()) :: Phoenix.LiveView.Socket.t()
+  defp do_set_sidecar(socket, status)
+
+  defp do_set_sidecar(socket, status)
+       when status in [:building, :starting, :connected, :idle, :failed] do
+    assign(socket, :sidecar, status)
+  end
+
+  @spec do_prompt_submit(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_prompt_submit(text, socket) do
+    session_id = socket.assigns.active_session
+
+    send_update(ChatComponent,
+      id: "chat-main",
+      action: :event,
+      event: {:agent_event, :user_message, %{text: text, agent_id: nil}}
+    )
+
+    if session_id, do: Headless.prompt(session_id, text)
+
+    assign(socket, :waiting, true)
+  end
+
+  @spec do_abort(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_abort(socket) do
+    abort_agent(socket.assigns.orchestrator_id)
+
+    send_update(ChatComponent,
+      id: "chat-main",
+      action: :event,
+      event: {:agent_event, :aborted, %{}}
+    )
+
+    assign(socket, streaming: false, waiting: false)
+  end
+
+  @spec do_abort_all(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_abort_all(socket) do
+    Enum.each(socket.assigns.agent_order, &abort_agent/1)
+
+    send_update(ChatComponent,
+      id: "chat-main",
+      action: :event,
+      event: {:agent_event, :aborted, %{}}
+    )
+
+    assign(socket, streaming: false, waiting: false)
+  end
+
+  @spec do_open_agent(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_open_agent(agent_id, socket) do
+    send_update(ChatComponent,
+      id: "chat-overlay",
+      action: :load,
+      session_id: socket.assigns.active_session,
+      perspective_agent_id: agent_id,
+      agents: socket.assigns.agents
+    )
+
+    assign(socket, :overlay, agent_id)
+  end
+
+  @spec do_resend_message(non_neg_integer(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp do_resend_message(db_id, text, socket) do
+    session_id = socket.assigns.active_session
+
+    if session_id do
+      # rewind_to_message returns only after both the truncation and the new
+      # prompt call have been processed by the agent, so the session is in the
+      # correct state when we reload the component.
+      Headless.rewind_to_message(session_id, db_id, text)
+
+      send_update(ChatComponent,
+        id: "chat-main",
+        action: :load,
+        session_id: session_id,
+        perspective_agent_id: nil,
+        agents: socket.assigns.agents
+      )
+    end
+
+    socket
+    |> assign(:edit_message, nil)
+    |> assign(:waiting, true)
+  end
+
+  # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
 
@@ -395,8 +420,8 @@ defmodule Planck.Web.SessionLive do
       |> assign(:agent_order, agent_order)
       |> assign(:orchestrator_id, orchestrator_id)
       |> assign(:sidecar, sidecar_status)
-      |> assign(:waiting, false)
       |> assign(:streaming, false)
+      |> assign(:waiting, false)
 
     # Load main chat from session
     # Main chat shows all session messages — no perspective filtering.
@@ -486,8 +511,20 @@ defmodule Planck.Web.SessionLive do
     :ok
   end
 
-  @spec send_to_chats(Phoenix.LiveView.Socket.t(), String.t(), tuple()) :: :ok
-  defp send_to_chats(socket, agent_id, event) do
+  @spec send_to_chats(Phoenix.LiveView.Socket.t(), nil | String.t(), tuple()) :: :ok
+  defp send_to_chats(socket, agent_id, event)
+
+  defp send_to_chats(socket, nil, event) do
+    send_update(ChatComponent, id: "chat-main", action: :event, event: event)
+
+    if socket.assigns.overlay do
+      send_update(ChatComponent, id: "chat-overlay", action: :event, event: event)
+    end
+
+    :ok
+  end
+
+  defp send_to_chats(socket, agent_id, event) when is_binary(agent_id) do
     if agent_id == socket.assigns.orchestrator_id do
       send_update(ChatComponent, id: "chat-main", action: :event, event: event)
       maybe_route_delegation_to_overlay(socket, event)
