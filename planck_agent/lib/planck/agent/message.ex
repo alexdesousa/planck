@@ -21,6 +21,23 @@ defmodule Planck.Agent.Message do
   defstruct [:id, :role, :content, :timestamp, metadata: %{}]
 
   @doc """
+  Estimate the token count for a list of messages using a character-based
+  approximation (4 characters ≈ 1 token). Fast enough for real-time display
+  and compaction threshold checks; not a substitute for model tokenization.
+  """
+  @spec estimate_tokens([t()]) :: non_neg_integer()
+  def estimate_tokens(messages) do
+    Enum.reduce(messages, 0, fn msg, acc ->
+      Enum.reduce(msg.content, acc, fn
+        {:text, text}, a -> a + div(String.length(text), 4)
+        {:thinking, text}, a -> a + div(String.length(text), 4)
+        {:tool_result, _id, value}, a -> a + div(String.length(value), 4)
+        _other, a -> a
+      end)
+    end)
+  end
+
+  @doc """
   Build a new message with a generated id and current UTC timestamp.
   """
   @spec new(role(), [Planck.AI.Message.content_part()], map()) :: t()

@@ -169,7 +169,7 @@ defmodule Planck.Agent.Compactor do
     threshold = trunc(model.context_window * ratio)
 
     fn messages ->
-      if estimate_tokens(messages) >= threshold do
+      if Message.estimate_tokens(messages) >= threshold do
         compact_local(messages, model, keep_recent)
       else
         :skip
@@ -223,17 +223,6 @@ defmodule Planck.Agent.Compactor do
       {_, {:error, _}} ->
         :skip
     end
-  end
-
-  @spec estimate_tokens([Message.t()]) :: non_neg_integer()
-  defp estimate_tokens(messages) do
-    messages
-    |> Enum.flat_map(& &1.content)
-    |> Enum.reduce(0, fn
-      {:text, text}, acc -> acc + div(String.length(text), 4)
-      {:thinking, text}, acc -> acc + div(String.length(text), 4)
-      _other, acc -> acc
-    end)
   end
 
   @spec summarize([Message.t()], Model.t()) :: {:ok, String.t()} | {:error, term()}

@@ -83,6 +83,60 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  # --- get_info ---
+
+  describe "get_info/1" do
+    test "includes cost field" do
+      agent = start_agent()
+      info = Agent.get_info(agent)
+      assert Map.has_key?(info, :cost)
+      assert info.cost == 0.0
+    end
+
+    test "includes usage field" do
+      agent = start_agent()
+      info = Agent.get_info(agent)
+      assert info.usage == %{input_tokens: 0, output_tokens: 0}
+    end
+  end
+
+  # --- estimate_tokens ---
+
+  describe "estimate_tokens/1" do
+    test "returns 0 for an agent with no messages" do
+      agent = start_agent()
+      assert Agent.estimate_tokens(agent) == 0
+    end
+
+    test "returns token estimate after a turn" do
+      stream_events([{:text_delta, "hello"}, {:done, %{}}])
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "ping")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      # messages: user("ping") + assistant("hello")
+      # "ping" = 4 chars → 1 token; "hello" = 5 chars → 1 token
+      assert Agent.estimate_tokens(agent) > 0
+    end
+
+    test "estimate grows after each turn" do
+      stream_events([{:text_delta, String.duplicate("a", 400)}, {:done, %{}}])
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, String.duplicate("b", 400))
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      first = Agent.estimate_tokens(agent)
+
+      stream_events([{:text_delta, String.duplicate("c", 400)}, {:done, %{}}])
+      Agent.prompt(agent, String.duplicate("d", 400))
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      assert Agent.estimate_tokens(agent) > first
+    end
+  end
+
   # --- subscribe / broadcast ---
 
   describe "subscribe/1" do
@@ -128,6 +182,21 @@ defmodule Planck.Agent.AgentTest do
                         total: %{input_tokens: 5, output_tokens: 10}
                       }},
                      1_000
+    end
+
+    test "usage_delta includes context_tokens" do
+      stream_events([
+        {:text_delta, "hi"},
+        {:done, %{usage: %{input_tokens: 5, output_tokens: 3}}}
+      ])
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+
+      assert_receive {:agent_event, :usage_delta, %{context_tokens: ct}}, 1_000
+      assert is_integer(ct)
+      assert ct >= 0
     end
 
     test "turn_end includes accumulated token usage" do

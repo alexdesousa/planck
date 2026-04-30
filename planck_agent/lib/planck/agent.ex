@@ -25,7 +25,7 @@ defmodule Planck.Agent do
   | `:turn_end` | `message`, `usage` |
   | `:text_delta` | `text` |
   | `:thinking_delta` | `text` |
-  | `:usage_delta` | `delta` (`input_tokens`, `output_tokens`, `cost`), `total` (`input_tokens`, `output_tokens`, `cost`) |
+  | `:usage_delta` | `delta` (`input_tokens`, `output_tokens`, `cost`), `total` (`input_tokens`, `output_tokens`, `cost`), `context_tokens` |
   | `:tool_start` | `id`, `name`, `args` |
   | `:tool_end` | `id`, `name`, `result`, `error` |
   | `:worker_exit` | `pid`, `reason` |
@@ -222,6 +222,12 @@ defmodule Planck.Agent do
     GenServer.call(agent, :get_info)
   end
 
+  @doc "Estimate the number of tokens currently in the agent's context window."
+  @spec estimate_tokens(agent()) :: non_neg_integer()
+  def estimate_tokens(agent) do
+    GenServer.call(agent, :estimate_tokens)
+  end
+
   @doc """
   Subscribe the calling process to `{:agent_event, type, payload}` messages.
 
@@ -313,10 +319,15 @@ defmodule Planck.Agent do
       role: state.role,
       status: state.status,
       turn_index: state.turn_index,
-      usage: state.usage
+      usage: state.usage,
+      cost: state.cost
     }
 
     {:reply, info, state}
+  end
+
+  def handle_call(:estimate_tokens, _from, state) do
+    {:reply, Message.estimate_tokens(state.messages), state}
   end
 
   def handle_call({:prompt, content, _opts}, _from, %{status: :idle} = state) do
@@ -729,7 +740,8 @@ defmodule Planck.Agent do
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         cost: new_state.cost
-      }
+      },
+      context_tokens: Message.estimate_tokens(new_state.messages)
     })
 
     new_state
