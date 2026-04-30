@@ -109,6 +109,60 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert meta["session_name"] =~ ~r/^[a-z]+-[a-z]+$/
     end
 
+    test "AGENTS.md in cwd is prepended to the orchestrator system prompt", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "agents-md-team")
+      File.write!(Path.join(dir, "AGENTS.md"), "Project conventions go here.")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      assert String.starts_with?(system_prompt, "Project conventions go here.")
+      assert system_prompt =~ "You coordinate."
+    end
+
+    test "AGENTS.md stops at .git boundary and is not found above it", %{tmp_dir: dir} do
+      project_dir = Path.join(dir, "project")
+      File.mkdir_p!(Path.join(project_dir, ".git"))
+      team_dir = write_team(project_dir, "bounded-team")
+      File.write!(Path.join(dir, "AGENTS.md"), "Should not be loaded.")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: project_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      refute system_prompt =~ "Should not be loaded."
+    end
+
+    test "AGENTS.md is found by walking up to the git root", %{tmp_dir: dir} do
+      File.mkdir_p!(Path.join(dir, ".git"))
+      subdir = Path.join(dir, "src/components")
+      File.mkdir_p!(subdir)
+      team_dir = write_team(dir, "walk-up-team")
+      File.write!(Path.join(dir, "AGENTS.md"), "Root conventions.")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: subdir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      assert String.starts_with?(system_prompt, "Root conventions.")
+    end
+
+    test "no AGENTS.md means system prompt is unchanged", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "no-agents-md-team")
+      File.mkdir_p!(Path.join(dir, ".git"))
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      system_prompt = Planck.Agent.get_state(orch_pid).system_prompt
+      assert system_prompt == "You coordinate."
+    end
+
     test "orchestrator has built-in tools and inter-agent tools", %{tmp_dir: dir} do
       team_dir = write_team(dir, "builtin-tools-team")
 
