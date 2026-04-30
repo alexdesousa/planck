@@ -96,9 +96,10 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "applies available_models override" do
-      expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      # Model is found in available_models — no get_model call needed.
       opts = AgentSpec.to_start_opts(@base_spec, available_models: [@model])
       assert opts[:available_models] == [@model]
+      assert opts[:model] == @model
     end
 
     test "applies on_compact override" do

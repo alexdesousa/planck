@@ -225,7 +225,8 @@ defmodule Planck.Agent.AgentSpec do
   """
   @spec to_start_opts(t(), keyword()) :: keyword()
   def to_start_opts(%__MODULE__{} = spec, overrides \\ []) do
-    model = resolve_model!(spec.provider, spec.model_id, spec.base_url)
+    available_models = Keyword.get(overrides, :available_models, [])
+    model = resolve_model!(spec.provider, spec.model_id, spec.base_url, available_models)
     tools = resolve_tools(spec, overrides)
     system_prompt = assemble_system_prompt(spec, overrides)
 
@@ -338,15 +339,30 @@ defmodule Planck.Agent.AgentSpec do
   defp parse_string_list(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
   defp parse_string_list(_), do: []
 
-  @spec resolve_model!(atom(), String.t(), String.t() | nil) :: Planck.AI.Model.t()
-  defp resolve_model!(provider, model_id, nil) do
+  @spec resolve_model!(atom(), String.t(), String.t() | nil, [Planck.AI.Model.t()]) ::
+          Planck.AI.Model.t()
+  defp resolve_model!(provider, model_id, base_url, available_models) do
+    declared =
+      Enum.find(available_models, fn m ->
+        m.provider == provider && m.id == model_id
+      end)
+
+    if declared do
+      declared
+    else
+      resolve_model_dynamic!(provider, model_id, base_url)
+    end
+  end
+
+  @spec resolve_model_dynamic!(atom(), String.t(), String.t() | nil) :: Planck.AI.Model.t()
+  defp resolve_model_dynamic!(provider, model_id, nil) do
     case Planck.Agent.AIBehaviour.client().get_model(provider, model_id) do
       {:ok, model} -> model
       {:error, :not_found} -> raise ArgumentError, "model not found: #{provider}:#{model_id}"
     end
   end
 
-  defp resolve_model!(provider, model_id, base_url) do
+  defp resolve_model_dynamic!(provider, model_id, base_url) do
     case Planck.AI.get_model(provider, model_id, base_url: base_url) do
       {:ok, model} ->
         model
