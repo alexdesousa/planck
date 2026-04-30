@@ -43,6 +43,7 @@ defmodule Planck.Web do
   defp html_helpers do
     quote do
       import Planck.Web.Components
+      use Gettext, backend: Planck.Web.Gettext
 
       alias Phoenix.LiveView.JS
       alias Planck.Web.Layouts

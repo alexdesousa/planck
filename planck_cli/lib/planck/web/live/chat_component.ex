@@ -295,6 +295,7 @@ defmodule Planck.Web.Live.ChatComponent do
   # ---------------------------------------------------------------------------
 
   @doc false
+  def author_label(:user), do: pgettext("chat label", "you")
   def author_label(author), do: ChatEntries.author_label(author)
 
   @doc false

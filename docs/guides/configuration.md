@@ -18,6 +18,7 @@ Project config lives in `.planck/config.json` at the working directory root.
   "skills_dirs":      [".planck/skills", "~/.planck/skills"],
   "teams_dirs":       [".planck/teams", "~/.planck/teams"],
   "sidecar":          ".planck/sidecar",
+  "locale":           "en",
   "models":           []
 }
 ```
@@ -30,6 +31,7 @@ Project config lives in `.planck/config.json` at the working directory root.
 | `skills_dirs` | `PLANCK_SKILLS_DIRS` (colon-separated) | Directories scanned for skills |
 | `teams_dirs` | `PLANCK_TEAMS_DIRS` (colon-separated) | Directories scanned for team templates |
 | `sidecar` | `PLANCK_SIDECAR` | Path to a sidecar Mix project; omit or set to non-existent path to disable |
+| `locale` | `PLANCK_LOCALE` | UI language (`en`, `es`). Overrides browser language. Set globally in `~/.planck/config.json` or per-project in `.planck/config.json` |
 
 ## Local model declarations
 

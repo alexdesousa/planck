@@ -6,7 +6,7 @@
       class="auto-grow flex-1 border-2 border-black px-3 py-2 font-mono text-sm
              bg-background resize-none focus:outline-none
              focus:shadow-[2px_2px_0px_#000] placeholder:text-muted-foreground"
-      placeholder="Message planck…"
+      placeholder={pgettext("placeholder", "Message planck…")}
       id={"prompt-input-#{@id}"}
       phx-hook="PromptInput"
       disabled={@waiting}
@@ -20,9 +20,9 @@
                bg-destructive text-destructive-foreground"
         phx-click="abort"
         phx-target={@myself}
-        title="Stop orchestrator"
+        title={pgettext("tooltip", "Stop")}
       >
-        Stop
+        <%= pgettext("button label", "Stop") %>
       </button>
       <button
         type="button"
@@ -32,9 +32,9 @@
                border-destructive text-destructive bg-card"
         phx-click="abort_all"
         phx-target={@myself}
-        title="Stop all agents"
+        title={pgettext("tooltip", "Stop All")}
       >
-        Stop All
+        <%= pgettext("button label", "Stop All") %>
       </button>
     <% end %>
     <%= unless @waiting do %>
@@ -45,7 +45,7 @@
                hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
                bg-primary text-primary-foreground"
       >
-        Send
+        <%= pgettext("button label", "Send") %>
       </button>
     <% end %>
   </form>

@@ -146,6 +146,16 @@ defmodule Planck.Headless.Config do
     default: nil,
     binding_order: @json
 
+  @envdoc """
+  UI locale (e.g. `"en"`, `"es"`). Set in `.planck/config.json` for a
+  project-specific language or in `~/.planck/config.json` for a global
+  preference. When absent the browser's Accept-Language header is used,
+  falling back to English.
+  """
+  app_env :locale, :planck, :locale,
+    default: nil,
+    binding_order: @json
+
   @envdoc "Path to the sessions directory."
   app_env :sessions_dir, :planck, :sessions_dir,
     default: ".planck/sessions",

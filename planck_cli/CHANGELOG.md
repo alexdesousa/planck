@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Internationalisation (i18n)
+
+- Gettext backend (`Planck.Web.Gettext`) with English and Spanish translations
+- All user-visible strings use `pgettext("context", "msgid")` for translator context
+- Locale detection via `Planck.Web.Locale.Plug` with priority chain:
+  `locale` in config.json → session → `?locale=` param / `Accept-Language` → `"en"`
+- `locale` config key supported in `.planck/config.json` and `~/.planck/config.json`
+- Locale restored per-LiveView-process in `SessionLive.mount/3` (LiveView runs in a
+  separate process from the HTTP request that set the locale)
+- `gettext` check added to `./check planck_cli`: runs `mix gettext.extract --merge`
+  and fails if any string in source is missing a translation in a `.po` file
+
 ## v0.1.0
 
 First release of the Planck Web UI.

@@ -5,7 +5,7 @@
   if(@open, do: "translate-x-0", else: "translate-x-full md:translate-x-0")
 ]}>
   <div class="border-b-2 border-border px-3 py-2">
-    <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Agents</p>
+    <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider"><%= pgettext("sidebar header", "Agents") %></p>
   </div>
 
   <div class="flex-1 overflow-y-auto p-2 space-y-2">
@@ -22,7 +22,7 @@
     <% end %>
 
     <%= if @agent_order == [] do %>
-      <p class="font-mono text-xs text-muted-foreground px-2 pt-2">No agents yet</p>
+      <p class="font-mono text-xs text-muted-foreground px-2 pt-2"><%= pgettext("empty state", "No agents yet") %></p>
     <% end %>
   </div>
 

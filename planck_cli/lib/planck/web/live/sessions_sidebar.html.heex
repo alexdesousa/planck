@@ -9,7 +9,7 @@
        phx-target={@myself}>
     <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-80">
       <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
-        <span class="font-bold font-mono text-sm">Delete session</span>
+        <span class="font-bold font-mono text-sm"><%= pgettext("modal title", "Delete session") %></span>
         <button
           class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
                  shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -20,7 +20,7 @@
       </div>
       <div class="p-4 space-y-4">
         <p class="font-mono text-sm">
-          Delete <span class="font-bold"><%= name %></span>? This cannot be undone.
+          <%= pgettext("confirmation", "Delete %{name}? This cannot be undone.", name: name) %>
         </p>
         <div class="flex justify-end gap-2">
           <button
@@ -29,7 +29,7 @@
                    hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
             phx-click="cancel_delete"
             phx-target={@myself}
-          >Cancel</button>
+          ><%= pgettext("button label", "Cancel") %></button>
           <button
             class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                    shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -37,7 +37,7 @@
                    bg-destructive text-destructive-foreground"
             phx-click="confirm_delete"
             phx-target={@myself}
-          >Delete</button>
+          ><%= pgettext("button label", "Delete") %></button>
         </div>
       </div>
     </div>
@@ -52,7 +52,7 @@
        phx-target={@myself}>
     <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-80">
       <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
-        <span class="font-bold font-mono text-sm">New Session</span>
+        <span class="font-bold font-mono text-sm"><%= pgettext("modal title", "New Session") %></span>
         <button
           class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
                  shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -63,13 +63,13 @@
       </div>
       <form phx-submit="create_session" phx-target={@myself} class="p-4 space-y-3">
         <div>
-          <label class="font-mono text-xs text-muted-foreground block mb-1">Team</label>
+          <label class="font-mono text-xs text-muted-foreground block mb-1"><%= pgettext("form label", "Team") %></label>
           <div class="border-2 border-black shadow-[2px_2px_0px_#000] divide-y-2 divide-black
                       max-h-40 overflow-y-auto">
             <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
                            hover:bg-muted has-[:checked]:bg-muted">
               <input type="radio" name="team" value="" checked class="accent-black" />
-              Dynamic (default)
+              <%= pgettext("form option", "Dynamic (default)") %>
             </label>
             <%= for team <- @teams do %>
               <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
@@ -82,7 +82,7 @@
         </div>
         <div>
           <label class="font-mono text-xs text-muted-foreground block mb-1">
-            Name <span class="opacity-50">(optional)</span>
+            <%= pgettext("form label", "Name") %> <span class="opacity-50"><%= pgettext("form label", "(optional)") %></span>
           </label>
           <input
             type="text"
@@ -101,14 +101,14 @@
                    hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
             phx-click="close_new_session"
             phx-target={@myself}
-          >Cancel</button>
+          ><%= pgettext("button label", "Cancel") %></button>
           <button
             type="submit"
             class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
                    shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
                    hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
                    bg-primary text-primary-foreground"
-          >Create</button>
+          ><%= pgettext("button label", "Create") %></button>
         </div>
       </form>
     </div>
@@ -123,7 +123,7 @@
   if(@left_open, do: "translate-x-0", else: "-translate-x-full md:translate-x-0")
 ]}>
   <div class="border-b-2 border-border px-3 py-2">
-    <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Sessions</p>
+    <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider"><%= pgettext("sidebar header", "Sessions") %></p>
   </div>
   <div class="flex-1 overflow-y-auto p-2 space-y-1">
     <%= for session <- @sessions do %>
@@ -152,7 +152,7 @@
           phx-click="delete_session"
           phx-value-id={session.session_id}
           phx-target={@myself}
-          title="Delete session"
+          title={pgettext("modal title", "Delete session")}
         >×</button>
       </div>
     <% end %>
@@ -165,7 +165,7 @@
              bg-primary text-primary-foreground"
       phx-click="new_session"
       phx-target={@myself}
-    >+ New</button>
+    ><%= pgettext("button label", "+ New") %></button>
   </div>
 </aside>
 </div>
