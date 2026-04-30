@@ -28,6 +28,7 @@ defmodule Planck.Agent do
   | `:usage_delta` | `delta` (`input_tokens`, `output_tokens`, `cost`), `total` (`input_tokens`, `output_tokens`, `cost`), `context_tokens` |
   | `:tool_start` | `id`, `name`, `args` |
   | `:tool_end` | `id`, `name`, `result`, `error` |
+  | `:worker_spawned` | — |
   | `:worker_exit` | `pid`, `reason` |
   | `:error` | `reason` |
 
@@ -306,6 +307,9 @@ defmodule Planck.Agent do
 
     # Orchestrators trap exits so they survive individual worker crashes.
     if role == :orchestrator, do: Process.flag(:trap_exit, true)
+
+    # Notify session subscribers so UIs can refresh the agent list.
+    if state.delegator_id, do: broadcast(state, :worker_spawned, %{})
 
     {:ok, state}
   end

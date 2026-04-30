@@ -35,8 +35,9 @@ as internal modules. They are rendering surfaces only — they never call
   dynamically from config for the no-template case) with tools, skills,
   compactor, and models already wired; the caller gets a `session_id`.
 - **Model availability** — detect which providers have API keys set; expose a
-  filtered `available_models` list to callers and to the orchestrator's
-  `list_models` tool.
+  filtered `available_models` list (configured + connected) to callers and to
+  the orchestrator's `list_models` tool. The tool includes `base_url` so the
+  LLM can pass it when calling `spawn_agent` for non-default provider URLs.
 
 - **Session naming** — generate and sanitize human-readable session names
   (`<adjective>-<noun>`) and embed them in SQLite filenames alongside the id

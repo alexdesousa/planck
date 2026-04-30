@@ -449,9 +449,10 @@ defmodule Planck.Headless do
         team_id,
         orchestrator_id,
         store.available_models,
-        resolved
+        resolved,
+        store.skills
       ) ++
-        Tools.worker_tools(team_id, nil) ++
+        Tools.worker_tools(team_id, nil, orchestrator_id) ++
         skill_discovery_tools(store.skills) ++
         resolved
 
@@ -498,7 +499,10 @@ defmodule Planck.Headless do
       opts =
         base_opts
         |> Keyword.put(:id, worker_id)
-        |> Keyword.put(:tools, Tools.worker_tools(team_id, orchestrator_id, sender) ++ resolved)
+        |> Keyword.put(
+          :tools,
+          Tools.worker_tools(team_id, orchestrator_id, worker_id, sender) ++ resolved
+        )
         |> Keyword.put(:delegator_id, orchestrator_id)
         |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
         |> Keyword.put(:usage, usage)
@@ -647,7 +651,8 @@ defmodule Planck.Headless do
           base_opts
           |> Keyword.put(
             :tools,
-            Tools.worker_tools(team_id, orchestrator_id, sender) ++ base_opts[:tools]
+            Tools.worker_tools(team_id, orchestrator_id, dynamic_worker_id, sender) ++
+              base_opts[:tools]
           )
           |> Keyword.put(:delegator_id, orchestrator_id)
           |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))

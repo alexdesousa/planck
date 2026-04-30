@@ -38,18 +38,20 @@ defmodule Planck.Agent.Tools do
   alias Planck.AI
 
   @doc """
-  Returns the three inter-agent tools available to all agents in a team:
-  `ask_agent`, `delegate_task`, `send_response`.
+  Returns the inter-agent tools available to all agents in a team:
+  `ask_agent`, `delegate_task`, `send_response`, `list_team`.
 
-  Pass `delegator_id: nil` for orchestrators (they have no delegator to respond to).
+  `own_id` is the calling agent's id — captured in `ask_agent` for deadlock
+  detection.
 
-  The optional `sender` map (`%{id: String.t(), name: String.t()}`) is captured
-  in `send_response` so the orchestrator knows which worker replied.
+  Pass `delegator_id: nil` for orchestrators (they have no delegator to
+  respond to). The optional `sender` map is captured in `send_response` so
+  the orchestrator knows which worker replied.
   """
-  @spec worker_tools(String.t(), String.t() | nil, map() | nil) :: [Tool.t()]
-  def worker_tools(team_id, delegator_id, sender \\ nil) do
+  @spec worker_tools(String.t(), String.t() | nil, String.t(), map() | nil) :: [Tool.t()]
+  def worker_tools(team_id, delegator_id, own_id, sender \\ nil) do
     [
-      ask_agent(team_id),
+      ask_agent(team_id, own_id),
       delegate_task(team_id),
       send_response(delegator_id, sender),
       list_team(team_id)
@@ -73,17 +75,19 @@ defmodule Planck.Agent.Tools do
           String.t(),
           String.t(),
           [Planck.AI.Model.t()],
-          [Tool.t()]
+          [Tool.t()],
+          [Skill.t()]
         ) :: [Tool.t()]
   def orchestrator_tools(
         session_id,
         team_id,
         orchestrator_id,
         available_models,
-        grantable_tools \\ []
+        grantable_tools \\ [],
+        grantable_skills \\ []
       ) do
     [
-      spawn_agent(session_id, team_id, orchestrator_id, grantable_tools),
+      spawn_agent(session_id, team_id, orchestrator_id, grantable_tools, grantable_skills),
       destroy_agent(team_id),
       interrupt_agent(team_id),
       list_models(available_models)
@@ -95,8 +99,8 @@ defmodule Planck.Agent.Tools do
   # ---------------------------------------------------------------------------
 
   @doc "Build the `ask_agent` tool for a given team."
-  @spec ask_agent(String.t()) :: Tool.t()
-  def ask_agent(team_id) do
+  @spec ask_agent(String.t(), String.t()) :: Tool.t()
+  def ask_agent(team_id, own_id) do
     Tool.new(
       name: "ask_agent",
       description: """
@@ -116,10 +120,22 @@ defmodule Planck.Agent.Tools do
       },
       execute_fn: fn _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
-          ref = Process.monitor(pid)
-          Agent.subscribe(pid)
-          :ok = Agent.prompt(pid, args["question"])
-          await_turn_end(ref)
+          target_id = Agent.get_info(pid).id
+
+          if circular_wait?(own_id, target_id) do
+            {:error,
+             "Deadlock detected: #{own_id} cannot ask #{target_id} — " <>
+               "a circular wait chain already exists. Use send_response or " <>
+               "delegate_task to communicate without blocking."}
+          else
+            # Register this wait so others can detect a cycle back to us.
+            # The Registry entry is automatically removed when this task exits.
+            Registry.register(Planck.Agent.Registry, {:waiting, own_id}, target_id)
+            ref = Process.monitor(pid)
+            Agent.subscribe(pid)
+            :ok = Agent.prompt(pid, args["question"])
+            await_turn_end(ref)
+          end
         end
       end
     )
@@ -312,6 +328,8 @@ defmodule Planck.Agent.Tools do
                :ok <- ensure_type_available(team_id, type) do
             agent_id = generate_id()
 
+            sender = %{id: agent_id, name: args["name"]}
+
             start_opts = [
               id: agent_id,
               type: type,
@@ -322,7 +340,7 @@ defmodule Planck.Agent.Tools do
               session_id: session_id,
               team_id: team_id,
               delegator_id: orchestrator_id,
-              tools: worker_tools(team_id, orchestrator_id) ++ granted_tools
+              tools: worker_tools(team_id, orchestrator_id, agent_id, sender) ++ granted_tools
             ]
 
             case DynamicSupervisor.start_child(
@@ -393,12 +411,20 @@ defmodule Planck.Agent.Tools do
   def list_models(available_models) do
     Tool.new(
       name: "list_models",
-      description: "List the available LLM models that can be used when spawning agents.",
+      description:
+        "List the configured and connected LLM models available for spawning agents. " <>
+          "Use the returned provider, id, and base_url when calling spawn_agent.",
       parameters: %{"type" => "object", "properties" => %{}},
       execute_fn: fn _id, _args ->
         models =
           Enum.map(available_models, fn m ->
-            %{provider: m.provider, id: m.id, name: m.name, context_window: m.context_window}
+            %{
+              provider: m.provider,
+              id: m.id,
+              name: m.name,
+              context_window: m.context_window,
+              base_url: m.base_url
+            }
           end)
 
         {:ok, Jason.encode!(models)}
@@ -406,15 +432,34 @@ defmodule Planck.Agent.Tools do
     )
   end
 
-  @doc "Build the `list_team` tool for a given team."
+  @doc """
+  Build the `list_team` tool for a given team.
+
+  Without arguments (or `verbose: false`) returns name, type, description, and
+  status for each member — cheap and safe to call frequently.
+
+  With `verbose: true` also includes the agent's tool names and model, useful
+  when reasoning about which worker to delegate a task to.
+  """
   @spec list_team(String.t()) :: Tool.t()
   def list_team(team_id) do
     Tool.new(
       name: "list_team",
       description:
-        "List all agents currently in the team with their type, name, description, and status.",
-      parameters: %{"type" => "object", "properties" => %{}},
-      execute_fn: fn _id, _args ->
+        "List all agents in the team. Pass verbose: true to include each agent's tools and model.",
+      parameters: %{
+        "type" => "object",
+        "properties" => %{
+          "verbose" => %{
+            "type" => "boolean",
+            "description" =>
+              "When true, include tool names and model for each agent (default: false)"
+          }
+        }
+      },
+      execute_fn: fn _id, args ->
+        verbose = Map.get(args, "verbose", false)
+
         members =
           Registry.lookup(Planck.Agent.Registry, {team_id, :member})
           |> Enum.map(fn {pid, meta} ->
@@ -425,7 +470,30 @@ defmodule Planck.Agent.Tools do
                 _, _ -> %{status: :unknown, turn_index: nil, usage: nil}
               end
 
-            Map.merge(meta, Map.take(info, [:status, :turn_index, :usage]))
+            base = Map.merge(meta, Map.take(info, [:status, :turn_index, :usage]))
+
+            if verbose do
+              state =
+                try do
+                  Agent.get_state(pid)
+                catch
+                  _, _ -> nil
+                end
+
+              extra =
+                if state do
+                  %{
+                    tools: state.tools |> Map.keys() |> Enum.sort(),
+                    model: state.model && (state.model.name || state.model.id)
+                  }
+                else
+                  %{}
+                end
+
+              Map.merge(base, extra)
+            else
+              base
+            end
           end)
 
         {:ok, Jason.encode!(members)}
@@ -518,6 +586,33 @@ defmodule Planck.Agent.Tools do
 
       {:DOWN, ^monitor_ref, :process, _pid, reason} ->
         {:error, "Agent terminated: #{inspect(reason)}"}
+    end
+  end
+
+  # Returns true if `target_id` is (transitively) waiting for `from_id`,
+  # which would create a deadlock if `from_id` were to wait for `target_id`.
+  @spec circular_wait?(String.t(), String.t()) :: boolean()
+  defp circular_wait?(from_id, target_id) do
+    do_circular_check(from_id, target_id, [])
+  end
+
+  @spec do_circular_check(String.t(), String.t(), [String.t()]) :: boolean()
+  defp do_circular_check(from_id, current_id, visited) do
+    cond do
+      current_id == from_id ->
+        true
+
+      current_id in visited ->
+        false
+
+      true ->
+        case Registry.lookup(Planck.Agent.Registry, {:waiting, current_id}) do
+          [{_pid, next_id} | _] ->
+            do_circular_check(from_id, next_id, [current_id | visited])
+
+          [] ->
+            false
+        end
     end
   end
 
