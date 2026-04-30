@@ -1,9 +1,19 @@
 # Changelog
 
-## v0.1.0 (2026-04-18)
+## v0.1.0
 
 First release.
 
+- `Planck.Agent.Sidecar` — behaviour for distributed sidecar extensions; single
+  `tools/0` callback; module-level RPC entry points: `discover/0` (auto-detects
+  the entry module via `:persistent_term`-cached scan, only caches on success),
+  `list_tools/0`, `list_tools/1`, `execute_tool/3`, `execute_tool/4`
+- `Planck.Agent.Compactor` — redesigned: `compact/2` and `compact_timeout/0`
+  callbacks; unified `build/2` accepting `sidecar_node:` and `compactor:` opts
+  for remote sidecar compactors with local fallback; `compactor:` string is
+  converted to `:"Elixir.<name>"` atom before RPC; `load/1` removed
+- `AgentSpec.compactor` — per-agent compactor module name string; resolved via
+  `Compactor.build/2` at session start
 - OTP-based agent runtime with GenServer per agent
 - Team lifecycle: orchestrator owns team, team dies with orchestrator
 - Inter-agent tools: `ask_agent`, `delegate_task`, `send_response`, `list_team`

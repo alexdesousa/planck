@@ -72,7 +72,9 @@ defmodule Planck.Headless.MixProject do
         "compile --warnings-as-errors",
         "credo",
         "test"
-      ]
+      ],
+      "test.integration":
+        "cmd elixir --sname planck_headless_test -S mix test --include integration"
     ]
   end
 
