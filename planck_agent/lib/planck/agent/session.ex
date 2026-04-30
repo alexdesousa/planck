@@ -4,11 +4,14 @@ defmodule Planck.Agent.Session do
 
   One GenServer per session, registered globally so any node in the cluster
   can append messages or query history via transparent GenServer calls.
-  Each session writes to `<dir>/session_id.db`.
+  Each session writes to `<dir>/<id>_<name>.db`.
+
+  Both `id` and `name` appear in the filename so either can be resolved with
+  a single directory glob — see `find_by_id/2` and `find_by_name/2`.
 
   ## Usage
 
-      {:ok, _pid} = Planck.Agent.Session.start("my-session", dir: "/path/to/sessions")
+      {:ok, _pid} = Planck.Agent.Session.start("a1b2c3d4", name: "crazy-mango", dir: "/path/to/sessions")
 
       :ok = Planck.Agent.Session.append("my-session", "agent-1", message)
 
@@ -51,7 +54,7 @@ defmodule Planck.Agent.Session do
 
   @type session_id :: String.t()
 
-  defstruct [:id, :conn]
+  defstruct [:id, :name, :conn]
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -153,6 +156,64 @@ defmodule Planck.Agent.Session do
     end
   end
 
+  @doc """
+  Write key-value metadata for a session. Merges with any existing entries;
+  existing keys are overwritten. Values are stored as strings.
+  """
+  @spec save_metadata(session_id(), map()) :: :ok | {:error, :not_found}
+  def save_metadata(session_id, metadata) do
+    case whereis(session_id) do
+      {:ok, pid} -> GenServer.call(pid, {:save_metadata, metadata})
+      error -> error
+    end
+  end
+
+  @doc "Return all metadata for a session as a `%{String.t() => String.t() | nil}` map."
+  @spec get_metadata(session_id()) ::
+          {:ok, %{optional(String.t()) => String.t() | nil}} | {:error, :not_found}
+  def get_metadata(session_id) do
+    case whereis(session_id) do
+      {:ok, pid} -> GenServer.call(pid, :get_metadata)
+      error -> error
+    end
+  end
+
+  @doc """
+  Resolve a session file by id. Globs `<sessions_dir>/<id>_*.db`.
+
+  Returns `{:ok, path, name}` or `{:error, :not_found}`.
+  """
+  @spec find_by_id(Path.t(), String.t()) ::
+          {:ok, Path.t(), String.t()} | {:error, :not_found}
+  def find_by_id(sessions_dir, session_id) do
+    sessions_dir
+    |> Path.expand()
+    |> Path.join("#{session_id}_*.db")
+    |> Path.wildcard()
+    |> case do
+      [path | _] -> {:ok, path, parse_name(path)}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Resolve a session file by name. Globs `<sessions_dir>/*_<name>.db`.
+
+  Returns `{:ok, path, session_id}` or `{:error, :not_found}`.
+  """
+  @spec find_by_name(Path.t(), String.t()) ::
+          {:ok, Path.t(), String.t()} | {:error, :not_found}
+  def find_by_name(sessions_dir, name) do
+    sessions_dir
+    |> Path.expand()
+    |> Path.join("*_#{name}.db")
+    |> Path.wildcard()
+    |> case do
+      [path | _] -> {:ok, path, parse_id(path)}
+      [] -> {:error, :not_found}
+    end
+  end
+
   @doc "Resolve a session id to its pid via `:global`."
   @spec whereis(session_id()) :: {:ok, pid()} | {:error, :not_found}
   def whereis(session_id) do
@@ -184,15 +245,16 @@ defmodule Planck.Agent.Session do
   @impl true
   def init(opts) do
     id = Keyword.fetch!(opts, :id)
+    name = Keyword.fetch!(opts, :name)
     dir = Keyword.fetch!(opts, :dir)
 
     File.mkdir_p!(dir)
-    path = Path.join(dir, "#{id}.db")
+    path = Path.join(dir, "#{id}_#{name}.db")
 
     {:ok, conn} = Exqlite.Sqlite3.open(path)
     :ok = create_tables(conn)
 
-    {:ok, %__MODULE__{id: id, conn: conn}}
+    {:ok, %__MODULE__{id: id, name: name, conn: conn}}
   end
 
   @impl true
@@ -205,6 +267,17 @@ defmodule Planck.Agent.Session do
   def handle_cast({:truncate_agent, agent_id, keep_count}, state) do
     :ok = do_truncate_agent(state.conn, agent_id, keep_count)
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_call({:save_metadata, metadata}, _from, state) do
+    :ok = do_save_metadata(state.conn, metadata)
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(:get_metadata, _from, state) do
+    {:reply, {:ok, do_get_metadata(state.conn)}, state}
   end
 
   @impl true
@@ -253,7 +326,64 @@ defmodule Planck.Agent.Session do
       )
       """)
 
+    :ok =
+      Exqlite.Sqlite3.execute(conn, """
+      CREATE TABLE IF NOT EXISTS metadata (
+        key   TEXT NOT NULL UNIQUE,
+        value TEXT
+      )
+      """)
+
     :ok
+  end
+
+  @spec do_save_metadata(Exqlite.Sqlite3.db(), map()) :: :ok
+  defp do_save_metadata(conn, metadata) do
+    Enum.each(metadata, fn {key, value} ->
+      {:ok, stmt} =
+        Exqlite.Sqlite3.prepare(conn, """
+        INSERT INTO metadata (key, value) VALUES (?1, ?2)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """)
+
+      str_value = if is_nil(value), do: nil, else: to_string(value)
+      :ok = Exqlite.Sqlite3.bind(stmt, [to_string(key), str_value])
+      :done = Exqlite.Sqlite3.step(conn, stmt)
+      :ok = Exqlite.Sqlite3.release(conn, stmt)
+    end)
+
+    :ok
+  end
+
+  @spec do_get_metadata(Exqlite.Sqlite3.db()) :: %{optional(String.t()) => String.t() | nil}
+  defp do_get_metadata(conn) do
+    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT key, value FROM metadata")
+    :ok = Exqlite.Sqlite3.bind(stmt, [])
+    rows = collect_metadata_rows(conn, stmt)
+    :ok = Exqlite.Sqlite3.release(conn, stmt)
+    Map.new(rows)
+  end
+
+  @spec collect_metadata_rows(Exqlite.Sqlite3.db(), Exqlite.Sqlite3.statement(), [
+          {String.t(), String.t() | nil}
+        ]) :: [{String.t(), String.t() | nil}]
+  defp collect_metadata_rows(conn, stmt, acc \\ []) do
+    case Exqlite.Sqlite3.step(conn, stmt) do
+      {:row, [key, value]} -> collect_metadata_rows(conn, stmt, [{key, value} | acc])
+      :done -> acc
+    end
+  end
+
+  @spec parse_name(Path.t()) :: String.t()
+  defp parse_name(path) do
+    [_id, name] = path |> Path.basename(".db") |> String.split("_", parts: 2)
+    name
+  end
+
+  @spec parse_id(Path.t()) :: String.t()
+  defp parse_id(path) do
+    [id, _name] = path |> Path.basename(".db") |> String.split("_", parts: 2)
+    id
   end
 
   @spec insert_message(Exqlite.Sqlite3.db(), String.t(), Message.t()) :: :ok

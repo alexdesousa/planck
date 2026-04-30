@@ -116,6 +116,7 @@ TEAM.json. The caller merges tools in before spawning.
   description:   String.t() | nil,
   provider:      atom(),
   model_id:      String.t(),
+  base_url:      String.t() | nil,      # server URL for local providers with multiple instances
   system_prompt: String.t(),            # already resolved from file path if applicable
   opts:          keyword(),
   tools:         [String.t()],          # tool names resolved from tool_pool: at start time

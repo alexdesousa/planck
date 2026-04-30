@@ -250,6 +250,11 @@ defmodule Planck.Agent.Tools do
             "type" => "string",
             "description" => "Model id (e.g. claude-sonnet-4-6)"
           },
+          "base_url" => %{
+            "type" => "string",
+            "description" =>
+              "Base URL of the model server. Required when multiple servers of the same provider type are configured (e.g. \"http://localhost:11434\" for a specific Ollama instance)."
+          },
           "tools" => %{
             "type" => "array",
             "items" => %{"type" => "string"},
@@ -278,8 +283,16 @@ defmodule Planck.Agent.Tools do
           granted_skills =
             Enum.flat_map(requested_skills, &List.wrap(Map.get(grantable_skill_map, &1)))
 
-          with {:ok, model} <-
-                 Planck.Agent.AIBehaviour.client().get_model(provider, args["model_id"]),
+          base_url = Map.get(args, "base_url")
+
+          model_result =
+            if base_url do
+              Planck.AI.get_model(provider, args["model_id"], base_url: base_url)
+            else
+              Planck.Agent.AIBehaviour.client().get_model(provider, args["model_id"])
+            end
+
+          with {:ok, model} <- model_result,
                :ok <- ensure_type_available(team_id, type) do
             agent_id = generate_id()
 

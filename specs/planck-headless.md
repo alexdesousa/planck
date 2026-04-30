@@ -14,8 +14,9 @@ surfaces only — they never call `planck_agent` directly.
 ## What planck_headless owns
 
 - **Configuration** — the single source of truth for all runtime settings.
-  Resolves environment variables, application config, and hardcoded
-  defaults via Skogsra; exposes a resolved `Planck.Headless.Config` struct.
+  Merges `.planck/config.json`, `~/.planck/config.json`, env vars, and
+  application config via Skogsra; exposes a resolved `Planck.Headless.Config`
+  struct.
 - **Startup orchestration** — load external tools, skills, teams, and the
   custom compactor from the filesystem at application start; make them
   available to all sessions via a `ResourceStore`.
@@ -47,12 +48,13 @@ surfaces only — they never call `planck_agent` directly.
 
 ```elixir
 {:planck_agent, "~> 0.1"},
+{:jason, "~> 1.4"},
 {:skogsra, "~> 2.5"}
 ```
 
-`planck_agent` transitively provides `Phoenix.PubSub`, `erlexec`, `exqlite`,
-and `jason`. `skogsra` is the direct config dependency (no longer used by
-`planck_agent` after its config removal).
+`planck_agent` transitively provides `Phoenix.PubSub`, `erlexec`, and
+`exqlite`. `jason` is a direct dependency for reading `.planck/config.json`.
+`skogsra` is the direct config dependency.
 
 ## How a UI uses it
 
@@ -138,9 +140,10 @@ session crashing does not affect others.
 
 When the `planck_headless` application starts:
 
-1. **Config** — `Config.preload/0` and `Config.validate!/0` run; Skogsra
-   resolves each key from env vars, application config, or the hardcoded
-   default (see *Config* below).
+1. **Config** — `Config.load/0` reads `.planck/config.json` and
+   `~/.planck/config.json` into the `:planck` application env; then
+   `Config.preload/0` caches all values; then `Config.validate!/0` fails fast
+   on invalid required values. (see *Config* below).
 2. **Tools** — `Planck.Agent.ExternalTool.load_all(config.tools_dirs)`.
 3. **Skills** — `Planck.Agent.Skill.load_all(config.skills_dirs)`.
 4. **Teams** — scan `config.teams_dirs` and call `Planck.Agent.Team.load/1` on
@@ -172,7 +175,7 @@ per-session filesystem scanning.
      which picks an `<adjective>-<noun>` pair that is not already in use
      under `sessions_dir`. Retries on collision.
 3. Start `Planck.Agent.Session` under `SessionSupervisor` with
-   `id: session_id`, `name: session_name`, `dir: Config.get().sessions_dir`.
+   `id: session_id`, `name: session_name`, `dir: Config.sessions_dir!()`.
    The session file is created as `<sessions_dir>/<session_id>_<name>.db`.
 4. Save session metadata via `Session.save_metadata/2`:
    - `team_alias` — the alias string, path, or `nil` for dynamic-only sessions.
@@ -331,87 +334,129 @@ Planck.Agent.Config* below).
 
 ### Sources and precedence
 
-Config is resolved by Skogsra from three sources, highest priority first:
+Config is resolved from four sources, highest priority first:
 
 1. **Environment variables** — `PLANCK_*` (see table below).
-2. **Application config** — `config :planck, <key>, ...` from `config/*.exs`
+2. **Project-local JSON** — `.planck/config.json` in `File.cwd!()`.
+3. **User-global JSON** — `~/.planck/config.json`.
+4. **Application config** — `config :planck, <key>, ...` from `config/*.exs`
    or `config/runtime.exs`.
-3. **Hardcoded defaults** — built into each `app_env` declaration.
+5. **Hardcoded defaults** — built into each `app_env` declaration.
 
-At boot, `Application.start/2` calls `Config.preload/0` (caches values in
-persistent terms) and `Config.validate!/0` (fails fast on malformed config).
-To change a value at runtime, call `Application.put_env/3` and then the
-Skogsra-generated `reload_<key>/0` helper to invalidate the cache for that key.
+At boot, `Application.start/2` runs in this order:
 
-### No user-editable config file
+1. `Config.load/0` — reads the JSON files and puts their values into the
+   `:planck` application env (project-local wins on collision).
+2. `Config.preload/0` — Skogsra caches the resolved values into persistent terms.
+3. `Config.validate!/0` — fails fast on any invalid required values.
 
-`planck_headless` intentionally does **not** read a JSON/YAML config file.
-Persistent user configuration is either set via env vars (shell rc, launcher)
-or `config :planck, ...` in a consuming application's `config/runtime.exs`.
-A CLI surface (`planck_cli`) may layer its own JSON/YAML config file on top
-before starting the application, but that is the CLI's concern, not
-`planck_headless`'s. Keeping this module a thin Skogsra wrapper avoids
-duplicating the application-config layer and keeps caching trivial.
+Values are cached after `preload/0`; to change a value at runtime call
+`Application.put_env/3` and then `reload_<key>/0` to invalidate that key's cache.
+
+### JSON file format
+
+```json
+{
+  "default_provider": "anthropic",
+  "default_model":    "claude-sonnet-4-6",
+  "sessions_dir":     ".planck/sessions",
+  "skills_dirs":      ["~/.planck/skills"],
+  "tools_dirs":       ["~/.planck/tools"],
+  "teams_dirs":       ["~/.planck/teams"],
+  "local_servers": [
+    {"type": "ollama",    "base_url": "http://localhost:11434"},
+    {"type": "llama_cpp", "base_url": "http://localhost:8080"}
+  ],
+  "compactor": "~/.planck/compactor.exs"
+}
+```
+
+All keys are optional. Unknown keys are silently ignored. Arrays replace
+rather than merge — a project-local `skills_dirs` wholly supersedes the
+global one.
 
 ### Struct
 
 ```elixir
 %Planck.Headless.Config{
-  default_provider:  atom() | nil,    # e.g. :anthropic
-  default_model:     String.t() | nil, # e.g. "claude-sonnet-4-6"
+  default_provider:  atom() | nil,
+  default_model:     String.t() | nil,
   sessions_dir:      Path.t(),
   skills_dirs:       [Path.t()],
   tools_dirs:        [Path.t()],
   teams_dirs:        [Path.t()],
-  compactor:         Path.t() | nil
+  compactor:         Path.t() | nil,
+  local_servers:     [%{type: atom(), base_url: String.t()}]
 }
 ```
 
 ### Env vars and defaults
 
-| Env var                   | Config key           | Default                                              |
-|---------------------------|----------------------|------------------------------------------------------|
-| `PLANCK_DEFAULT_PROVIDER` | `:default_provider`  | `nil`                                                |
-| `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                                                |
-| `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                                   |
-| `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills`                    |
-| `PLANCK_TOOLS_DIRS`       | `:tools_dirs`        | `.planck/tools:~/.planck/tools`                      |
-| `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`                      |
-| `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                                                |
+#### Planner config
 
-`*_DIRS` env vars take a colon-separated list; paths are expanded at runtime
-(`~` and relative paths resolved). Parsed via an inline
-`Planck.Headless.Config.PathList` Skogsra type.
+| Env var                   | Config key           | Default                           |
+|---------------------------|----------------------|-----------------------------------|
+| `PLANCK_DEFAULT_PROVIDER` | `:default_provider`  | `nil`                             |
+| `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                             |
+| `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                |
+| `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
+| `PLANCK_TOOLS_DIRS`       | `:tools_dirs`        | `.planck/tools:~/.planck/tools`   |
+| `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`   |
+| `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                             |
+| `PLANCK_LOCAL_SERVERS`    | `:local_servers`     | `[]`                              |
+| `PLANCK_CONFIG_FILES`     | `:config_files`      | `~/.planck/config.json:.planck/config.json` |
+
+`*_DIRS` env vars take a colon-separated list. `PLANCK_LOCAL_SERVERS` takes a
+comma-separated `type:base_url` list (e.g.
+`ollama:http://localhost:11434,llama_cpp:http://localhost:8080`). Both forms
+are parsed via inline Skogsra types (`PathList` and `LocalServers`).
+
+#### Provider API keys
+
+API keys are declared with `os_env:` so they map to the canonical provider
+env var names. They are **not** in `Config.get()` or the `%Config{}` struct —
+use the generated getters directly to avoid accidental exposure in logs.
+
+| Env var             | Config key             | Provider           |
+|---------------------|------------------------|--------------------|
+| `ANTHROPIC_API_KEY` | `:anthropic_api_key`   | Anthropic (Claude) |
+| `OPENAI_API_KEY`    | `:openai_api_key`      | OpenAI             |
+| `GOOGLE_API_KEY`    | `:google_api_key`      | Google (Gemini)    |
 
 ### API
 
 ```elixir
-# Resolved config struct. Each field is a Skogsra getter.
+# Resolved config struct.
 @spec get() :: t()
+
+# Read JSON files into application env. Must be called before preload/0.
+@spec load() :: :ok
 
 # Generated by `use Skogsra`. Called at boot by Application.start/2.
 @spec preload() :: :ok
 @spec validate!() :: :ok
 
 # For each key <name>, Skogsra also generates:
-#   <name>()     — resolve with tagged tuple
-#   <name>!()    — resolve, raise on missing-required
+#   <name>!()       — resolve, raise on missing-required
 #   reload_<name>() — invalidate the persistent-term cache for this key
 ```
 
 ## Supervision tree
 
 ```
-Planck.Headless.Supervisor  (strategy: :one_for_one)
-├── Planck.Agent.Supervisor               (planck_agent's own tree)
-└── Planck.Headless.AppSupervisor         (strategy: :one_for_one)
-    ├── Planck.Headless.ResourceStore     (named GenServer)
-    └── Planck.Headless.SessionRegistry   (tracks session_id → team_id)
+:planck_agent application          :planck_headless application
+───────────────────────────        ──────────────────────────────────────────
+Planck.Agent.Supervisor            Planck.Headless.Supervisor  (one_for_one)
+  (started by :planck_agent)       └── Planck.Headless.AppSupervisor (one_for_one)
+                                       ├── Planck.Headless.ResourceStore
+                                       └── Planck.Headless.SessionRegistry
 ```
 
-`Planck.Agent.Supervisor` is started as a child so headless owns the full OTP
-tree. Callers only need to start `:planck_headless` — not `:planck_agent`
-separately.
+`Planck.Agent.Supervisor` is **not** a child of `Planck.Headless.Supervisor` —
+it is started by the `:planck_agent` OTP application before `planck_headless`
+boots. Adding it as a child would fail with "already started". Callers must
+include both `:planck_agent` and `:planck_headless` in their application's
+`extra_applications` (or depend on them as Mix deps, which is equivalent).
 
 ## Migration from Planck.Agent.Config
 
