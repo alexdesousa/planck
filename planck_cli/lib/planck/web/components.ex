@@ -260,26 +260,33 @@ defmodule Planck.Web.Components do
     ~H"""
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-80">
-        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-muted">
+        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card">
           <span class="font-bold font-mono text-sm">New Session</span>
           <button
-            class="font-mono text-sm hover:text-destructive"
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
             phx-click="close_new_session"
           >✕</button>
         </div>
         <form phx-submit="create_session" class="p-4 space-y-3">
           <div>
             <label class="font-mono text-xs text-muted-foreground block mb-1">Team</label>
-            <select
-              name="team"
-              class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                     bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-            >
-              <option value="">Dynamic (default)</option>
+            <div class="border-2 border-black shadow-[2px_2px_0px_#000] divide-y-2 divide-black
+                        max-h-40 overflow-y-auto">
+              <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
+                             hover:bg-muted has-[:checked]:bg-muted">
+                <input type="radio" name="team" value="" checked class="accent-black" />
+                Dynamic (default)
+              </label>
               <%= for team <- @teams do %>
-                <option value={team}><%= team %></option>
+                <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
+                               hover:bg-muted has-[:checked]:bg-muted">
+                  <input type="radio" name="team" value={team} class="accent-black" />
+                  <%= team %>
+                </label>
               <% end %>
-            </select>
+            </div>
           </div>
           <div>
             <label class="font-mono text-xs text-muted-foreground block mb-1">

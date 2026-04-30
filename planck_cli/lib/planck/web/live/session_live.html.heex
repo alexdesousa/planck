@@ -41,12 +41,14 @@
       </div>
       <div class="flex-1 overflow-y-auto p-2 space-y-1">
         <%= for session <- @sessions do %>
-          <div class="group flex items-center gap-1">
+          <div class="flex items-center gap-1">
             <button
               class={[
-                "flex-1 text-left px-2 py-1.5 font-mono text-xs border-2 border-transparent",
-                "hover:border-border hover:bg-muted transition-colors truncate",
-                if(session.session_id == @active_session, do: "border-border bg-muted font-bold", else: "")
+                "flex-1 text-left px-2 py-1.5 font-mono text-xs border-2 border-black truncate",
+                "transition-all hover:shadow-[2px_2px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5",
+                if(session.session_id == @active_session,
+                  do: "bg-muted font-bold shadow-[2px_2px_0px_#000]",
+                  else: "bg-card")
               ]}
               phx-click="switch_session"
               phx-value-id={session.session_id}
@@ -56,11 +58,10 @@
               <%= session.name || session.session_id %>
             </button>
             <button
-              class="opacity-0 group-hover:opacity-100 flex-shrink-0
-                     border border-border w-5 h-5 flex items-center justify-center
-                     font-mono text-xs text-muted-foreground
-                     hover:border-destructive hover:text-destructive hover:bg-destructive/10
-                     transition-opacity"
+              class="flex-shrink-0 border-2 border-black w-6 h-6 flex items-center justify-center
+                     font-mono text-xs font-bold bg-destructive text-destructive-foreground
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all"
               phx-click="delete_session"
               phx-value-id={session.session_id}
               title="Delete session"
