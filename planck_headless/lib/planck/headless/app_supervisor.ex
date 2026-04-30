@@ -11,8 +11,7 @@ defmodule Planck.Headless.AppSupervisor do
   @impl true
   def init(_opts) do
     children = [
-      Planck.Headless.ResourceStore,
-      {Registry, keys: :unique, name: Planck.Headless.SessionRegistry}
+      Planck.Headless.ResourceStore
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

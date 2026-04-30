@@ -29,6 +29,9 @@ called `planck`.
 
 Each package is a standalone Mix project. Users depend only on what they need.
 
+A [`playground/`](./playground) directory provides a ready-to-run sandbox
+against a local llamacpp or Ollama server — useful for testing sessions end-to-end.
+
 ## Design principles
 
 **Agents are processes.** Each agent instance is a `GenServer`. Subagents are spawned
