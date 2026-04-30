@@ -108,12 +108,12 @@ defmodule Planck.Web.Live.AgentsSidebar do
     end)
   end
 
-  @spec sidecar_to_status(atom()) :: :idle | :building | :starting | :connected | :failed
+  @spec sidecar_to_status(:building | :starting | :connected | :disconnected | :exited) ::
+          :idle | :building | :starting | :connected | :failed
   defp sidecar_to_status(status)
   defp sidecar_to_status(:connected), do: :connected
   defp sidecar_to_status(:building), do: :building
   defp sidecar_to_status(:starting), do: :starting
   defp sidecar_to_status(:disconnected), do: :idle
   defp sidecar_to_status(:exited), do: :failed
-  defp sidecar_to_status(_), do: :idle
 end
