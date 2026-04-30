@@ -22,12 +22,16 @@ defmodule Planck.Web.Live.PromptInput do
   end
 
   @impl true
+  def handle_event(event, params, socket)
+
   def handle_event("submit", %{"prompt" => text}, socket) when byte_size(text) > 0 do
     send(self(), {:prompt_submit, text})
     {:noreply, assign(socket, :text, "")}
   end
 
-  def handle_event("submit", _params, socket), do: {:noreply, socket}
+  def handle_event("submit", _params, socket) do
+    {:noreply, socket}
+  end
 
   def handle_event("change", %{"prompt" => text}, socket) do
     {:noreply, assign(socket, :text, text)}

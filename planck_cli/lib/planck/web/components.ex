@@ -275,6 +275,53 @@ defmodule Planck.Web.Components do
   end
 
   # ---------------------------------------------------------------------------
+  # agents_sidebar/1
+  # ---------------------------------------------------------------------------
+
+  @doc "Right-hand sidebar listing agent cards and the sidecar status footer."
+  attr :open, :boolean, default: false
+  attr :agents, :map, default: %{}
+  attr :agent_order, :list, default: []
+  attr :sidecar, :atom, default: :idle
+
+  def agents_sidebar(assigns) do
+    ~H"""
+    <aside class={[
+      "flex flex-col bg-card overflow-hidden border-l-2 border-border",
+      "w-56 md:w-52 md:static md:translate-x-0",
+      "fixed inset-y-0 right-0 z-40 transition-transform duration-200",
+      if(@open, do: "translate-x-0", else: "translate-x-full md:translate-x-0")
+    ]}>
+      <div class="border-b-2 border-border px-3 py-2">
+        <p class="font-bold font-mono text-xs text-muted-foreground uppercase tracking-wider">Agents</p>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-2 space-y-2">
+        <%= for agent_id <- @agent_order do %>
+          <%= case Map.get(@agents, agent_id) do %>
+            <% nil -> %>
+            <% agent -> %>
+              <%= if agent.type == "orchestrator" do %>
+                <.orchestrator_card agent={agent} />
+              <% else %>
+                <.agent_card agent={agent} color_index={agent.color_index - 1} />
+              <% end %>
+          <% end %>
+        <% end %>
+
+        <%= if @agent_order == [] do %>
+          <p class="font-mono text-xs text-muted-foreground px-2 pt-2">No agents yet</p>
+        <% end %>
+      </div>
+
+      <div class="border-t-2 border-border p-2">
+        <.sidecar_status status={@sidecar} />
+      </div>
+    </aside>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
   # new_session_modal/1
   # ---------------------------------------------------------------------------
 
