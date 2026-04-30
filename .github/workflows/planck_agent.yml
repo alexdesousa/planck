@@ -1,0 +1,78 @@
+name: Planck.Agent Checks
+
+on:
+  push:
+    branches: [main]
+    paths: ["planck_agent/**"]
+  pull_request:
+    paths: ["planck_agent/**"]
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: "Test OTP ${{ matrix.otp }} / Elixir ${{ matrix.elixir }}"
+    defaults:
+      run:
+        working-directory: planck_agent
+    strategy:
+      matrix:
+        otp: ["28.4.2"]
+        elixir: ["1.19.5"]
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout repository
+      - uses: erlef/setup-beam@v1
+        name: Setup Elixir
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - name: Get dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+      - name: Compile dependencies
+        run: mix deps.compile
+      - name: Compile project
+        run: mix compile --warnings-as-errors
+      - name: Check formatting
+        run: mix format --dry-run --check-formatted
+      - name: Run tests with coverage
+        run: mix coveralls.github
+      - name: Run Credo
+        run: mix credo
+
+  dialyzer:
+    runs-on: ubuntu-latest
+    name: "Dialyzer OTP ${{ matrix.otp }} / Elixir ${{ matrix.elixir }}"
+    defaults:
+      run:
+        working-directory: planck_agent
+    strategy:
+      matrix:
+        otp: ["28.4.2"]
+        elixir: ["1.19.5"]
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout repository
+      - uses: erlef/setup-beam@v1
+        name: Setup Elixir
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - uses: actions/cache@v4
+        name: Retrieve cached PLT
+        id: plt-cache
+        with:
+          path: planck_agent/priv/plts
+          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-plts-${{ hashFiles('planck_agent/mix.lock') }}
+      - name: Get dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+      - name: Compile dependencies
+        run: mix deps.compile
+      - name: Run Dialyzer
+        run: mix dialyzer

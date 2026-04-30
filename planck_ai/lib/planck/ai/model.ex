@@ -21,6 +21,12 @@ defmodule Planck.AI.Model do
 
   @type provider :: :anthropic | :openai | :google | :ollama | :llama_cpp
 
+  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp]
+
+  @doc "Returns the list of supported provider atoms."
+  @spec providers() :: [provider()]
+  def providers, do: @providers
+
   @type cost :: %{
           input: float(),
           output: float(),
