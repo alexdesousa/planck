@@ -16,12 +16,11 @@ team registry, and session lifecycle arrive in subsequent phases.
 
 ## Config
 
-`Planck.Headless.Config` merges four sources, highest precedence first:
+`Planck.Headless.Config` resolves three sources in priority order:
 
 1. Environment variables — `PLANCK_*`
-2. Project-local JSON — `.planck/config.json`
-3. User-global JSON — `~/.planck/config.json`
-4. Application config — `config :planck_headless, ...`
+2. Application config — `config :planck, <key>, ...`
+3. Hardcoded defaults
 
 ```elixir
 config = Planck.Headless.config()
@@ -29,8 +28,11 @@ config.teams_dirs
 # => [".planck/teams", "~/.planck/teams"]
 ```
 
-See the module docs on `Planck.Headless.Config` for the full env-var table and
-JSON schema.
+Values are cached via `preload/0` at boot; change a value at runtime by
+calling `Application.put_env/3` followed by the Skogsra-generated
+`reload_<key>/0` helper.
+
+See the module docs on `Planck.Headless.Config` for the full env-var table.
 
 ## Development
 

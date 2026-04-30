@@ -46,7 +46,6 @@ defmodule Planck.Headless.MixProject do
   defp deps do
     [
       local_or_hex(:planck_agent, "~> 0.1"),
-      {:jason, "~> 1.4"},
       {:skogsra, "~> 2.5"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

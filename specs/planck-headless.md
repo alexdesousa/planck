@@ -14,8 +14,8 @@ surfaces only — they never call `planck_agent` directly.
 ## What planck_headless owns
 
 - **Configuration** — the single source of truth for all runtime settings.
-  Merges a JSON config file with environment variables and application config
-  and exposes a resolved `Planck.Headless.Config` struct.
+  Resolves environment variables, application config, and hardcoded
+  defaults via Skogsra; exposes a resolved `Planck.Headless.Config` struct.
 - **Startup orchestration** — load external tools, skills, teams, and the
   custom compactor from the filesystem at application start; make them
   available to all sessions via a `ResourceStore`.
@@ -43,12 +43,12 @@ surfaces only — they never call `planck_agent` directly.
 
 ```elixir
 {:planck_agent, "~> 0.1"},
-{:jason, "~> 1.4"}
+{:skogsra, "~> 2.5"}
 ```
 
-`planck_agent` transitively provides `Skogsra`, `Phoenix.PubSub`, `erlexec`, and
-`exqlite`. No new config-format deps: JSON is the config file format, parsed
-via `Jason`.
+`planck_agent` transitively provides `Phoenix.PubSub`, `erlexec`, `exqlite`,
+and `jason`. `skogsra` is the direct config dependency (no longer used by
+`planck_agent` after its config removal).
 
 ## How a UI uses it
 
@@ -129,8 +129,9 @@ session crashing does not affect others.
 
 When the `planck_headless` application starts:
 
-1. **Config** — load and resolve config from JSON files + env vars + application
-   config (see *Config* below).
+1. **Config** — `Config.preload/0` and `Config.validate!/0` run; Skogsra
+   resolves each key from env vars, application config, or the hardcoded
+   default (see *Config* below).
 2. **Tools** — `Planck.Agent.ExternalTool.load_all(config.tools_dirs)`.
 3. **Skills** — `Planck.Agent.Skill.load_all(config.skills_dirs)`.
 4. **Teams** — scan `config.teams_dirs` and call `Planck.Agent.Team.load/1` on
@@ -226,17 +227,27 @@ Planck.Agent.Config* below).
 
 ### Sources and precedence
 
-Config is resolved by merging three sources, highest priority first:
+Config is resolved by Skogsra from three sources, highest priority first:
 
 1. **Environment variables** — `PLANCK_*` (see table below).
-2. **Project-local JSON** — `.planck/config.json` in `File.cwd!()`.
-3. **User-global JSON** — `~/.planck/config.json`.
-4. **Application config** — `config :planck_headless, ...` from `config/*.exs`.
+2. **Application config** — `config :planck, <key>, ...` from `config/*.exs`
+   or `config/runtime.exs`.
+3. **Hardcoded defaults** — built into each `app_env` declaration.
 
-Env vars override JSON files; project-local JSON overrides user-global JSON;
-both override application config. At boot, `Planck.Headless.Config.load/0`
-merges the two JSON files into Application config, then Skogsra resolves each
-key with env-var precedence.
+At boot, `Application.start/2` calls `Config.preload/0` (caches values in
+persistent terms) and `Config.validate!/0` (fails fast on malformed config).
+To change a value at runtime, call `Application.put_env/3` and then the
+Skogsra-generated `reload_<key>/0` helper to invalidate the cache for that key.
+
+### No user-editable config file
+
+`planck_headless` intentionally does **not** read a JSON/YAML config file.
+Persistent user configuration is either set via env vars (shell rc, launcher)
+or `config :planck, ...` in a consuming application's `config/runtime.exs`.
+A CLI surface (`planck_cli`) may layer its own JSON/YAML config file on top
+before starting the application, but that is the CLI's concern, not
+`planck_headless`'s. Keeping this module a thin Skogsra wrapper avoids
+duplicating the application-config layer and keeps caching trivial.
 
 ### Struct
 
@@ -252,24 +263,6 @@ key with env-var precedence.
 }
 ```
 
-### JSON file format
-
-```json
-{
-  "default_provider": "anthropic",
-  "default_model":    "claude-sonnet-4-6",
-  "sessions_dir":     ".planck/sessions",
-  "skills_dirs":      ["~/.planck/skills"],
-  "tools_dirs":       ["~/.planck/tools"],
-  "teams_dirs":       ["~/.planck/teams"],
-  "compactor":        "~/.planck/compactor.exs"
-}
-```
-
-All keys are optional. Arrays are replaced, not merged (project-local
-`skills_dirs` wholly replaces the global one; users who want to layer should
-include both paths in the project-local file).
-
 ### Env vars and defaults
 
 | Env var                   | Config key           | Default                                              |
@@ -283,18 +276,23 @@ include both paths in the project-local file).
 | `PLANCK_COMPACTOR`        | `:compactor`         | `nil`                                                |
 
 `*_DIRS` env vars take a colon-separated list; paths are expanded at runtime
-(`~` and relative paths resolved). Parsed via a `Planck.Headless.Config.PathList`
-Skogsra type (moved from `Planck.Agent.Config.PathList`).
+(`~` and relative paths resolved). Parsed via an inline
+`Planck.Headless.Config.PathList` Skogsra type.
 
 ### API
 
 ```elixir
-# Resolved config. Cached after first call; cleared by reload_resources/0.
+# Resolved config struct. Each field is a Skogsra getter.
 @spec get() :: t()
 
-# Load JSON config files into Application env. Called by Application.start/2
-# before the supervisor starts. Idempotent.
-@spec load() :: :ok
+# Generated by `use Skogsra`. Called at boot by Application.start/2.
+@spec preload() :: :ok
+@spec validate!() :: :ok
+
+# For each key <name>, Skogsra also generates:
+#   <name>()     — resolve with tagged tuple
+#   <name>!()    — resolve, raise on missing-required
+#   reload_<name>() — invalidate the persistent-term cache for this key
 ```
 
 ## Supervision tree
@@ -350,9 +348,9 @@ is the configured application that resolves paths once and threads them through.
 ## Testing strategy
 
 ### Config
-- JSON loading: happy path, malformed JSON, missing file handled gracefully,
-  `~` expansion.
-- Precedence: env > project-local JSON > global JSON > application config.
+- `get/0`: returns struct with declared defaults when nothing is configured.
+- Application-env override: `Application.put_env/3` followed by
+  `reload_<key>/0` picks up the new value.
 - `PathList`: colon-separated strings, nested list, invalid types.
 
 ### ResourceStore
