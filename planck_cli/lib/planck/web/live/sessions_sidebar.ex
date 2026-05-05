@@ -15,6 +15,7 @@ defmodule Planck.Web.Live.SessionsSidebar do
      socket
      |> assign(:pending_delete, nil)
      |> assign(:show_new_session, false)
+     |> assign(:selected_team, "")
      |> assign(:sessions, [])
      |> assign(:active_session, nil)
      |> assign(:left_open, false)
@@ -57,7 +58,11 @@ defmodule Planck.Web.Live.SessionsSidebar do
   end
 
   def handle_event("close_new_session", _params, socket) do
-    {:noreply, assign(socket, :show_new_session, false)}
+    {:noreply, socket |> assign(:show_new_session, false) |> assign(:selected_team, "")}
+  end
+
+  def handle_event("select_team", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :selected_team, value)}
   end
 
   def handle_event("create_session", %{"team" => team, "name" => name}, socket) do

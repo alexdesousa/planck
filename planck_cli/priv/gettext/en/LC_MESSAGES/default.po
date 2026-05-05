@@ -5,21 +5,21 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: lib/planck/web/components.ex:105
-#: lib/planck/web/components.ex:115
-#: lib/planck/web/components.ex:389
+#: lib/planck/web/components.ex:107
+#: lib/planck/web/components.ex:117
+#: lib/planck/web/components.ex:475
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "orchestrator"
 msgstr "orchestrator"
 
-#: lib/planck/web/components.ex:390
+#: lib/planck/web/components.ex:476
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "worker"
 msgstr "worker"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:168
+#: lib/planck/web/live/sessions_sidebar.html.heex:161
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "+ New"
@@ -27,13 +27,13 @@ msgstr "+ New"
 
 #: lib/planck/web/live/edit_message_modal.html.heex:47
 #: lib/planck/web/live/sessions_sidebar.html.heex:32
-#: lib/planck/web/live/sessions_sidebar.html.heex:104
+#: lib/planck/web/live/sessions_sidebar.html.heex:97
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Cancel"
 msgstr "Cancel"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:111
+#: lib/planck/web/live/sessions_sidebar.html.heex:104
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Create"
@@ -141,13 +141,13 @@ msgctxt "empty state"
 msgid "No agents yet"
 msgstr "No agents yet"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:85
+#: lib/planck/web/live/sessions_sidebar.html.heex:78
 #, elixir-autogen, elixir-format
 msgctxt "form label"
 msgid "(optional)"
 msgstr "(optional)"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:85
+#: lib/planck/web/live/sessions_sidebar.html.heex:78
 #, elixir-autogen, elixir-format
 msgctxt "form label"
 msgid "Name"
@@ -159,7 +159,7 @@ msgctxt "form label"
 msgid "Team"
 msgstr "Team"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:72
+#: lib/planck/web/live/sessions_sidebar.html.heex:70
 #, elixir-autogen, elixir-format
 msgctxt "form option"
 msgid "Dynamic (default)"
@@ -178,7 +178,7 @@ msgid "☰ Sessions"
 msgstr "☰ Sessions"
 
 #: lib/planck/web/live/sessions_sidebar.html.heex:12
-#: lib/planck/web/live/sessions_sidebar.html.heex:155
+#: lib/planck/web/live/sessions_sidebar.html.heex:148
 #, elixir-autogen, elixir-format
 msgctxt "modal title"
 msgid "Delete session"
@@ -208,37 +208,37 @@ msgctxt "sidebar header"
 msgid "Agents"
 msgstr "Agents"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:126
+#: lib/planck/web/live/sessions_sidebar.html.heex:119
 #, elixir-autogen, elixir-format
 msgctxt "sidebar header"
 msgid "Sessions"
 msgstr "Sessions"
 
-#: lib/planck/web/components.ex:234
+#: lib/planck/web/components.ex:236
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "building…"
 msgstr "building…"
 
-#: lib/planck/web/components.ex:237
+#: lib/planck/web/components.ex:239
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "no sidecar"
 msgstr "no sidecar"
 
-#: lib/planck/web/components.ex:233
+#: lib/planck/web/components.ex:235
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "sidecar"
 msgstr "sidecar"
 
-#: lib/planck/web/components.ex:236
+#: lib/planck/web/components.ex:238
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "sidecar error"
 msgstr "sidecar error"
 
-#: lib/planck/web/components.ex:235
+#: lib/planck/web/components.ex:237
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "starting…"

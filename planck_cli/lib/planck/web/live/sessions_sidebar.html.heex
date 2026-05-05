@@ -64,21 +64,14 @@
       <form phx-submit="create_session" phx-target={@myself} class="p-4 space-y-3">
         <div>
           <label class="font-mono text-xs text-muted-foreground block mb-1"><%= pgettext("form label", "Team") %></label>
-          <div class="border-2 border-black shadow-[2px_2px_0px_#000] divide-y-2 divide-black
-                      max-h-40 overflow-y-auto">
-            <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
-                           hover:bg-muted has-[:checked]:bg-muted">
-              <input type="radio" name="team" value="" checked class="accent-black" />
-              <%= pgettext("form option", "Dynamic (default)") %>
-            </label>
-            <%= for team <- @teams do %>
-              <label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer font-mono text-sm
-                             hover:bg-muted has-[:checked]:bg-muted">
-                <input type="radio" name="team" value={team} class="accent-black" />
-                <%= team %>
-              </label>
-            <% end %>
-          </div>
+          <.dropdown
+            id="new-session-team"
+            name="team"
+            options={[{"", pgettext("form option", "Dynamic (default)")} | Enum.map(@teams, &{&1, &1})]}
+            selected={@selected_team}
+            on_select="select_team"
+            target={@myself}
+          />
         </div>
         <div>
           <label class="font-mono text-xs text-muted-foreground block mb-1">

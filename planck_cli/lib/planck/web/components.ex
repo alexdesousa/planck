@@ -10,6 +10,8 @@ defmodule Planck.Web.Components do
   use Phoenix.Component
   use Gettext, backend: Planck.Web.Gettext
 
+  alias Phoenix.LiveView.JS
+
   # ---------------------------------------------------------------------------
   # Agent color palette — shared with TUI, assigned by spawn order.
   # Orchestrator always gets the neutral card; workers cycle through this list.
@@ -244,6 +246,90 @@ defmodule Planck.Web.Components do
       <span class={["w-1.5 h-1.5 rounded-full", @dot_class]} />
       <span><%= @label %></span>
     </span>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # dropdown/1
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  NeoBrutalism dropdown — a styled replacement for `<select>`.
+
+  Options are `{value, label}` tuples. When an option is selected the
+  component fires `on_select` as a LiveView push event with
+  `%{"value" => value}`, routed to `target` (typically `@myself`).
+
+  The selected value is mirrored in a hidden `<input>` with `name` so it is
+  included in a surrounding `<form>` submission without any server round-trip.
+  """
+  attr :id, :string, required: true
+  attr :name, :string, required: true
+  attr :options, :list, required: true, doc: "[{value, label}] list"
+  attr :selected, :string, default: ""
+  attr :on_select, :string, required: true
+  attr :target, :any, default: nil
+
+  def dropdown(assigns) do
+    selected_label =
+      case Enum.find(assigns.options, fn {v, _} -> v == assigns.selected end) do
+        {_, label} -> label
+        nil -> assigns.options |> List.first({assigns.selected, assigns.selected}) |> elem(1)
+      end
+
+    assigns = assign(assigns, :selected_label, selected_label)
+
+    ~H"""
+    <div class="relative">
+      <input type="hidden" name={@name} value={@selected} />
+
+      <%!-- Trigger --%>
+      <button
+        type="button"
+        class="w-full flex items-center justify-between border-2 border-black px-2 py-1.5
+               font-mono text-sm bg-card shadow-[2px_2px_0px_#000]
+               hover:shadow-[4px_4px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5
+               transition-all text-left"
+        phx-click={JS.show(to: "##{@id}-panel") |> JS.show(to: "##{@id}-backdrop")}
+      >
+        <span><%= @selected_label %></span>
+        <span class="text-muted-foreground text-xs ml-2">▼</span>
+      </button>
+
+      <%!-- Backdrop — closes panel on outside click --%>
+      <div
+        id={"#{@id}-backdrop"}
+        class="fixed inset-0 z-10"
+        style="display: none"
+        phx-click={JS.hide(to: "##{@id}-panel") |> JS.hide(to: "##{@id}-backdrop")}
+      />
+
+      <%!-- Options panel --%>
+      <div
+        id={"#{@id}-panel"}
+        class="absolute z-20 w-full mt-1 border-2 border-black bg-card
+               shadow-[4px_4px_0px_#000] max-h-48 overflow-y-auto"
+        style="display: none"
+      >
+        <%= for {value, label} <- @options do %>
+          <button
+            type="button"
+            class={[
+              "w-full text-left px-2 py-1.5 font-mono text-sm",
+              "border-b-2 border-black last:border-0",
+              if(@selected == value, do: "bg-muted font-bold", else: "bg-card hover:bg-muted")
+            ]}
+            phx-click={
+              JS.hide(to: "##{@id}-panel")
+              |> JS.hide(to: "##{@id}-backdrop")
+              |> JS.push(@on_select, value: %{value: value}, target: @target)
+            }
+          >
+            <%= label %>
+          </button>
+        <% end %>
+      </div>
+    </div>
     """
   end
 
