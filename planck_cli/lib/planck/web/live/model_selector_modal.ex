@@ -21,7 +21,10 @@ defmodule Planck.Web.Live.ModelSelectorModal do
      |> assign(:agent_id, assigns.agent_id)
      |> assign(:agent_name, assigns.agent_name)
      |> assign(:selected_model, assigns.current_model || "")
-     |> assign(:models, Enum.map(assigns.available_models, &{&1.id, &1.id}))}
+     |> assign(
+       :models,
+       Enum.map(assigns.available_models, &{&1.id, if(&1.name != "", do: &1.name, else: &1.id)})
+     )}
   end
 
   @impl true

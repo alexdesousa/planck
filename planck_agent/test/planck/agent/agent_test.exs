@@ -102,6 +102,35 @@ defmodule Planck.Agent.AgentTest do
 
   # --- estimate_tokens ---
 
+  describe "change_model/2" do
+    test "updates the model used for subsequent turns" do
+      agent = start_agent()
+      original = Agent.get_state(agent).model
+
+      new_model = %Model{
+        id: "llama3.1",
+        provider: :ollama,
+        context_window: 8_192,
+        max_tokens: 4_096
+      }
+
+      assert :ok = Agent.change_model(agent, new_model)
+      assert Agent.get_state(agent).model == new_model
+      refute Agent.get_state(agent).model == original
+    end
+
+    test "does not affect current status or messages" do
+      agent = start_agent()
+      new_model = %Model{id: "other", provider: :ollama, context_window: 4_096, max_tokens: 2_048}
+
+      Agent.change_model(agent, new_model)
+
+      state = Agent.get_state(agent)
+      assert state.status == :idle
+      assert state.messages == []
+    end
+  end
+
   describe "estimate_tokens/1" do
     test "returns 0 for an agent with no messages" do
       agent = start_agent()

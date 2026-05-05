@@ -187,12 +187,15 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_info({:model_changed, agent_id, model_id}, socket) do
-    with %{} = model <- Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
+    with %Planck.AI.Model{} = model <-
+           Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
          {:ok, pid} <- Agent.whereis(agent_id) do
       Agent.change_model(pid, model)
 
       agents =
-        Map.update(socket.assigns.agents, agent_id, %{}, &Map.put(&1, :model, model_id))
+        Map.update(socket.assigns.agents, agent_id, %{}, fn a ->
+          %{a | model: if(model.name != "", do: model.name, else: model.id), model_id: model.id}
+        end)
 
       send_update(AgentsSidebar,
         id: "agents-sidebar",
@@ -261,7 +264,7 @@ defmodule Planck.Web.SessionLive do
     model_selector = %{
       agent_id: agent_id,
       agent_name: agent[:name] || agent[:type] || "agent",
-      current_model: agent[:model] || ""
+      current_model: agent[:model_id] || ""
     }
 
     {:noreply, assign(socket, :model_selector, model_selector)}
@@ -486,14 +489,15 @@ defmodule Planck.Web.SessionLive do
           {map(), [String.t()], String.t() | nil}
   defp build_agent_entry({pid, meta}, {acc, ord, orch}) do
     state = Agent.get_state(pid)
-    {model_cost, model_id, context_window} = agent_model_info(state)
+    {model_cost, model_display, model_id, context_window} = agent_model_info(state)
     color_index = length(ord)
 
     entry = %{
       id: meta.id,
       name: meta.name || meta.type,
       type: meta.type,
-      model: model_id,
+      model: model_display,
+      model_id: model_id,
       status: state.status,
       usage: state.usage || %{input_tokens: 0, output_tokens: 0},
       cost: Map.get(state, :cost, 0.0),
@@ -517,14 +521,14 @@ defmodule Planck.Web.SessionLive do
     end
   end
 
-  @spec agent_model_info(map()) :: {map(), String.t(), pos_integer()}
+  @spec agent_model_info(map()) :: {map(), String.t(), String.t(), pos_integer()}
   defp agent_model_info(%{
          model: %Planck.AI.Model{cost: cost, name: name, id: id, context_window: cw}
        }) do
-    {cost, name || id, cw}
+    {cost, if(name != "", do: name, else: id), id, cw}
   end
 
-  defp agent_model_info(_), do: {%{input: 0.0, output: 0.0}, "unknown", 4_096}
+  defp agent_model_info(_), do: {%{input: 0.0, output: 0.0}, "unknown", "unknown", 4_096}
 
   @spec load_session(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   defp load_session(socket, session_id) do
