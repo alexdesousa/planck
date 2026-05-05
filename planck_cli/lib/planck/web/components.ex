@@ -299,7 +299,7 @@ defmodule Planck.Web.Components do
       <%!-- Backdrop — closes panel on outside click --%>
       <div
         id={"#{@id}-backdrop"}
-        class="fixed inset-0 z-10"
+        class="fixed inset-0 z-40"
         style="display: none"
         phx-click={JS.hide(to: "##{@id}-panel") |> JS.hide(to: "##{@id}-backdrop")}
       />
@@ -307,7 +307,7 @@ defmodule Planck.Web.Components do
       <%!-- Options panel --%>
       <div
         id={"#{@id}-panel"}
-        class="absolute z-20 w-full mt-1 border-2 border-black bg-card
+        class="absolute z-60 w-full mt-1 border-2 border-black bg-card
                shadow-[4px_4px_0px_#000] max-h-48 overflow-y-auto"
         style="display: none"
       >

@@ -234,6 +234,50 @@ defmodule Planck.Headless do
   def available_models, do: ResourceStore.get().available_models
 
   @doc """
+  Persist a model configuration to the JSON config and `.env` files, then
+  reload resources so the new model is immediately available.
+
+  Options:
+  - `:provider` (required) — e.g. `:anthropic`, `:ollama`
+  - `:model_id` (required) — model identifier string
+  - `:scope` — `:local` (default, `.planck/`) or `:global` (`~/.planck/`)
+  - `:api_key` — written to `<scope>/.env` for cloud providers
+  - `:base_url` — stored in `models` config entry for local providers
+  - `:default` — set as `default_provider`/`default_model` (default: `true`)
+  """
+  @spec configure_model(keyword()) :: :ok | {:error, term()}
+  def configure_model(opts) do
+    provider = Keyword.fetch!(opts, :provider)
+    model_id = Keyword.fetch!(opts, :model_id)
+    scope = Keyword.get(opts, :scope, :local)
+    api_key = Keyword.get(opts, :api_key)
+    base_url = Keyword.get(opts, :base_url)
+    set_default = Keyword.get(opts, :default, true)
+    model_name = Keyword.get(opts, :model_name)
+    context_window = Keyword.get(opts, :context_window)
+    supports_thinking = Keyword.get(opts, :supports_thinking, false)
+    advanced_opts = Keyword.get(opts, :advanced_opts)
+
+    model_opts = %{
+      base_url: base_url,
+      model_name: model_name,
+      context_window: context_window,
+      supports_thinking: supports_thinking,
+      advanced_opts: advanced_opts
+    }
+
+    config_path = config_path_for(scope)
+    env_path = env_path_for(scope)
+    config_update = build_config_update(provider, model_id, model_opts, set_default)
+
+    with :ok <- ensure_config_dir(config_path),
+         :ok <- update_json_config(config_path, config_update),
+         :ok <- maybe_write_api_key(env_path, provider, api_key) do
+      reload_resources()
+    end
+  end
+
+  @doc """
   Reload tools, skills, teams, and the compactor from disk.
   In-flight sessions keep their original resources.
   """
@@ -241,6 +285,19 @@ defmodule Planck.Headless do
   def reload_resources do
     JsonBinding.invalidate()
     EnvBinding.invalidate()
+    # Clear Skogsra's own persistent_term caches for every key that reads from
+    # the JSON or .env bindings, so the next access re-resolves from disk.
+    Config.reload_default_provider()
+    Config.reload_default_model()
+    Config.reload_models()
+    Config.reload_locale()
+    Config.reload_sessions_dir()
+    Config.reload_skills_dirs()
+    Config.reload_teams_dirs()
+    Config.reload_sidecar()
+    Config.reload_anthropic_api_key()
+    Config.reload_openai_api_key()
+    Config.reload_google_api_key()
     ResourceStore.reload()
   end
 
@@ -917,4 +974,130 @@ defmodule Planck.Headless do
   defp generate_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
   end
+
+  # ---------------------------------------------------------------------------
+  # Private — configure_model helpers
+  # ---------------------------------------------------------------------------
+
+  @spec config_path_for(:local | :global) :: Path.t()
+  defp config_path_for(:local), do: ".planck/config.json"
+  defp config_path_for(:global), do: "~/.planck/config.json"
+
+  @spec env_path_for(:local | :global) :: Path.t()
+  defp env_path_for(:local), do: ".planck/.env"
+  defp env_path_for(:global), do: "~/.planck/.env"
+
+  @spec build_config_update(atom(), String.t(), map(), boolean()) :: map()
+  defp build_config_update(provider, model_id, model_opts, set_default) do
+    update =
+      if set_default do
+        %{"default_provider" => to_string(provider), "default_model" => model_id}
+      else
+        %{}
+      end
+
+    if provider in [:ollama, :llama_cpp] and model_opts.base_url not in [nil, ""] do
+      entry =
+        %{
+          "id" => model_id,
+          "provider" => to_string(provider),
+          "base_url" => model_opts.base_url,
+          "context_window" => model_opts.context_window || default_context_window(provider)
+        }
+        |> maybe_put("name", model_opts.model_name)
+        |> maybe_put_bool("supports_thinking", model_opts.supports_thinking)
+        |> maybe_put("default_opts", model_opts.advanced_opts)
+
+      Map.put(update, "models", [entry])
+    else
+      update
+    end
+  end
+
+  @spec maybe_put(map(), String.t(), term()) :: map()
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  @spec maybe_put_bool(map(), String.t(), boolean()) :: map()
+  defp maybe_put_bool(map, _key, false), do: map
+  defp maybe_put_bool(map, key, true), do: Map.put(map, key, true)
+
+  @spec default_context_window(atom()) :: non_neg_integer()
+  defp default_context_window(:ollama), do: 128_000
+  defp default_context_window(:llama_cpp), do: 32_768
+  defp default_context_window(_), do: 128_000
+
+  @spec ensure_config_dir(Path.t()) :: :ok | {:error, File.posix()}
+  defp ensure_config_dir(path) do
+    case path |> Path.expand() |> Path.dirname() |> File.mkdir_p() do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec update_json_config(Path.t(), map()) :: :ok | {:error, term()}
+  defp update_json_config(path, update) do
+    expanded = Path.expand(path)
+
+    existing =
+      case File.read(expanded) do
+        {:ok, content} -> Jason.decode!(content)
+        {:error, :enoent} -> %{}
+      end
+
+    merged =
+      Map.merge(existing, update, fn
+        "models", old, new -> old ++ new
+        _key, _old, new -> new
+      end)
+
+    case Jason.encode(merged, pretty: true) do
+      {:ok, json} -> File.write(expanded, json)
+      error -> error
+    end
+  end
+
+  @spec maybe_write_api_key(Path.t(), atom(), String.t() | nil) :: :ok | {:error, term()}
+  defp maybe_write_api_key(_path, _provider, key) when key in [nil, ""], do: :ok
+
+  defp maybe_write_api_key(path, provider, api_key) do
+    case api_key_env_var(provider) do
+      nil ->
+        :ok
+
+      env_var ->
+        expanded = Path.expand(path)
+        :ok = ensure_config_dir(path)
+
+        lines =
+          case File.read(expanded) do
+            {:ok, content} -> String.split(content, "\n", trim: true)
+            {:error, :enoent} -> []
+          end
+
+        {found, updated} =
+          Enum.reduce(lines, {false, []}, fn line, {found, acc} ->
+            upsert_env_line(line, env_var, api_key, found, acc)
+          end)
+
+        final = if found, do: updated, else: ["#{env_var}=#{api_key}" | updated]
+        File.write(expanded, final |> Enum.reverse() |> Enum.join("\n") |> Kernel.<>("\n"))
+    end
+  end
+
+  @spec upsert_env_line(String.t(), String.t(), String.t(), boolean(), [String.t()]) ::
+          {boolean(), [String.t()]}
+  defp upsert_env_line(line, env_var, api_key, found, acc) do
+    if String.starts_with?(line, "#{env_var}=") do
+      {true, ["#{env_var}=#{api_key}" | acc]}
+    else
+      {found, [line | acc]}
+    end
+  end
+
+  @spec api_key_env_var(atom()) :: String.t() | nil
+  defp api_key_env_var(:anthropic), do: "ANTHROPIC_API_KEY"
+  defp api_key_env_var(:openai), do: "OPENAI_API_KEY"
+  defp api_key_env_var(:google), do: "GOOGLE_API_KEY"
+  defp api_key_env_var(_), do: nil
 end

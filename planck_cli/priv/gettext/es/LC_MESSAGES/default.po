@@ -309,3 +309,219 @@ msgstr "Envía un mensaje para empezar."
 msgctxt "chat welcome"
 msgid "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up."
 msgstr "**Te doy la bienvenida a Planck**\n\nSoy tu orquestador — pregúntame lo que quieras o pídeme que configure Planck para este proyecto.\n\nAlgunas cosas que puedo hacer:\n- **Leer, escribir y editar archivos y ejecutar comandos** — herramientas básicas de programación\n- **Crear y coordinar agentes** — usa las herramientas inter-agente para construir y gestionar un equipo de especialistas\n- **Cargar habilidades** — contexto reutilizable desde `.planck/skills/`\n- **Usar una plantilla de equipo** — configuraciones multi-agente predefinidas en `.planck/teams/`\n- **Conectar un sidecar** — una aplicación Elixir/OTP completa en `.planck/sidecar/` que añade herramientas y compactores personalizados\n\nPídeme que consulte cualquiera de las guías de Planck si quieres configurar algo."
+
+#: lib/planck/web/live/setup_modal.html.heex:244
+#, elixir-autogen, elixir-format
+msgctxt "setup button"
+msgid "Back"
+msgstr "Volver"
+
+#: lib/planck/web/live/setup_modal.html.heex:257
+#, elixir-autogen, elixir-format
+msgctxt "setup button"
+msgid "Next"
+msgstr "Siguiente"
+
+#: lib/planck/web/live/setup_modal.html.heex:267
+#, elixir-autogen, elixir-format
+msgctxt "setup button"
+msgid "Save"
+msgstr "Guardar"
+
+#: lib/planck/web/live/setup_modal.html.heex:267
+#, elixir-autogen, elixir-format
+msgctxt "setup button"
+msgid "Saving…"
+msgstr "Guardando…"
+
+#: lib/planck/web/live/setup_modal.ex:134
+#, elixir-autogen, elixir-format
+msgctxt "setup error"
+msgid "Please select a provider."
+msgstr "Por favor, selecciona un proveedor."
+
+#: lib/planck/web/live/setup_modal.ex:143
+#, elixir-autogen, elixir-format
+msgctxt "setup error"
+msgid "Please select or enter a model."
+msgstr "Por favor, selecciona o introduce un modelo."
+
+#: lib/planck/web/live/setup_modal.ex:296
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "All projects (~/.planck/)"
+msgstr "Todos los proyectos (~/.planck/)"
+
+#: lib/planck/web/live/setup_modal.ex:278
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Anthropic API Key"
+msgstr "Clave API de Anthropic"
+
+#: lib/planck/web/live/setup_modal.ex:283
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Credential"
+msgstr "Credencial"
+
+#: lib/planck/web/live/setup_modal.ex:280
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Google API Key"
+msgstr "Clave API de Google"
+
+#: lib/planck/web/live/setup_modal.ex:281
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Ollama Base URL"
+msgstr "URL base de Ollama"
+
+#: lib/planck/web/live/setup_modal.ex:279
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "OpenAI API Key"
+msgstr "Clave API de OpenAI"
+
+#: lib/planck/web/live/setup_modal.html.heex:32
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Provider"
+msgstr "Proveedor"
+
+#: lib/planck/web/live/setup_modal.html.heex:175
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Save to"
+msgstr "Guardar en"
+
+#: lib/planck/web/live/setup_modal.html.heex:196
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Set as default model"
+msgstr "Establecer como modelo predeterminado"
+
+#: lib/planck/web/live/setup_modal.ex:295
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "This project (.planck/)"
+msgstr "Este proyecto (.planck/)"
+
+#: lib/planck/web/live/setup_modal.ex:282
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "llama.cpp Base URL"
+msgstr "URL base de llama.cpp"
+
+#: lib/planck/web/live/setup_modal.html.heex:207
+#, elixir-autogen, elixir-format
+msgctxt "setup summary"
+msgid "Model:"
+msgstr "Modelo:"
+
+#: lib/planck/web/live/setup_modal.html.heex:203
+#, elixir-autogen, elixir-format
+msgctxt "setup summary"
+msgid "Provider:"
+msgstr "Proveedor:"
+
+#: lib/planck/web/live/setup_modal.html.heex:220
+#, elixir-autogen, elixir-format
+msgctxt "setup summary"
+msgid "Saved to:"
+msgstr "Guardado en:"
+
+#: lib/planck/web/live/setup_modal.html.heex:9
+#, elixir-autogen, elixir-format
+msgctxt "setup title"
+msgid "Configure Planck"
+msgstr "Configurar Planck"
+
+#: lib/planck/web/live/setup_modal.html.heex:11
+#, elixir-autogen, elixir-format
+msgctxt "setup title"
+msgid "Step %{step} of 3"
+msgstr "Paso %{step} de 3"
+
+#: lib/planck/web/live/session_live.html.heex:81
+#, elixir-autogen, elixir-format
+msgctxt "tooltip"
+msgid "Configure models"
+msgstr "Configurar modelos"
+
+#: lib/planck/web/live/setup_modal.ex:253
+#, elixir-autogen, elixir-format
+msgctxt "setup error"
+msgid "Advanced options contain invalid JSON."
+msgstr "Las opciones avanzadas contienen JSON inválido."
+
+#: lib/planck/web/live/setup_modal.ex:250
+#, elixir-autogen, elixir-format
+msgctxt "setup error"
+msgid "Advanced options must be a JSON object."
+msgstr "Las opciones avanzadas deben ser un objeto JSON."
+
+#: lib/planck/web/live/setup_modal.ex:263
+#, elixir-autogen, elixir-format
+msgctxt "setup error"
+msgid "Context window must be a positive integer."
+msgstr "La ventana de contexto debe ser un entero positivo."
+
+#: lib/planck/web/live/setup_modal.html.heex:96
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Exact model name as it appears in your server."
+msgstr "Nombre exacto del modelo tal como aparece en tu servidor."
+
+#: lib/planck/web/live/setup_modal.html.heex:156
+#, elixir-autogen, elixir-format, fuzzy
+msgctxt "setup label"
+msgid "(JSON, optional)"
+msgstr "(opcional)"
+
+#: lib/planck/web/live/setup_modal.html.heex:106
+#, elixir-autogen, elixir-format, fuzzy
+msgctxt "setup label"
+msgid "(optional)"
+msgstr "(opcional)"
+
+#: lib/planck/web/live/setup_modal.html.heex:155
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Advanced options"
+msgstr "Opciones avanzadas"
+
+#: lib/planck/web/live/setup_modal.html.heex:123
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Context window"
+msgstr "Ventana de contexto"
+
+#: lib/planck/web/live/setup_modal.html.heex:105
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Display name"
+msgstr "Nombre para mostrar"
+
+#: lib/planck/web/live/setup_modal.html.heex:71
+#, elixir-autogen, elixir-format, fuzzy
+msgctxt "setup label"
+msgid "Model ID"
+msgstr "ID del modelo"
+
+#: lib/planck/web/live/setup_modal.html.heex:147
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Supports thinking / extended reasoning"
+msgstr "Admite razonamiento extendido"
+
+#: lib/planck/web/live/setup_modal.html.heex:215
+#, elixir-autogen, elixir-format
+msgctxt "setup summary"
+msgid "Context:"
+msgstr "Contexto:"
+
+#: lib/planck/web/live/setup_modal.html.heex:94
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Could not reach the server — enter the model name manually."
+msgstr "No se pudo contactar el servidor — introduce el nombre del modelo manualmente."
