@@ -2,6 +2,20 @@
 
 ## v0.1.0
 
+### Server configuration via CLI flags and env vars
+
+- `--port`/`PORT` — HTTP port (default: `4000`).
+- `--ip`/`IP_ADDRESS` — bind address (default: `127.0.0.1`). Set to `0.0.0.0`
+  for Docker or server hosting. Planck has no auth — localhost-only by default.
+- `--host`/`HOST` — hostname for generated URLs (default: `localhost`).
+- `--sname`/`NODE_SNAME` — Erlang short node name (default: `planck_cli`).
+- `--cookie`/`NODE_COOKIE` — Erlang magic cookie (default: `planck`).
+- `Planck.CLI.Config` resolves all server options via Skogsra; `put_*` functions
+  allow overrides at runtime. `IpAddress` Skogsra type parses IP strings to tuples.
+- Erlang distribution is started automatically at boot using the configured
+  sname/cookie — no longer requires `elixir --sname` VM flag. In development,
+  pass args after `--`: `mix run --no-halt -- --sname planck_cli`.
+
 ### Onboarding — setup modal
 
 - `SetupModal` LiveComponent: 3-step modal (provider + credentials → model

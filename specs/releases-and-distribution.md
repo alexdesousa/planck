@@ -40,14 +40,35 @@ end
 ## planck_cli — execution modes
 
 ```sh
-planck           # Start the web server (default)
-planck web       # Start the web server
-planck --help    # Print usage
-planck --version # Print version
+planck                        # Start the web server (default)
+planck --port 8080            # Custom port
+planck --ip 0.0.0.0           # Bind to all interfaces (e.g. Docker)
+planck --host planck.local    # Custom URL hostname
+planck --sname my_node        # Custom Erlang node name
+planck --cookie my_secret     # Custom Erlang cookie
+planck --help                 # Print usage
+planck --version              # Print version
 ```
 
-The web server starts the Phoenix app which serves both the Web UI and the HTTP
-API. For CI pipelines and external integrations, use the HTTP API directly
+All flags can also be set via environment variables — the flag overrides the
+env var when both are provided:
+
+| Flag | Env var | Default |
+|---|---|---|
+| `--port` | `PORT` | `4000` |
+| `--ip` | `IP_ADDRESS` | `127.0.0.1` |
+| `--host` | `HOST` | `localhost` |
+| `--sname` | `NODE_SNAME` | `planck_cli` |
+| `--cookie` | `NODE_COOKIE` | `planck` |
+
+The web server binds to `127.0.0.1` by default so only the local machine can
+reach it. Set `IP_ADDRESS=0.0.0.0` (or `--ip 0.0.0.0`) to expose on all
+interfaces — for example inside a Docker container.
+
+Erlang distribution (`--sname`/`--cookie`) is started automatically at boot
+and is required for the optional sidecar to connect back.
+
+For CI pipelines and external integrations, use the HTTP API directly
 (`GET /api/sessions`, `POST /api/sessions/:id/prompt`, etc.) — no separate
 headless mode is needed.
 

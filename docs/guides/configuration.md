@@ -1,10 +1,29 @@
 # Planck Configuration
 
-Planck reads config from three sources in priority order (highest first):
+Planck reads config from multiple sources. Priority order (highest first):
 
-1. Environment variables (`PLANCK_*`)
-2. JSON config files — `~/.planck/config.json` (global) then `.planck/config.json` (project)
-3. Hardcoded defaults
+1. CLI flags (`--port`, `--ip`, etc.) — binary only
+2. Environment variables
+3. `.env` files — `~/.planck/.env` (global) then `./.planck/.env` (project)
+4. JSON config files — `~/.planck/config.json` (global) then `.planck/config.json` (project)
+5. Hardcoded defaults
+
+## Web server
+
+These control the web server and are only meaningful when running the `planck` binary
+or `mix run`. They are **not** stored in `config.json`.
+
+| Flag | Env var | Default | Description |
+|---|---|---|---|
+| `--port` | `PORT` | `4000` | HTTP listening port |
+| `--ip` | `IP_ADDRESS` | `127.0.0.1` | Bind address. Use `0.0.0.0` for Docker/server |
+| `--host` | `HOST` | `localhost` | Hostname for generated URLs |
+| `--sname` | `NODE_SNAME` | `planck_cli` | Erlang short node name (required for sidecar) |
+| `--cookie` | `NODE_COOKIE` | `planck` | Erlang magic cookie |
+
+**Security note:** `IP_ADDRESS` defaults to `127.0.0.1` so the server is only reachable
+from the local machine. Planck has no authentication — only expose it on the network
+when you control access at the infrastructure level.
 
 Project config lives in `.planck/config.json` at the working directory root.
 
