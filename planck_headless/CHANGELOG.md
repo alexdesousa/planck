@@ -1,6 +1,35 @@
 # Changelog
 
-## Unreleased
+## v0.1.0
+
+### API key loading from .planck/.env
+
+- New `Planck.Headless.Config.EnvBinding` — Skogsra binding that reads API
+  keys from `./.planck/.env` (project-local) and `~/.planck/.env` (global).
+  Priority: system env → project .env → global .env → Elixir config.
+  Standard dotenv format; skipped in tests via `skip_env_config: true`.
+- `Config.env_files` app_env — configurable list of env files; defaults to
+  `["~/.planck/.env", "./.planck/.env"]`.
+
+### Runtime model configuration
+
+- `Headless.configure_model/1` — writes a model configuration to disk and
+  reloads resources. Options: `provider:`, `model_id:`, `scope:` (`:local` or
+  `:global`), `api_key:`, `base_url:`, `model_name:`, `context_window:`,
+  `supports_thinking:`, `advanced_opts:` (map for `default_opts`),
+  `default:` (set as `default_provider`/`default_model`).
+  Writes to JSON config file (merging with existing content, appending to
+  `models` array for local providers) and to the `.env` file for API keys.
+  Accepts `config_file:` and `env_file:` overrides for test isolation.
+- `reload_resources/0` now clears all Skogsra key caches (`Config.reload_*`)
+  before calling `ResourceStore.reload/0`, ensuring config file changes are
+  immediately visible without stale persistent-term values.
+
+### Session metadata
+
+- `team_description` added to session metadata — populated from
+  `team.description` at `start_session` and preserved on `resume_session`.
+  Used by the Web UI to render a welcome card in the empty chat state.
 
 ### AGENTS.md prepended to all agents
 
@@ -12,8 +41,6 @@
   replaced by `Planck.Agent.Tools.prepend_agents_md/2`, which is the single
   implementation used by both static worker/orchestrator startup and dynamic
   `spawn_agent` calls.
-
-## v0.1.0
 
 ### Inter-agent tools — orchestrator improvements
 

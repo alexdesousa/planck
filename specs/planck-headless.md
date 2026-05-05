@@ -196,6 +196,9 @@ per-session filesystem scanning.
    The session file is created as `<sessions_dir>/<session_id>_<name>.db`.
 4. Save session metadata via `Session.save_metadata/2`:
    - `team_alias` — the alias string, path, or `nil` for dynamic-only sessions.
+   - `team_description` — the team's description string (from `TEAM.json` or
+     the dynamic team's built-in welcome text); used by the Web UI to render
+     a welcome card in the empty chat state.
    - `session_name` — the resolved name (mirrors the filename component).
    - `cwd` — from `opts[:cwd]` (default `File.cwd!()`).
    - `agent_ids` — JSON map of `display_name → agent_id` for all team members,
@@ -495,9 +498,9 @@ use the generated getters directly to avoid accidental exposure in logs.
 #   <name>!()       — resolve, raise on missing-required
 #   reload_<name>() — invalidate the persistent-term cache for this key
 
-# Bust the JsonBinding persistent-term cache (call before reload_resources/0
-# when you want JSON file changes to take effect immediately).
+# Bust binding caches (called automatically by reload_resources/0).
 @spec Planck.Headless.Config.JsonBinding.invalidate() :: :ok
+@spec Planck.Headless.Config.EnvBinding.invalidate() :: :ok
 ```
 
 ## Supervision tree

@@ -62,6 +62,10 @@ PubSub and routes events to the right component via `send_update/3`.
 ## Chat — `ChatComponent`
 
 - Shows the full message history for the active session or agent perspective
+- **Empty state**: when there are no messages yet, the chat shows a welcome
+  card rendered from `team.description` (Markdown, stored in session metadata).
+  Dynamic teams show a translated welcome with Planck feature highlights.
+  Teams with no description show a muted "Send a message to start." fallback.
 - Streaming text rendered as plain escaped text to avoid markdown flicker;
   Earmark parses only when the entry's `:streaming` flag is false
 - Tool call blocks are collapsible (`▶`/`▼`); `toggle_entry` event handled locally
@@ -83,9 +87,58 @@ PubSub and routes events to the right component via `send_update/3`.
 - Live updates via `usage_delta` events — no polling required
 - Sidecar status in the footer (hidden on desktop, visible on mobile where the
   sidebar is behind a drawer)
-- Clicking an agent card opens the agent context overlay (workers only; the
-  orchestrator's view is already chat-main)
+- **Orchestrator card is clickable** — opens `ModelSelectorModal` for the
+  orchestrator (workers still open the chat overlay as before)
 - Handles `:worker_spawned` events to add new dynamic agents without page reload
+
+## Setup modal — `SetupModal`
+
+Multi-step modal for configuring a model provider. Appears automatically on
+first run (when `Config.default_model` is nil) and can be re-opened via the
+⚙ button in the status bar. **Cannot be dismissed** while no default model
+is configured — Planck cannot start a session without one.
+
+Three steps:
+1. **Provider & credentials** — provider dropdown; API key (cloud) or base
+   URL (local); for local providers the modal attempts to fetch the available
+   model list from the running server (2 s timeout, falls back to text input).
+2. **Model details** — model ID (dropdown for cloud, text input for local);
+   display name; context window; supports-thinking checkbox; JSON textarea for
+   `default_opts` (temperature, timeouts, etc.).
+3. **Save** — scope (this project vs all projects); set-as-default checkbox
+   (always checked and disabled on first run).
+
+On save calls `Headless.configure_model/1` which writes `default_provider`/
+`default_model` to the JSON config file, adds a model entry for local
+providers, and writes the API key to the `.env` file. Then calls
+`reload_resources/0` so the new model is immediately available.
+
+## Model selector — `ModelSelectorModal`
+
+Lightweight single-step modal for switching an agent's model at runtime.
+Triggered from two places:
+
+- **Orchestrator card** (agents sidebar) — clicking opens the modal for
+  the orchestrator.
+- **Overlay model button** (agent context overlay header) — the pill showing
+  the current model name becomes a NeoBrutalism button with a ⇄ icon.
+
+Shows a dropdown of all `available_models`, pre-selected to the agent's
+current model (matched by ID). On save calls `Agent.change_model/2` which
+replaces the model in the agent's GenServer state; the next LLM turn uses
+the new model without interrupting existing conversation history.
+
+## Dropdown component
+
+`Planck.Web.Components.dropdown/1` — a reusable NeoBrutalism replacement for
+the OS-native `<select>`. Open/close is pure client-side JS (`JS.show`/`hide`
+with a full-screen backdrop for outside-click dismiss). Option selection fires
+a named LiveView push event with `value:` and optional `extra:` data set
+directly on `JS.push` for reliable routing. Used in:
+
+- New session team selector (`SessionsSidebar`)
+- Provider/model/scope pickers in `SetupModal`
+- Model picker in `ModelSelectorModal`
 
 ## Status bar — `StatusBar`
 
@@ -194,18 +247,18 @@ planck_cli/lib/planck/web/
   router.ex                  — GET / → SessionLive
   endpoint.ex
   components.ex              — Function components: agent_card, orchestrator_card,
-                               tool_block, thinking_block, sidecar_status,
+                               dropdown, tool_block, sidecar_status,
                                format_number/cost/context helpers
   live/
-    session_live.ex          — Event router; owns session switching, overlay state
+    session_live.ex          — Event router; owns session switching, overlay state,
+                               model selector, setup modal trigger
     session_live.html.heex
     sessions_sidebar.ex      — LiveComponent: sessions list, new/delete modals
     sessions_sidebar.html.heex
-    chat_component.ex        — LiveComponent: streaming chat entries
+    chat_component.ex        — LiveComponent: streaming chat entries + empty state
     chat_component.html.heex
     chat_entries.ex          — Pure entry classification (no LiveView deps)
     agents_sidebar.ex        — LiveComponent: agent cards, real-time updates
-    agents_sidebar.html.heex
     agents_sidebar.html.heex
     prompt_input.ex          — LiveComponent: textarea + abort controls
     prompt_input.html.heex
@@ -213,6 +266,10 @@ planck_cli/lib/planck/web/
     status_bar.html.heex
     edit_message_modal.ex    — LiveComponent: edit + rewind flow
     edit_message_modal.html.heex
+    setup_modal.ex           — LiveComponent: 3-step provider/model setup
+    setup_modal.html.heex
+    model_selector_modal.ex  — LiveComponent: runtime model switcher
+    model_selector_modal.html.heex
 ```
 
 ## Design system

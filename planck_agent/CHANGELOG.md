@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.1.0
+
+### Runtime model switching
+
+- `Agent.change_model/2` — replaces the model in the agent's GenServer state
+  for subsequent LLM turns without affecting the current conversation history
+  or status.
 
 ### AGENTS.md prepending for all agents
 
@@ -14,8 +20,6 @@
 - `spawn_agent` tool — prepends `AGENTS.md` to the worker's system prompt before
   starting the agent process; `cwd` is stored in the new agent's state.
 - `Agent.t` — added `cwd: String.t()` field (default `""`); set from start opts.
-
-## v0.1.0
 
 ### Skills — explicit `load_skill` / `list_skills` tools
 

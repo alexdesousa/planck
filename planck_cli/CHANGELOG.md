@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased
+## v0.1.0
+
+### Onboarding — setup modal
+
+- `SetupModal` LiveComponent: 3-step modal (provider + credentials → model
+  details → save location). Opens automatically when `default_model` is nil;
+  blocks dismissal until at least one model is configured. Re-openable via ⚙
+  in the status bar. Fetches available models from running local servers (2 s
+  timeout, falls back to text input). Writes config via `configure_model/1`.
+- Local model detail fields: display name, context window, supports-thinking,
+  `default_opts` JSON textarea.
+
+### Model selector
+
+- `ModelSelectorModal` LiveComponent: lightweight single-step modal for
+  switching an agent's model at runtime. Shows a dropdown of all available
+  models pre-selected to the current model (matched by ID).
+- Orchestrator card in agents sidebar is now clickable — opens the model
+  selector for the orchestrator.
+- Overlay top bar shows the current model as a NeoBrutalism pill button (⇄)
+  that opens the model selector for the worker.
+- `Agent.change_model/2` called on save; agents map updated with new display
+  name and ID; agents sidebar card refreshed.
+
+### NeoBrutalism dropdown component
+
+- `Planck.Web.Components.dropdown/1` — reusable replacement for the OS-native
+  `<select>`. Open/close via `JS.show`/`hide`; full-screen backdrop for
+  outside-click dismiss; option push includes `value:` and `extra:` directly
+  on `JS.push` for reliable routing.
+- Replaces the radio button list in the New Session team selector.
+
+### Chat empty state
+
+- `ChatComponent` renders a welcome card (Markdown) from `team_description`
+  stored in session metadata when there are no messages. Dynamic teams show a
+  translated welcome with Planck feature highlights. Teams with no description
+  show a muted "Send a message to start." fallback (translated).
 
 ### HTTP API
 
@@ -32,10 +69,6 @@
   separate process from the HTTP request that set the locale)
 - `gettext` check added to `./check planck_cli`: runs `mix gettext.extract --merge`
   and fails if any string in source is missing a translation in a `.po` file
-
-## v0.1.0
-
-First release of the Planck Web UI.
 
 ### Architecture — LiveComponent decomposition
 
