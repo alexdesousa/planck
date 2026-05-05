@@ -21,6 +21,14 @@ or `mix run`. They are **not** stored in `config.json`.
 | `--sname` | `NODE_SNAME` | `planck_cli` | Erlang short node name (required for sidecar) |
 | `--cookie` | `NODE_COOKIE` | `planck` | Erlang magic cookie |
 
+`SECRET_KEY_BASE` signs cookies and LiveView connections. If not set a random key is
+generated at each startup — active sessions will not survive a restart. Pin it for
+persistent sessions:
+
+```sh
+SECRET_KEY_BASE=$(openssl rand -base64 48) planck
+```
+
 **Security note:** `IP_ADDRESS` defaults to `127.0.0.1` so the server is only reachable
 from the local machine. Planck has no authentication — only expose it on the network
 when you control access at the infrastructure level.

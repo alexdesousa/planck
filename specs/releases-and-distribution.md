@@ -68,6 +68,10 @@ interfaces — for example inside a Docker container.
 Erlang distribution (`--sname`/`--cookie`) is started automatically at boot
 and is required for the optional sidecar to connect back.
 
+`SECRET_KEY_BASE` signs cookies and LiveView connections. If not provided a random
+key is generated at each startup (sessions do not survive restarts). Pin it with
+`SECRET_KEY_BASE=$(openssl rand -base64 48) planck` for persistent sessions.
+
 For CI pipelines and external integrations, use the HTTP API directly
 (`GET /api/sessions`, `POST /api/sessions/:id/prompt`, etc.) — no separate
 headless mode is needed.

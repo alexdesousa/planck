@@ -28,18 +28,33 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.5"
-          otp-version: "28.3.2"
+          otp-version: "28.5"
 
       - name: Install Zig (required for Burrito cross-compilation)
         uses: mlugg/setup-zig@v1
         with:
-          version: "0.15.2"
+          version: "0.16.0"
 
       - name: Install xz-utils
         run: sudo apt-get install -y xz-utils
 
+      - name: Set up Node.js (required for highlight.js asset bundling)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "25.9.0"
+
       - name: Install dependencies
         run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Install and compile dev dependencies (esbuild/tailwind)
+        run: mix deps.compile
+        env:
+          MIX_ENV: dev
+
+      - name: Build and digest assets
+        run: mix do assets.setup, assets.deploy
+        env:
+          MIX_ENV: dev
 
       - name: Build release binaries
         run: mix release planck

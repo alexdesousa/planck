@@ -37,14 +37,17 @@ defmodule Planck.CLI.Config do
     def cast(value), do: {:error, "#{inspect(value)} is not a valid IP address"}
   end
 
-  @envdoc "Phoenix endpoint secret key base."
+  @envdoc """
+  Phoenix endpoint secret key base used to sign cookies and LiveView connections.
+  If not set a random key is generated at each startup — active sessions will
+  not survive a restart. Set this env var for persistent sessions.
+  """
   app_env :secret_key_base, :planck_cli, ["Elixir.Planck.Web.Endpoint", :secret_key_base],
     type: :binary,
     os_env: "SECRET_KEY_BASE",
     env_overrides: [
       dev: [default: "ktGG3zm3ZlYJnp6QqlvdH69bMgTT6H+gkCecYkXgYYp3a3YqaVpPGqH2JdjbbF0o"],
-      test: [default: "vbREe4KPexSPleDG9tJVpfWcrTOPlKXXBDGS3+lU+a8H6t6NX5bJhC3waVBH8AH0"],
-      prod: [required: true]
+      test: [default: "vbREe4KPexSPleDG9tJVpfWcrTOPlKXXBDGS3+lU+a8H6t6NX5bJhC3waVBH8AH0"]
     ]
 
   @envdoc "HTTP port for the web UI."
