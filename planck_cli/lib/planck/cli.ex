@@ -13,6 +13,11 @@ defmodule Planck.CLI do
     # picks them up at the `:config` source level.
     apply_distribution_argv()
 
+    # Pre-seed a random secret key base. preload/0 will override it with the
+    # SECRET_KEY_BASE env var if one is provided; otherwise the random value
+    # persists for the lifetime of this process.
+    Config.put_secret_key_base(:crypto.strong_rand_bytes(64) |> Base.url_encode64())
+
     Config.preload()
     Config.validate!()
 

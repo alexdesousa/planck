@@ -24,7 +24,7 @@ jobs:
         working-directory: planck_agent
     strategy:
       matrix:
-        otp: ["28.4.2"]
+        otp: ["28.5"]
         elixir: ["1.19.5"]
     env:
       MIX_ENV: test
@@ -57,7 +57,7 @@ jobs:
         working-directory: planck_agent
     strategy:
       matrix:
-        otp: ["28.4.2"]
+        otp: ["28.5"]
         elixir: ["1.19.5"]
     env:
       MIX_ENV: dev
