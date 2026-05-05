@@ -52,7 +52,15 @@ defmodule Planck.Headless do
          {:ok, session_id} <- create_session(session_name, cwd),
          {:ok, team_id} <- materialize_team(session_id, team, cwd),
          :ok <-
-           save_metadata(session_id, template, session_name, cwd, team_id, agent_ids(team_id)) do
+           save_metadata(
+             session_id,
+             template,
+             session_name,
+             cwd,
+             team_id,
+             agent_ids(team_id),
+             team.description
+           ) do
       {:ok, session_id}
     end
   end
@@ -79,7 +87,8 @@ defmodule Planck.Headless do
              session_name,
              metadata["cwd"] || File.cwd!(),
              team_id,
-             agent_ids(team_id)
+             agent_ids(team_id),
+             metadata["team_description"]
            ),
          :ok <- reconstruct_dynamic_workers(session_id, team_id, team),
          :ok <- maybe_inject_recovery(session_id, team_id) do
@@ -276,8 +285,16 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec save_metadata(String.t(), term(), String.t(), Path.t(), String.t(), map()) :: :ok
-  defp save_metadata(session_id, template, session_name, cwd, team_id, agent_id_map) do
+  @spec save_metadata(
+          String.t(),
+          term(),
+          String.t(),
+          Path.t(),
+          String.t(),
+          map(),
+          String.t() | nil
+        ) :: :ok
+  defp save_metadata(session_id, template, session_name, cwd, team_id, agent_id_map, description) do
     team_alias =
       case template do
         nil -> nil
@@ -286,6 +303,7 @@ defmodule Planck.Headless do
 
     Session.save_metadata(session_id, %{
       "team_alias" => team_alias,
+      "team_description" => description,
       "team_id" => team_id,
       "session_name" => session_name,
       "cwd" => cwd,
