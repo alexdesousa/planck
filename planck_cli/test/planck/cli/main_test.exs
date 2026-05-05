@@ -20,28 +20,20 @@ defmodule Planck.CLI.MainTest do
       assert Planck.CLI.Main.run(["--unknown-flag"]) == 1
     end
 
-    test "empty argv returns 0 (tui mode)" do
-      assert Planck.CLI.Main.run([]) == 0
+    test "bare unrecognised argument returns 1" do
+      assert Planck.CLI.Main.run(["fix the auth bug"]) == 1
     end
 
-    test "--tui returns 0" do
-      assert Planck.CLI.Main.run(["--tui"]) == 0
+    test "empty argv returns 0 (web mode default)" do
+      assert Planck.CLI.Main.run([]) == 0
     end
 
     test "--web returns 0" do
       assert Planck.CLI.Main.run(["--web"]) == 0
     end
 
-    test "--sidecar returns 0" do
-      assert Planck.CLI.Main.run(["--sidecar"]) == 0
-    end
-
-    test "sidecar subcommand returns 0" do
-      assert Planck.CLI.Main.run(["sidecar"]) == 0
-    end
-
-    test "bare prompt returns 0" do
-      assert Planck.CLI.Main.run(["fix the auth bug"]) == 0
+    test "web subcommand returns 0" do
+      assert Planck.CLI.Main.run(["web"]) == 0
     end
   end
 end
