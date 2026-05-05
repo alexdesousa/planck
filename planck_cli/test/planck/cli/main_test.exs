@@ -28,12 +28,20 @@ defmodule Planck.CLI.MainTest do
       assert Planck.CLI.Main.run([]) == 0
     end
 
-    test "--web returns 0" do
-      assert Planck.CLI.Main.run(["--web"]) == 0
+    test "--port overrides port and starts web" do
+      assert Planck.CLI.Main.run(["--port", "4001"]) == 0
     end
 
-    test "web subcommand returns 0" do
-      assert Planck.CLI.Main.run(["web"]) == 0
+    test "--ip overrides bind address and starts web" do
+      assert Planck.CLI.Main.run(["--ip", "127.0.0.1"]) == 0
+    end
+
+    test "--host overrides url host and starts web" do
+      assert Planck.CLI.Main.run(["--host", "planck.local"]) == 0
+    end
+
+    test "--ip with invalid address returns 1" do
+      assert Planck.CLI.Main.run(["--ip", "not-an-ip"]) == 1
     end
   end
 end
