@@ -78,7 +78,7 @@ jobs:
         id: plt-cache
         with:
           path: planck_headless/priv/plts
-          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-plts-${{ hashFiles('planck_headless/mix.lock') }}
+          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-plts-${{ hashFiles('planck_headless/mix.lock', 'planck_agent/mix.lock', 'planck_ai/mix.lock', 'planck_agent/lib/**', 'planck_ai/lib/**') }}
       - name: Get dependencies
         run: mix do local.rebar --force, local.hex --force, deps.get
       - name: Compile dependencies
