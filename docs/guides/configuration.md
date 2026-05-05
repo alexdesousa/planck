@@ -72,10 +72,32 @@ cat > .planck/config.json <<'EOF'
 EOF
 ```
 
-API keys are set via environment variables and are never stored in config files:
+## API keys
 
-```sh
-export ANTHROPIC_API_KEY="sk-ant-..."
-export OPENAI_API_KEY="sk-..."
-export GOOGLE_API_KEY="..."
-```
+API keys can be set in three ways (higher entries win):
+
+1. **Shell environment variables** — always take precedence:
+   ```sh
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   export OPENAI_API_KEY="sk-..."
+   export GOOGLE_API_KEY="..."
+   ```
+
+2. **`.planck/.env`** — project-local, applies only in this directory:
+   ```sh
+   # .planck/.env
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+
+3. **`~/.planck/.env`** — global, applies to all projects:
+   ```sh
+   # ~/.planck/.env
+   OPENAI_API_KEY=sk-...
+   ```
+
+Standard dotenv format: `KEY=value`, one per line, `#` for comments.
+These files are loaded at startup — add them to `.gitignore` to avoid
+accidentally committing credentials.
+
+The Web UI's setup modal (⚙ in the status bar) writes the API key to the
+appropriate `.env` file automatically when you configure a new provider.

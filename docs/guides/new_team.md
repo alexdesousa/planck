@@ -8,6 +8,9 @@ directory containing a `TEAM.json` and optional prompt files.
 Use the `list_models` tool to see which models are configured and available.
 Note the `provider`, `id`, and `base_url` for each model you plan to use.
 
+If no models are available yet, ask the user to open the setup modal (⚙ in
+the status bar) to configure a provider and model first.
+
 ## 2. Scaffold the directory
 
 ```sh
