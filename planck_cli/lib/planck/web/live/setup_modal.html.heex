@@ -1,0 +1,273 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+     phx-window-keydown="close_setup"
+     phx-key="Escape">
+  <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-full max-w-md flex flex-col max-h-[90vh]">
+
+    <%!-- Header --%>
+    <div class="border-b-2 border-border px-4 py-3 flex items-center justify-between bg-card flex-shrink-0">
+      <div>
+        <p class="font-bold font-mono text-sm"><%= pgettext("setup title", "Configure Planck") %></p>
+        <p class="font-mono text-xs text-muted-foreground">
+          <%= pgettext("setup title", "Step %{step} of 3", step: @step) %>
+        </p>
+      </div>
+      <%= unless @first_run do %>
+        <button
+          class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+          phx-click="close_setup"
+        >✕</button>
+      <% end %>
+    </div>
+
+    <div class="p-4 space-y-4 flex-1">
+
+      <%= cond do %>
+        <%!-- Step 1 — Provider & Credentials --%>
+        <% @step == 1 -> %>
+          <div class="space-y-3">
+            <div>
+              <label class="font-mono text-xs text-muted-foreground block mb-1">
+                <%= pgettext("setup label", "Provider") %>
+              </label>
+              <.dropdown
+                id="setup-provider"
+                name="provider"
+                options={all_providers()}
+                selected={if @provider, do: to_string(@provider), else: ""}
+                on_select="select_provider"
+                target={@myself}
+              />
+            </div>
+
+            <%= if @provider do %>
+              <div>
+                <label class="font-mono text-xs text-muted-foreground block mb-1">
+                  <%= credential_label(@provider) %>
+                </label>
+                <form phx-change="update_credential" phx-target={@myself}>
+                  <input
+                    type={if cloud_provider?(@provider), do: "password", else: "text"}
+                    name="credential"
+                    value={@credential}
+                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                           placeholder:text-muted-foreground"
+                    placeholder={if cloud_provider?(@provider), do: "sk-...", else: "http://localhost:11434"}
+                  />
+                </form>
+              </div>
+            <% end %>
+          </div>
+
+        <%!-- Step 2 — Model details --%>
+        <% @step == 2 -> %>
+          <form phx-change="update_model_fields" phx-target={@myself} class="space-y-3">
+
+            <%!-- Model ID — dropdown for cloud, text input for local --%>
+            <div>
+              <label class="font-mono text-xs text-muted-foreground block mb-1">
+                <%= pgettext("setup label", "Model ID") %>
+              </label>
+              <%= if @models != [] do %>
+                <.dropdown
+                  id="setup-model"
+                  name="model"
+                  options={@models}
+                  selected={@model_id}
+                  on_select="select_model"
+                  target={@myself}
+                />
+              <% else %>
+                <input
+                  type="text"
+                  name="model_id"
+                  value={@model_id}
+                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                         placeholder:text-muted-foreground"
+                  placeholder="llama3.2"
+                />
+                <p class="font-mono text-xs text-muted-foreground mt-1">
+                  <%= if local_provider?(@provider) do %>
+                    <%= pgettext("setup help", "Could not reach the server — enter the model name manually.") %>
+                  <% else %>
+                    <%= pgettext("setup help", "Exact model name as it appears in your server.") %>
+                  <% end %>
+                </p>
+              <% end %>
+            </div>
+
+            <%!-- Display name (all providers) --%>
+            <div>
+              <label class="font-mono text-xs text-muted-foreground block mb-1">
+                <%= pgettext("setup label", "Display name") %>
+                <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
+              </label>
+              <input
+                type="text"
+                name="model_name"
+                value={@model_name}
+                class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                       bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                       placeholder:text-muted-foreground"
+                placeholder={@model_id}
+              />
+            </div>
+
+            <%!-- Local-only fields --%>
+            <%= if local_provider?(@provider) do %>
+              <div>
+                <label class="font-mono text-xs text-muted-foreground block mb-1">
+                  <%= pgettext("setup label", "Context window") %>
+                </label>
+                <input
+                  type="number"
+                  name="context_window"
+                  value={@context_window}
+                  min="1"
+                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                         placeholder:text-muted-foreground"
+                  placeholder="128000"
+                />
+              </div>
+
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="supports_thinking"
+                  value="true"
+                  checked={@supports_thinking}
+                  phx-click={JS.push("toggle_thinking", target: @myself)}
+                  class="accent-black w-4 h-4"
+                />
+                <span class="font-mono text-sm">
+                  <%= pgettext("setup label", "Supports thinking / extended reasoning") %>
+                </span>
+              </label>
+            <% end %>
+
+            <%!-- Advanced options (all providers) --%>
+            <div>
+              <label class="font-mono text-xs text-muted-foreground block mb-1">
+                <%= pgettext("setup label", "Advanced options") %>
+                <span class="opacity-50 ml-1"><%= pgettext("setup label", "(JSON, optional)") %></span>
+              </label>
+              <textarea
+                name="advanced_opts"
+                rows="4"
+                class="w-full border-2 border-black px-2 py-1.5 font-mono text-xs
+                       bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                       placeholder:text-muted-foreground resize-none"
+                placeholder={"{\n  \"temperature\": 1.0,\n  \"receive_timeout\": 600000\n}"}
+              ><%= @advanced_opts %></textarea>
+            </div>
+
+          </form>
+
+        <%!-- Step 3 — Save settings --%>
+        <% true -> %>
+          <div class="space-y-3">
+            <div>
+              <label class="font-mono text-xs text-muted-foreground block mb-1">
+                <%= pgettext("setup label", "Save to") %>
+              </label>
+              <.dropdown
+                id="setup-scope"
+                name="scope"
+                options={scope_options()}
+                selected={to_string(@scope)}
+                on_select="select_scope"
+                target={@myself}
+              />
+            </div>
+
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={@set_default}
+                disabled={@first_run}
+                phx-click={unless @first_run, do: JS.push("toggle_default", target: @myself)}
+                class="accent-black w-4 h-4"
+              />
+              <span class="font-mono text-sm">
+                <%= pgettext("setup label", "Set as default model") %>
+              </span>
+            </label>
+
+            <%!-- Summary --%>
+            <div class="border-2 border-border p-3 bg-muted font-mono text-xs space-y-1">
+              <p>
+                <span class="text-muted-foreground"><%= pgettext("setup summary", "Provider:") %></span>
+                <%= provider_label(@provider) %>
+              </p>
+              <p>
+                <span class="text-muted-foreground"><%= pgettext("setup summary", "Model:") %></span>
+                <%= @model_id %>
+                <%= if @model_name != "" and @model_name != @model_id do %>
+                  <span class="text-muted-foreground ml-1">(<%= @model_name %>)</span>
+                <% end %>
+              </p>
+              <%= if @context_window != "" and local_provider?(@provider) do %>
+                <p>
+                  <span class="text-muted-foreground"><%= pgettext("setup summary", "Context:") %></span>
+                  <%= @context_window %>
+                </p>
+              <% end %>
+              <p>
+                <span class="text-muted-foreground"><%= pgettext("setup summary", "Saved to:") %></span>
+                <%= scope_label(@scope) %>
+              </p>
+            </div>
+          </div>
+      <% end %>
+
+      <%!-- Error --%>
+      <%= if @error do %>
+        <p class="font-mono text-xs text-destructive"><%= @error %></p>
+      <% end %>
+
+    </div>
+
+    <%!-- Buttons --%>
+    <div class="flex justify-between p-4 border-t-2 border-border flex-shrink-0">
+      <div>
+        <%= if @step > 1 do %>
+          <button
+            class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="back"
+            phx-target={@myself}
+          ><%= pgettext("setup button", "Back") %></button>
+        <% end %>
+      </div>
+
+      <div>
+        <%= if @step < 3 do %>
+          <button
+            class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                   bg-primary text-primary-foreground"
+            phx-click="next"
+            phx-target={@myself}
+          ><%= pgettext("setup button", "Next") %></button>
+        <% else %>
+          <button
+            class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                   bg-primary text-primary-foreground disabled:opacity-50"
+            phx-click="save"
+            phx-target={@myself}
+            disabled={@saving}
+          ><%= if @saving, do: pgettext("setup button", "Saving…"), else: pgettext("setup button", "Save") %></button>
+        <% end %>
+      </div>
+    </div>
+
+  </div>
+</div>

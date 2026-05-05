@@ -65,12 +65,22 @@
     />
   </div>
 
-  <%!-- Status bar --%>
-  <.live_component
-    module={Planck.Web.Live.StatusBar}
-    id="status-bar"
-    session_name={@session_name}
-  />
+  <%!-- Status bar + settings button --%>
+  <div class="flex items-stretch">
+    <div class="flex-1">
+      <.live_component
+        module={Planck.Web.Live.StatusBar}
+        id="status-bar"
+        session_name={@session_name}
+      />
+    </div>
+    <button
+      class="border-t-2 border-l-2 border-black px-3 font-mono text-sm
+             bg-card hover:bg-muted transition-colors"
+      phx-click="open_setup"
+      title={pgettext("tooltip", "Configure models")}
+    >⚙</button>
+  </div>
 
   <%!-- Agent context overlay — centered panel, not full-screen on large displays --%>
   <%= if @overlay do %>
@@ -106,6 +116,15 @@
         </div>
       </div>
     </div>
+  <% end %>
+
+  <%!-- Setup modal — shown on first run or when ⚙ is clicked --%>
+  <%= if @setup_visible do %>
+    <.live_component
+      module={Planck.Web.Live.SetupModal}
+      id="setup-modal"
+      first_run={is_nil(Headless.config().default_model)}
+    />
   <% end %>
 
   <%!-- Edit message modal --%>

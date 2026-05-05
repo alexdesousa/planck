@@ -24,6 +24,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:right_open, false)
       |> assign(:edit_message, nil)
       |> assign(:teams, [])
+      |> assign(:setup_visible, false)
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -42,11 +43,13 @@ defmodule Planck.Web.SessionLive do
         end
 
       teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+      setup_visible = is_nil(Headless.config().default_model)
 
       {:ok,
        socket
        |> assign(:sessions, Headless.list_sessions())
-       |> assign(:teams, teams)}
+       |> assign(:teams, teams)
+       |> assign(:setup_visible, setup_visible)}
     else
       {:ok, socket}
     end
@@ -180,6 +183,24 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_delete_session(session_id, socket)}
   end
 
+  def handle_info(:setup_complete, socket) do
+    teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+
+    socket =
+      socket
+      |> assign(:setup_visible, false)
+      |> assign(:teams, teams)
+
+    case Headless.start_session() do
+      {:ok, session_id} ->
+        {:noreply,
+         socket |> load_session(session_id) |> assign(:sessions, Headless.list_sessions())}
+
+      {:error, _} ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_info({:create_session, team, name}, socket) do
     opts =
       []
@@ -208,6 +229,18 @@ defmodule Planck.Web.SessionLive do
 
   @impl true
   def handle_event(event, params, socket)
+
+  def handle_event("open_setup", _params, socket) do
+    {:noreply, assign(socket, :setup_visible, true)}
+  end
+
+  def handle_event("close_setup", _params, socket) do
+    if is_nil(Headless.config().default_model) do
+      {:noreply, socket}
+    else
+      {:noreply, assign(socket, :setup_visible, false)}
+    end
+  end
 
   def handle_event("open_agent", %{"id" => agent_id}, socket) do
     {:noreply, do_open_agent(agent_id, socket)}
