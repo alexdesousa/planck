@@ -42,6 +42,10 @@ defmodule Planck.Headless.DefaultPrompt do
       scripts, or CI pipelines via REST + SSE; building a Planck skill for
       the API):
       https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/api.md
+
+    - **Creating a new team** (scaffold TEAM.json and system prompt files,
+      discover available models, register and start the team):
+      https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/new_team.md
     """
     |> String.trim()
   end

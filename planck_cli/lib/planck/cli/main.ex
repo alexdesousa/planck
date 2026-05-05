@@ -4,9 +4,6 @@ defmodule Planck.CLI.Main do
   # Entry point for the compiled binary. Parses top-level argv and dispatches
   # to the appropriate mode. Returns an integer exit code — the caller
   # (Planck.CLI.start/2) is responsible for calling System.halt/1.
-  #
-  # Long-running modes (TUI, Web) will start a supervised process tree and
-  # block; they return only when the process exits.
 
   @version Mix.Project.config()[:version]
 
@@ -14,20 +11,17 @@ defmodule Planck.CLI.Main do
   planck — AI coding agent
 
   USAGE
-    planck [OPTIONS] [PROMPT]
+    planck [OPTIONS]
 
   OPTIONS
-    --tui        Start the interactive terminal UI (default when TTY detected)
-    --web        Start the web UI (opens browser on http://localhost:4000)
-    --sidecar    Start headless mode driven by the sidecar (no TUI or Web UI)
+    --web, web   Start the web server (Web UI + HTTP API at http://localhost:4000)
+                 This is also the default when no option is given.
     --version    Print version and exit
     --help, -h   Print this help and exit
 
   EXAMPLES
-    planck                         # interactive TUI
-    planck "fix the auth bug"      # send a one-shot prompt (non-interactive)
-    planck --web                   # web UI mode
-    planck --sidecar               # headless mode for external integrations
+    planck           # start the web server (default)
+    planck web       # start the web server
   """
 
   @spec run([String.t()]) :: non_neg_integer()
@@ -41,21 +35,8 @@ defmodule Planck.CLI.Main do
         IO.puts("planck #{@version}")
         0
 
-      :tui ->
-        IO.puts("TUI mode coming soon. Use `planck --help` for available options.")
-        0
-
       :web ->
         start_web()
-
-      :sidecar ->
-        IO.puts("Sidecar mode coming soon. Use `planck --help` for available options.")
-        0
-
-      {:prompt, text} ->
-        IO.puts("Non-interactive mode coming soon.")
-        IO.puts("Prompt received: #{text}")
-        0
 
       :unknown ->
         IO.write(:stderr, "Unknown option. Run `planck --help` for usage.\n")
@@ -79,18 +60,12 @@ defmodule Planck.CLI.Main do
     end
   end
 
-  @spec parse([String.t()]) ::
-          :help | :version | :tui | :web | :sidecar | {:prompt, String.t()} | :unknown
-  defp parse([]), do: :tui
+  @spec parse([String.t()]) :: :help | :version | :web | :unknown
+  defp parse([]), do: :web
   defp parse(["--help" | _]), do: :help
   defp parse(["-h" | _]), do: :help
   defp parse(["--version" | _]), do: :version
-  defp parse(["--tui" | _]), do: :tui
-  defp parse(["tui" | _]), do: :tui
   defp parse(["--web" | _]), do: :web
   defp parse(["web" | _]), do: :web
-  defp parse(["--sidecar" | _]), do: :sidecar
-  defp parse(["sidecar" | _]), do: :sidecar
-  defp parse([<<"-", _::binary>> | _]), do: :unknown
-  defp parse([prompt | _]), do: {:prompt, prompt}
+  defp parse(_), do: :unknown
 end

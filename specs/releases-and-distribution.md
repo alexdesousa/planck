@@ -40,24 +40,16 @@ end
 ## planck_cli — execution modes
 
 ```sh
-planck web                    # Start the Phoenix server (Web UI + HTTP API)
-planck sidecar                # Headless mode — sidecar drives all interaction
-planck "fix the auth bug"     # Print mode — single prompt, output to stdout
+planck           # Start the web server (default)
+planck web       # Start the web server
+planck --help    # Print usage
+planck --version # Print version
 ```
 
-```elixir
-cond do
-  "web"     in argv -> Planck.WebMode.start(argv)
-  "sidecar" in argv -> Planck.SidecarMode.start(argv)
-  argv != []        -> Planck.PrintMode.start(argv)
-  true              -> Planck.WebMode.start(argv)   # default
-end
-```
-
-**`planck sidecar`** starts planck_headless (which starts the sidecar from
-config) and blocks indefinitely. No Web UI — all interaction is driven by the
-sidecar. Useful for CI pipelines or external integrations.
-See `specs/sidecar.md`.
+The web server starts the Phoenix app which serves both the Web UI and the HTTP
+API. For CI pipelines and external integrations, use the HTTP API directly
+(`GET /api/sessions`, `POST /api/sessions/:id/prompt`, etc.) — no separate
+headless mode is needed.
 
 ## Hex library releases
 
