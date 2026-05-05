@@ -1,0 +1,317 @@
+## This file is a PO Template file.
+##
+## "msgid"s here are often extracted from source code.
+## Add new messages manually only if they're dynamic
+## messages that can't be statically extracted.
+##
+## Run "mix gettext.extract" to bring this file up to
+## date. Leave "msgstr"s empty as changing them here has no
+## effect: edit them in PO (.po) files instead.
+#
+msgid ""
+msgstr ""
+
+#: lib/planck/web/components.ex:105
+#: lib/planck/web/components.ex:115
+#: lib/planck/web/components.ex:389
+#, elixir-autogen, elixir-format
+msgctxt "agent type"
+msgid "orchestrator"
+msgstr ""
+
+#: lib/planck/web/components.ex:390
+#, elixir-autogen, elixir-format
+msgctxt "agent type"
+msgid "worker"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:168
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "+ New"
+msgstr ""
+
+#: lib/planck/web/live/edit_message_modal.html.heex:47
+#: lib/planck/web/live/sessions_sidebar.html.heex:32
+#: lib/planck/web/live/sessions_sidebar.html.heex:104
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Cancel"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:111
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Create"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:40
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Delete"
+msgstr ""
+
+#: lib/planck/web/live/edit_message_modal.html.heex:56
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Resend"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:48
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Send"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:25
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Stop"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:37
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Stop All"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:80
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "edit"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:240
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "agent"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:229
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "compacting context…"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:216
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "context compacted"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:203
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "error"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:55
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "responded"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:130
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "thinking"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:130
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "thinking…"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.ex:302
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "you"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:23
+#, elixir-autogen, elixir-format
+msgctxt "confirmation"
+msgid "Delete %{name}? This cannot be undone."
+msgstr ""
+
+#: lib/planck/web/live/edit_message_modal.html.heex:35
+#, elixir-autogen, elixir-format
+msgctxt "confirmation"
+msgid "Sending will permanently undo all messages after this one."
+msgstr ""
+
+#: lib/planck/web/live/agents_sidebar.html.heex:25
+#, elixir-autogen, elixir-format
+msgctxt "empty state"
+msgid "No agents yet"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:85
+#, elixir-autogen, elixir-format
+msgctxt "form label"
+msgid "(optional)"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:85
+#, elixir-autogen, elixir-format
+msgctxt "form label"
+msgid "Name"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:66
+#, elixir-autogen, elixir-format
+msgctxt "form label"
+msgid "Team"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:72
+#, elixir-autogen, elixir-format
+msgctxt "form option"
+msgid "Dynamic (default)"
+msgstr ""
+
+#: lib/planck/web/live/session_live.html.heex:14
+#, elixir-autogen, elixir-format
+msgctxt "mobile toolbar"
+msgid "Agents ☰"
+msgstr ""
+
+#: lib/planck/web/live/session_live.html.heex:8
+#, elixir-autogen, elixir-format
+msgctxt "mobile toolbar"
+msgid "☰ Sessions"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:12
+#: lib/planck/web/live/sessions_sidebar.html.heex:155
+#, elixir-autogen, elixir-format
+msgctxt "modal title"
+msgid "Delete session"
+msgstr ""
+
+#: lib/planck/web/live/edit_message_modal.html.heex:10
+#, elixir-autogen, elixir-format
+msgctxt "modal title"
+msgid "Edit message"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:55
+#, elixir-autogen, elixir-format
+msgctxt "modal title"
+msgid "New Session"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:9
+#, elixir-autogen, elixir-format
+msgctxt "placeholder"
+msgid "Message planck…"
+msgstr ""
+
+#: lib/planck/web/live/agents_sidebar.html.heex:8
+#, elixir-autogen, elixir-format
+msgctxt "sidebar header"
+msgid "Agents"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.html.heex:126
+#, elixir-autogen, elixir-format
+msgctxt "sidebar header"
+msgid "Sessions"
+msgstr ""
+
+#: lib/planck/web/components.ex:234
+#, elixir-autogen, elixir-format
+msgctxt "sidecar status"
+msgid "building…"
+msgstr ""
+
+#: lib/planck/web/components.ex:237
+#, elixir-autogen, elixir-format
+msgctxt "sidecar status"
+msgid "no sidecar"
+msgstr ""
+
+#: lib/planck/web/components.ex:233
+#, elixir-autogen, elixir-format
+msgctxt "sidecar status"
+msgid "sidecar"
+msgstr ""
+
+#: lib/planck/web/components.ex:236
+#, elixir-autogen, elixir-format
+msgctxt "sidecar status"
+msgid "sidecar error"
+msgstr ""
+
+#: lib/planck/web/components.ex:235
+#, elixir-autogen, elixir-format
+msgctxt "sidecar status"
+msgid "starting…"
+msgstr ""
+
+#: lib/planck/web/live/status_bar.html.heex:4
+#, elixir-autogen, elixir-format
+msgctxt "status"
+msgid "no session"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:174
+#, elixir-autogen, elixir-format
+msgctxt "tool label"
+msgid "input"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:180
+#, elixir-autogen, elixir-format
+msgctxt "tool label"
+msgid "output"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:164
+#, elixir-autogen, elixir-format
+msgctxt "tool status"
+msgid "done"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:162
+#, elixir-autogen, elixir-format
+msgctxt "tool status"
+msgid "error"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:166
+#, elixir-autogen, elixir-format
+msgctxt "tool status"
+msgid "running…"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:23
+#, elixir-autogen, elixir-format
+msgctxt "tooltip"
+msgid "Stop"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:35
+#, elixir-autogen, elixir-format
+msgctxt "tooltip"
+msgid "Stop All"
+msgstr ""
+
+#: lib/planck/web/live/status_bar.html.heex:7
+#, elixir-autogen, elixir-format
+msgctxt "tooltip"
+msgid "Toggle dark mode"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:27
+#, elixir-autogen, elixir-format
+msgctxt "chat empty state"
+msgid "Send a message to start."
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:12
+#, elixir-autogen, elixir-format
+msgctxt "chat welcome"
+msgid "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up."
+msgstr ""

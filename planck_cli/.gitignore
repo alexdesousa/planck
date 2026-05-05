@@ -7,9 +7,8 @@ erl_crash.dump
 *.ez
 planck_cli-*.tar
 /tmp/
-/priv/
-/priv/plts/*.plt
-/priv/plts/*.plt.hash
+/priv/static/
+/priv/plts/
 /burrito_out/
 /.planck/
 /assets/node_modules/
