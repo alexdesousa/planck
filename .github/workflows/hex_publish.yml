@@ -1,0 +1,115 @@
+name: Hex.pm Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+  PLANCK_LOCAL: "true"
+
+jobs:
+  publish-ai:
+    name: Publish planck_ai
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: planck_ai
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Publish to Hex.pm
+        run: mix hex.publish --yes
+
+  publish-agent:
+    name: Publish planck_agent
+    runs-on: ubuntu-latest
+    needs: publish-ai
+    defaults:
+      run:
+        working-directory: planck_agent
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Publish to Hex.pm
+        run: mix hex.publish --yes
+
+  publish-headless:
+    name: Publish planck_headless
+    runs-on: ubuntu-latest
+    needs: publish-agent
+    defaults:
+      run:
+        working-directory: planck_headless
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Publish to Hex.pm
+        run: mix hex.publish --yes
