@@ -15,7 +15,7 @@ defmodule Planck.Headless do
   alias Planck.Agent
   alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Message, Session, Skill, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
-  alias Planck.Headless.Config.JsonBinding
+  alias Planck.Headless.Config.{EnvBinding, JsonBinding}
 
   @type session_id :: String.t()
 
@@ -240,6 +240,7 @@ defmodule Planck.Headless do
   @spec reload_resources() :: :ok
   def reload_resources do
     JsonBinding.invalidate()
+    EnvBinding.invalidate()
     ResourceStore.reload()
   end
 

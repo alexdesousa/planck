@@ -131,9 +131,21 @@ defmodule Planck.Headless.Config do
     type: PathList,
     default: ["~/.planck/config.json", ".planck/config.json"]
 
+  @envdoc """
+  Ordered list of `.env` files to read for API keys.
+  Global file is read first; project-local file wins on collision.
+  Not read from the `.env` files themselves — that would be circular.
+  """
+  app_env :env_files, :planck, :env_files,
+    type: PathList,
+    default: ["~/.planck/.env", "./.planck/.env"]
+
   # Config keys that can also be set in .planck/config.json or ~/.planck/config.json.
   # API keys are intentionally excluded — credentials must not live in config files.
   @json [:system, Planck.Headless.Config.JsonBinding, :config]
+
+  # API key binding order: system env → project .env → global .env → Elixir config.
+  @dotenv [:system, Planck.Headless.Config.EnvBinding, :config]
 
   @envdoc "Default LLM provider (e.g. anthropic)."
   app_env :default_provider, :planck, :default_provider,
@@ -220,17 +232,20 @@ defmodule Planck.Headless.Config do
   @envdoc "Anthropic API key."
   app_env :anthropic_api_key, :planck, :anthropic_api_key,
     os_env: "ANTHROPIC_API_KEY",
-    default: nil
+    default: nil,
+    binding_order: @dotenv
 
   @envdoc "OpenAI API key."
   app_env :openai_api_key, :planck, :openai_api_key,
     os_env: "OPENAI_API_KEY",
-    default: nil
+    default: nil,
+    binding_order: @dotenv
 
   @envdoc "Google API key."
   app_env :google_api_key, :planck, :google_api_key,
     os_env: "GOOGLE_API_KEY",
-    default: nil
+    default: nil,
+    binding_order: @dotenv
 
   @doc "Return the fully-resolved config as a `%Planck.Headless.Config{}` struct."
   @spec get() :: t()

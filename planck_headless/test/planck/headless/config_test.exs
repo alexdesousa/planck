@@ -4,7 +4,7 @@ defmodule Planck.Headless.ConfigTest do
   @moduletag :tmp_dir
 
   alias Planck.Headless.Config
-  alias Planck.Headless.Config.JsonBinding
+  alias Planck.Headless.Config.{EnvBinding, JsonBinding}
 
   defp write_config(dir, data) do
     path = Path.join(dir, "config.json")
@@ -12,7 +12,20 @@ defmodule Planck.Headless.ConfigTest do
     path
   end
 
+  defp write_env(dir, pairs) do
+    path = Path.join(dir, ".env")
+    content = Enum.map_join(pairs, "\n", fn {k, v} -> "#{k}=#{v}" end)
+    File.write!(path, content)
+    path
+  end
+
   defp env_for(key), do: Skogsra.Env.new(nil, :planck, key, [])
+
+  defp api_env_for(:anthropic_api_key),
+    do: Skogsra.Env.new(nil, :planck, :anthropic_api_key, os_env: "ANTHROPIC_API_KEY")
+
+  defp api_env_for(:openai_api_key),
+    do: Skogsra.Env.new(nil, :planck, :openai_api_key, os_env: "OPENAI_API_KEY")
 
   # --- Config.get/0 ---
 
@@ -167,6 +180,130 @@ defmodule Planck.Headless.ConfigTest do
 
       {:ok, config} = JsonBinding.init(env_for(:default_model))
       assert config["default_model"] == "after"
+    end
+  end
+
+  # --- EnvBinding ---
+
+  describe "EnvBinding" do
+    setup do
+      on_exit(fn ->
+        Application.put_env(:planck_headless, :skip_env_config, true)
+        Application.delete_env(:planck, :env_files)
+        Config.reload_env_files()
+        EnvBinding.invalidate()
+      end)
+
+      :ok
+    end
+
+    defp enable_env(path) do
+      Application.put_env(:planck_headless, :skip_env_config, false)
+      Application.put_env(:planck, :env_files, [path])
+      Config.reload_env_files()
+      EnvBinding.invalidate()
+    end
+
+    test "init/1 parses a .env file and returns a map", %{tmp_dir: dir} do
+      path = write_env(dir, [{"ANTHROPIC_API_KEY", "sk-ant-test"}])
+      enable_env(path)
+
+      {:ok, env} = EnvBinding.init(api_env_for(:anthropic_api_key))
+      assert env["ANTHROPIC_API_KEY"] == "sk-ant-test"
+    end
+
+    test "get_env/2 looks up the os_env name", %{tmp_dir: dir} do
+      path = write_env(dir, [{"ANTHROPIC_API_KEY", "sk-ant-value"}])
+      enable_env(path)
+
+      env = api_env_for(:anthropic_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:ok, "sk-ant-value"} = EnvBinding.get_env(env, dotenv)
+    end
+
+    test "get_env/2 returns :error for absent keys", %{tmp_dir: dir} do
+      path = write_env(dir, [{"OTHER_KEY", "val"}])
+      enable_env(path)
+
+      env = api_env_for(:anthropic_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:error, :not_found} = EnvBinding.get_env(env, dotenv)
+    end
+
+    test "strips double quotes from values", %{tmp_dir: dir} do
+      path = write_env(dir, [{"ANTHROPIC_API_KEY", "\"sk-quoted\""}])
+      enable_env(path)
+
+      env = api_env_for(:anthropic_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:ok, "sk-quoted"} = EnvBinding.get_env(env, dotenv)
+    end
+
+    test "strips single quotes from values", %{tmp_dir: dir} do
+      path = write_env(dir, [{"ANTHROPIC_API_KEY", "'sk-single'"}])
+      enable_env(path)
+
+      env = api_env_for(:anthropic_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:ok, "sk-single"} = EnvBinding.get_env(env, dotenv)
+    end
+
+    test "ignores comment lines and blank lines", %{tmp_dir: dir} do
+      path = Path.join(dir, ".env")
+      File.write!(path, "# comment\n\nANTHROPIC_API_KEY=sk-clean\n")
+      enable_env(path)
+
+      env = api_env_for(:anthropic_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:ok, "sk-clean"} = EnvBinding.get_env(env, dotenv)
+      refute Map.has_key?(dotenv, "")
+    end
+
+    test "later file wins on key collision (project-local overrides global)", %{tmp_dir: dir} do
+      global = write_env(dir, [{"ANTHROPIC_API_KEY", "global-key"}])
+      local_dir = Path.join(dir, "project")
+      File.mkdir_p!(local_dir)
+      local = write_env(local_dir, [{"ANTHROPIC_API_KEY", "local-key"}])
+
+      Application.put_env(:planck_headless, :skip_env_config, false)
+      Application.put_env(:planck, :env_files, [global, local])
+      Config.reload_env_files()
+      EnvBinding.invalidate()
+
+      env = api_env_for(:anthropic_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:ok, "local-key"} = EnvBinding.get_env(env, dotenv)
+    end
+
+    test "missing file is silently skipped", %{tmp_dir: dir} do
+      path = write_env(dir, [{"OPENAI_API_KEY", "sk-open"}])
+      nonexistent = Path.join(dir, "missing.env")
+
+      Application.put_env(:planck_headless, :skip_env_config, false)
+      Application.put_env(:planck, :env_files, [nonexistent, path])
+      Config.reload_env_files()
+      EnvBinding.invalidate()
+
+      env = api_env_for(:openai_api_key)
+      {:ok, dotenv} = EnvBinding.init(env)
+      assert {:ok, "sk-open"} = EnvBinding.get_env(env, dotenv)
+    end
+
+    test "invalidate/0 clears the cache", %{tmp_dir: dir} do
+      path = write_env(dir, [{"ANTHROPIC_API_KEY", "before"}])
+      enable_env(path)
+
+      EnvBinding.init(api_env_for(:anthropic_api_key))
+      write_env(dir, [{"ANTHROPIC_API_KEY", "after"}])
+      EnvBinding.invalidate()
+
+      {:ok, dotenv} = EnvBinding.init(api_env_for(:anthropic_api_key))
+      assert dotenv["ANTHROPIC_API_KEY"] == "after"
+    end
+
+    test "skip_env_config: true causes init/1 to return :error" do
+      Application.put_env(:planck_headless, :skip_env_config, true)
+      assert :error = EnvBinding.init(api_env_for(:anthropic_api_key))
     end
   end
 end
