@@ -93,12 +93,15 @@
           <p class="font-bold font-mono text-sm flex items-center gap-2 flex-1 min-w-0">
             <span class="truncate"><%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %></span>
             <button
-              class="font-mono text-xs text-muted-foreground font-normal border border-border
-                     px-1.5 py-0.5 hover:bg-muted transition-colors flex-shrink-0"
+              class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     bg-card flex-shrink-0 flex items-center gap-1"
               phx-click="open_model_selector"
               phx-value-id={@overlay}
             >
-              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model, "—") %> ⇄
+              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model, "—") %>
+              <span class="text-sm">⇄</span>
             </button>
           </p>
           <button

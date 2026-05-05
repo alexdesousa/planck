@@ -550,6 +550,162 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- configure_model/1 ---
+
+  describe "configure_model/1" do
+    setup %{tmp_dir: dir} do
+      original_model = Application.get_env(:planck, :default_model)
+      original_provider = Application.get_env(:planck, :default_provider)
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_model)
+        Application.delete_env(:planck, :default_provider)
+        if original_model, do: Application.put_env(:planck, :default_model, original_model)
+
+        if original_provider,
+          do: Application.put_env(:planck, :default_provider, original_provider)
+
+        Config.reload_default_model()
+        Config.reload_default_provider()
+        ResourceStore.reload()
+      end)
+
+      {:ok, config_dir: dir}
+    end
+
+    test "writes default_provider and default_model to the JSON config file", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      assert :ok =
+               Headless.configure_model(
+                 provider: :ollama,
+                 model_id: "llama3.2",
+                 scope: :local,
+                 default: true,
+                 config_file: config_path,
+                 env_file: Path.join(dir, ".env")
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["default_provider"] == "ollama"
+      assert map["default_model"] == "llama3.2"
+    end
+
+    test "appends a local model entry with all fields", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "models.json")
+
+      assert :ok =
+               Headless.configure_model(
+                 provider: :llama_cpp,
+                 model_id: "mymodel",
+                 base_url: "http://localhost:8080",
+                 model_name: "My Model",
+                 context_window: 32_768,
+                 supports_thinking: true,
+                 advanced_opts: %{"temperature" => 1.0},
+                 scope: :local,
+                 default: false,
+                 config_file: config_path,
+                 env_file: Path.join(dir, ".env")
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      [entry] = map["models"]
+      assert entry["id"] == "mymodel"
+      assert entry["provider"] == "llama_cpp"
+      assert entry["base_url"] == "http://localhost:8080"
+      assert entry["name"] == "My Model"
+      assert entry["context_window"] == 32_768
+      assert entry["supports_thinking"] == true
+      assert entry["default_opts"] == %{"temperature" => 1.0}
+    end
+
+    test "merges with existing JSON config rather than overwriting", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "existing.json")
+      File.write!(config_path, Jason.encode!(%{"sessions_dir" => ".planck/sessions"}))
+
+      Headless.configure_model(
+        provider: :ollama,
+        model_id: "llama3.2",
+        scope: :local,
+        config_file: config_path,
+        env_file: Path.join(dir, ".env")
+      )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["sessions_dir"] == ".planck/sessions"
+      assert map["default_model"] == "llama3.2"
+    end
+
+    test "models array is appended not replaced on successive calls", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "multi.json")
+
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_model(
+        provider: :ollama,
+        model_id: "first",
+        base_url: "http://localhost:11434",
+        scope: :local,
+        config_file: config_path,
+        env_file: env_path
+      )
+
+      Headless.configure_model(
+        provider: :ollama,
+        model_id: "second",
+        base_url: "http://localhost:11434",
+        scope: :local,
+        config_file: config_path,
+        env_file: env_path
+      )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      ids = Enum.map(map["models"], & &1["id"])
+      assert "first" in ids
+      assert "second" in ids
+    end
+
+    test "writes API key to .env file for cloud providers", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_model(
+        provider: :anthropic,
+        model_id: "claude-sonnet-4-6",
+        api_key: "sk-ant-test",
+        scope: :local,
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "ANTHROPIC_API_KEY=sk-ant-test"
+    end
+
+    test "updating an existing API key replaces the line in .env", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+      File.write!(env_path, "ANTHROPIC_API_KEY=old-key\nOTHER=value\n")
+
+      Headless.configure_model(
+        provider: :anthropic,
+        model_id: "claude-sonnet-4-6",
+        api_key: "new-key",
+        scope: :local,
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "ANTHROPIC_API_KEY=new-key"
+      refute content =~ "old-key"
+      assert content =~ "OTHER=value"
+    end
+  end
+
   # --- close_session/1 ---
 
   describe "close_session/1" do

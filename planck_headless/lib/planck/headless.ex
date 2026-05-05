@@ -266,8 +266,8 @@ defmodule Planck.Headless do
       advanced_opts: advanced_opts
     }
 
-    config_path = config_path_for(scope)
-    env_path = env_path_for(scope)
+    config_path = Keyword.get(opts, :config_file) || config_path_for(scope)
+    env_path = Keyword.get(opts, :env_file) || env_path_for(scope)
     config_update = build_config_update(provider, model_id, model_opts, set_default)
 
     with :ok <- ensure_config_dir(config_path),
