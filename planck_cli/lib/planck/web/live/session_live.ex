@@ -480,12 +480,16 @@ defmodule Planck.Web.SessionLive do
       sidecar: sidecar_status
     )
 
+    {description, welcome} = session_description(session_id)
+
     send_update(ChatComponent,
       id: "chat-main",
       action: :load,
       session_id: session_id,
       perspective_agent_id: nil,
-      agents: agents
+      agents: agents,
+      description: description,
+      welcome: welcome
     )
 
     socket
@@ -519,6 +523,26 @@ defmodule Planck.Web.SessionLive do
     case Session.get_metadata(session_id) do
       {:ok, %{"session_name" => name}} -> name
       _ -> nil
+    end
+  end
+
+  @spec session_description(String.t()) :: {String.t() | nil, boolean()}
+  defp session_description(session_id) do
+    case Session.get_metadata(session_id) do
+      {:ok, meta} ->
+        cond do
+          meta["team_alias"] in [nil, ""] ->
+            {nil, true}
+
+          is_binary(meta["team_description"]) and meta["team_description"] != "" ->
+            {meta["team_description"], false}
+
+          true ->
+            {nil, false}
+        end
+
+      _ ->
+        {nil, false}
     end
   end
 

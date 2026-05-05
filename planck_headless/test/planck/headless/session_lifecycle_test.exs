@@ -497,6 +497,57 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert meta["session_name"] == "my-meta-session"
       assert is_binary(meta["cwd"])
     end
+
+    test "team description is saved when TEAM.json has a description field", %{tmp_dir: dir} do
+      team_dir =
+        write_team_with_description(dir, "described-team", "Builds and tests Elixir code.")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_description"] == "Builds and tests Elixir code."
+    end
+
+    test "team description is nil when TEAM.json has no description field", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "no-description-team")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert is_nil(meta["team_description"])
+    end
+
+    test "dynamic team session has nil team_description", %{tmp_dir: _dir} do
+      Application.put_env(:planck, :default_provider, :ollama)
+      Application.put_env(:planck, :default_model, "llama3.2")
+      Config.reload_default_provider()
+      Config.reload_default_model()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_provider)
+        Application.delete_env(:planck, :default_model)
+        Config.reload_default_provider()
+        Config.reload_default_model()
+      end)
+
+      {:ok, session_id} = Headless.start_session()
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert is_nil(meta["team_description"])
+      assert meta["team_alias"] in [nil, ""]
+    end
+
+    test "team description is preserved across resume", %{tmp_dir: dir} do
+      team_dir = write_team_with_description(dir, "resume-described-team", "My team description.")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      Headless.close_session(session_id)
+
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_description"] == "My team description."
+    end
   end
 
   # --- close_session/1 ---
@@ -914,6 +965,29 @@ defmodule Planck.Headless.SessionLifecycleTest do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  defp write_team_with_description(dir, alias_name, description) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "description" => description,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "ollama",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate."
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
 
   defp write_team_declaring_tool(dir, alias_name, extra_tool) do
     team_dir = Path.join(dir, alias_name)

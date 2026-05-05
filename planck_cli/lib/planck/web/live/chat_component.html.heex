@@ -2,6 +2,34 @@
      phx-hook="Chat"
      phx-target={@myself}>
 
+  <%!-- Empty state --%>
+  <%= if @entries == [] do %>
+    <%= cond do %>
+      <% @welcome -> %>
+        <div class="flex-1 flex items-start justify-center pt-12 pb-4 px-4">
+          <div class="max-w-lg w-full border-2 border-border bg-card p-5 shadow-[4px_4px_0px_#000]">
+            <div class="chat-prose text-sm">
+              <%= render_markdown(pgettext("chat welcome", "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up.")) %>
+            </div>
+          </div>
+        </div>
+      <% @description -> %>
+        <div class="flex-1 flex items-start justify-center pt-12 pb-4 px-4">
+          <div class="max-w-lg w-full border-2 border-border bg-card p-5 shadow-[4px_4px_0px_#000]">
+            <div class="chat-prose text-sm">
+              <%= render_markdown(@description) %>
+            </div>
+          </div>
+        </div>
+      <% true -> %>
+        <div class="flex-1 flex items-center justify-center">
+          <p class="font-mono text-sm text-muted-foreground">
+            <%= pgettext("chat empty state", "Send a message to start.") %>
+          </p>
+        </div>
+    <% end %>
+  <% end %>
+
   <%!-- Message entries --%>
   <%= for entry <- @entries do %>
 
