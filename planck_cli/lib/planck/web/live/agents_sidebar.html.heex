@@ -14,7 +14,7 @@
         <% nil -> %>
         <% agent -> %>
           <%= if agent.type == "orchestrator" do %>
-            <.orchestrator_card agent={agent} />
+            <.orchestrator_card agent={agent} on_click="open_model_selector" />
           <% else %>
             <.agent_card agent={agent} color_index={agent.color_index - 1} />
           <% end %>

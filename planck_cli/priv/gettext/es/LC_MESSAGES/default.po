@@ -5,15 +5,15 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: lib/planck/web/components.ex:107
-#: lib/planck/web/components.ex:117
-#: lib/planck/web/components.ex:475
+#: lib/planck/web/components.ex:113
+#: lib/planck/web/components.ex:123
+#: lib/planck/web/components.ex:481
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "orchestrator"
 msgstr "orquestador"
 
-#: lib/planck/web/components.ex:476
+#: lib/planck/web/components.ex:482
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "worker"
@@ -214,31 +214,31 @@ msgctxt "sidebar header"
 msgid "Sessions"
 msgstr "Sesiones"
 
-#: lib/planck/web/components.ex:236
+#: lib/planck/web/components.ex:242
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "building…"
 msgstr "compilando…"
 
-#: lib/planck/web/components.ex:239
+#: lib/planck/web/components.ex:245
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "no sidecar"
 msgstr "sin sidecar"
 
-#: lib/planck/web/components.ex:235
+#: lib/planck/web/components.ex:241
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "sidecar"
 msgstr "sidecar"
 
-#: lib/planck/web/components.ex:238
+#: lib/planck/web/components.ex:244
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "sidecar error"
 msgstr "error de sidecar"
 
-#: lib/planck/web/components.ex:237
+#: lib/planck/web/components.ex:243
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "starting…"
@@ -525,3 +525,21 @@ msgstr "Contexto:"
 msgctxt "setup help"
 msgid "Could not reach the server — enter the model name manually."
 msgstr "No se pudo contactar el servidor — introduce el nombre del modelo manualmente."
+
+#: lib/planck/web/live/model_selector_modal.html.heex:35
+#, elixir-autogen, elixir-format, fuzzy
+msgctxt "model selector"
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: lib/planck/web/live/model_selector_modal.html.heex:8
+#, elixir-autogen, elixir-format
+msgctxt "model selector"
+msgid "Change model"
+msgstr ""
+
+#: lib/planck/web/live/model_selector_modal.html.heex:43
+#, elixir-autogen, elixir-format, fuzzy
+msgctxt "model selector"
+msgid "Save"
+msgstr "Guardar"
