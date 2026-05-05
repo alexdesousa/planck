@@ -95,12 +95,18 @@ defmodule Planck.Web.Components do
   competing visually with them.
   """
   attr :agent, :map, required: true
+  attr :on_click, :string, default: nil
 
   def orchestrator_card(assigns) do
     ~H"""
     <div
-      class="border-2 border-black p-3 bg-card"
+      class={[
+        "border-2 border-black p-3 bg-card",
+        if(@on_click, do: "cursor-pointer transition-all hover:shadow-[4px_4px_0px_#000] hover:-translate-x-0.5 hover:-translate-y-0.5", else: "")
+      ]}
       style="outline: 2px solid var(--primary); outline-offset: -2px;"
+      phx-click={@on_click}
+      phx-value-id={@agent.id}
     >
       <div class="flex items-center justify-between gap-2">
         <span class="font-bold font-mono text-sm text-primary truncate">

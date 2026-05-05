@@ -1,0 +1,48 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+     phx-window-keydown="close_model_selector"
+     phx-key="Escape">
+  <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-full max-w-sm">
+
+    <div class="border-b-2 border-border px-4 py-3 flex items-center justify-between bg-card">
+      <div>
+        <p class="font-bold font-mono text-sm"><%= pgettext("model selector", "Change model") %></p>
+        <p class="font-mono text-xs text-muted-foreground"><%= @agent_name %></p>
+      </div>
+      <button
+        class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+        phx-click="close_model_selector"
+      >✕</button>
+    </div>
+
+    <div class="p-4 space-y-4">
+      <.dropdown
+        id="model-selector-dropdown"
+        name="model"
+        options={@models}
+        selected={@selected_model}
+        on_select="select_model"
+        target={@myself}
+      />
+
+      <div class="flex justify-end gap-2">
+        <button
+          class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+          phx-click="close_model_selector"
+        ><%= pgettext("model selector", "Cancel") %></button>
+        <button
+          class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                 bg-primary text-primary-foreground"
+          phx-click="save"
+          phx-target={@myself}
+        ><%= pgettext("model selector", "Save") %></button>
+      </div>
+    </div>
+
+  </div>
+</div>

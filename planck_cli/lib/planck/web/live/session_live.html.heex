@@ -90,11 +90,16 @@
       <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
                   w-full max-w-2xl h-[85vh] overflow-hidden">
         <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card flex-shrink-0">
-          <p class="font-bold font-mono text-sm">
-            <%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %>
-            <span class="text-muted-foreground font-normal ml-2">
-              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model) %>
-            </span>
+          <p class="font-bold font-mono text-sm flex items-center gap-2 flex-1 min-w-0">
+            <span class="truncate"><%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %></span>
+            <button
+              class="font-mono text-xs text-muted-foreground font-normal border border-border
+                     px-1.5 py-0.5 hover:bg-muted transition-colors flex-shrink-0"
+              phx-click="open_model_selector"
+              phx-value-id={@overlay}
+            >
+              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model, "—") %> ⇄
+            </button>
           </p>
           <button
             class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
@@ -116,6 +121,18 @@
         </div>
       </div>
     </div>
+  <% end %>
+
+  <%!-- Model selector modal --%>
+  <%= if @model_selector do %>
+    <.live_component
+      module={Planck.Web.Live.ModelSelectorModal}
+      id="model-selector-modal"
+      agent_id={@model_selector.agent_id}
+      agent_name={@model_selector.agent_name}
+      current_model={@model_selector.current_model}
+      available_models={@available_models}
+    />
   <% end %>
 
   <%!-- Setup modal — shown on first run or when ⚙ is clicked --%>

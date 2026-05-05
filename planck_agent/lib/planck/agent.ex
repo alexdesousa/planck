@@ -239,6 +239,12 @@ defmodule Planck.Agent do
     GenServer.call(agent, :estimate_tokens)
   end
 
+  @doc "Replace the model used for subsequent LLM turns without interrupting the current state."
+  @spec change_model(agent(), Planck.AI.Model.t()) :: :ok
+  def change_model(agent, model) do
+    GenServer.call(agent, {:change_model, model})
+  end
+
   @doc """
   Subscribe the calling process to `{:agent_event, type, payload}` messages.
 
@@ -339,6 +345,10 @@ defmodule Planck.Agent do
     }
 
     {:reply, info, state}
+  end
+
+  def handle_call({:change_model, model}, _from, state) do
+    {:reply, :ok, %{state | model: model}}
   end
 
   def handle_call(:estimate_tokens, _from, state) do

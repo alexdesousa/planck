@@ -25,6 +25,8 @@ defmodule Planck.Web.SessionLive do
       |> assign(:edit_message, nil)
       |> assign(:teams, [])
       |> assign(:setup_visible, false)
+      |> assign(:model_selector, nil)
+      |> assign(:available_models, [])
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -49,7 +51,8 @@ defmodule Planck.Web.SessionLive do
        socket
        |> assign(:sessions, Headless.list_sessions())
        |> assign(:teams, teams)
-       |> assign(:setup_visible, setup_visible)}
+       |> assign(:setup_visible, setup_visible)
+       |> assign(:available_models, Headless.available_models())}
     else
       {:ok, socket}
     end
@@ -183,6 +186,27 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_delete_session(session_id, socket)}
   end
 
+  def handle_info({:model_changed, agent_id, model_id}, socket) do
+    with %{} = model <- Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
+         {:ok, pid} <- Agent.whereis(agent_id) do
+      Agent.change_model(pid, model)
+
+      agents =
+        Map.update(socket.assigns.agents, agent_id, %{}, &Map.put(&1, :model, model_id))
+
+      send_update(AgentsSidebar,
+        id: "agents-sidebar",
+        action: :refresh_agents,
+        agents: agents,
+        agent_order: socket.assigns.agent_order
+      )
+
+      {:noreply, socket |> assign(:model_selector, nil) |> assign(:agents, agents)}
+    else
+      _ -> {:noreply, assign(socket, :model_selector, nil)}
+    end
+  end
+
   def handle_info(:setup_complete, socket) do
     teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
 
@@ -190,6 +214,7 @@ defmodule Planck.Web.SessionLive do
       socket
       |> assign(:setup_visible, false)
       |> assign(:teams, teams)
+      |> assign(:available_models, Headless.available_models())
 
     case Headless.start_session() do
       {:ok, session_id} ->
@@ -229,6 +254,22 @@ defmodule Planck.Web.SessionLive do
 
   @impl true
   def handle_event(event, params, socket)
+
+  def handle_event("open_model_selector", %{"id" => agent_id}, socket) do
+    agent = Map.get(socket.assigns.agents, agent_id, %{})
+
+    model_selector = %{
+      agent_id: agent_id,
+      agent_name: agent[:name] || agent[:type] || "agent",
+      current_model: agent[:model] || ""
+    }
+
+    {:noreply, assign(socket, :model_selector, model_selector)}
+  end
+
+  def handle_event("close_model_selector", _params, socket) do
+    {:noreply, assign(socket, :model_selector, nil)}
+  end
 
   def handle_event("open_setup", _params, socket) do
     {:noreply, assign(socket, :setup_visible, true)}
