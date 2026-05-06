@@ -230,19 +230,19 @@ defmodule Planck.Headless.Config do
   # accidental exposure. Use the generated getters directly.
 
   @envdoc "Anthropic API key."
-  app_env :anthropic_api_key, :planck, :anthropic_api_key,
+  app_env :anthropic_api_key, :req_llm, :anthropic_api_key,
     os_env: "ANTHROPIC_API_KEY",
     default: nil,
     binding_order: @dotenv
 
   @envdoc "OpenAI API key."
-  app_env :openai_api_key, :planck, :openai_api_key,
+  app_env :openai_api_key, :req_llm, :openai_api_key,
     os_env: "OPENAI_API_KEY",
     default: nil,
     binding_order: @dotenv
 
   @envdoc "Google API key."
-  app_env :google_api_key, :planck, :google_api_key,
+  app_env :google_api_key, :req_llm, :google_api_key,
     os_env: "GOOGLE_API_KEY",
     default: nil,
     binding_order: @dotenv
