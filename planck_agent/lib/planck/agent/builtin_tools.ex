@@ -55,7 +55,7 @@ defmodule Planck.Agent.BuiltinTools do
         },
         "required" => ["path"]
       },
-      execute_fn: fn _id, args ->
+      execute_fn: fn _agent_id, _id, args ->
         path = args["path"]
         offset = Map.get(args, "offset", 0)
         limit = Map.get(args, "limit")
@@ -87,7 +87,7 @@ defmodule Planck.Agent.BuiltinTools do
         },
         "required" => ["path", "content"]
       },
-      execute_fn: fn _id, %{"path" => path, "content" => content} ->
+      execute_fn: fn _agent_id, _id, %{"path" => path, "content" => content} ->
         expanded = Path.expand(path)
         dirname = Path.dirname(expanded)
 
@@ -129,7 +129,9 @@ defmodule Planck.Agent.BuiltinTools do
         },
         "required" => ["path", "old_string", "new_string"]
       },
-      execute_fn: fn _id, %{"path" => path, "old_string" => old, "new_string" => new} ->
+      execute_fn: fn _agent_id,
+                     _id,
+                     %{"path" => path, "old_string" => old, "new_string" => new} ->
         expanded = Path.expand(path)
 
         with {:ok, content} <- File.read(expanded),
@@ -173,7 +175,7 @@ defmodule Planck.Agent.BuiltinTools do
         },
         "required" => ["command"]
       },
-      execute_fn: fn _id, args ->
+      execute_fn: fn _agent_id, _id, args ->
         cmd = args["command"]
         cwd = Map.get(args, "cwd", File.cwd!())
         timeout = Map.get(args, "timeout", @default_bash_timeout)

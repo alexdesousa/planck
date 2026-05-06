@@ -5,7 +5,7 @@ defmodule Planck.Agent.BuiltinToolsTest do
 
   alias Planck.Agent.BuiltinTools
 
-  defp call(tool, args), do: tool.execute_fn.("test-id", args)
+  defp call(tool, args), do: tool.execute_fn.("test-agent", "test-id", args)
 
   # --- read ---
 

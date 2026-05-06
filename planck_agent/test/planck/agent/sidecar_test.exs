@@ -17,13 +17,13 @@ defmodule Planck.Agent.SidecarTest do
           name: "echo",
           description: "Echo the input.",
           parameters: %{"type" => "object", "properties" => %{}},
-          execute_fn: fn _id, args -> {:ok, inspect(args)} end
+          execute_fn: fn _agent_id, _id, args -> {:ok, inspect(args)} end
         ),
         Tool.new(
           name: "fail",
           description: "Always fails.",
           parameters: %{"type" => "object", "properties" => %{}},
-          execute_fn: fn _id, _args -> {:error, "intentional"} end
+          execute_fn: fn _agent_id, _id, _args -> {:error, "intentional"} end
         )
       ]
     end
@@ -62,22 +62,24 @@ defmodule Planck.Agent.SidecarTest do
     end
   end
 
-  # --- execute_tool/4 ---
+  # --- execute_tool/5 ---
 
-  describe "execute_tool/4" do
+  describe "execute_tool/5" do
     test "calls the matching tool's execute_fn on the sidecar side" do
-      assert {:ok, result} = Sidecar.execute_tool(TestSidecar, "echo", "agent-1", %{"x" => 1})
+      assert {:ok, result} =
+               Sidecar.execute_tool(TestSidecar, "echo", "agent-1", "tc1", %{"x" => 1})
+
       assert result =~ "x"
     end
 
     test "returns the tool's error result" do
       assert {:error, "intentional"} =
-               Sidecar.execute_tool(TestSidecar, "fail", "agent-1", %{})
+               Sidecar.execute_tool(TestSidecar, "fail", "agent-1", "tc1", %{})
     end
 
     test "returns error for unknown tool" do
       assert {:error, "unknown tool: ghost"} =
-               Sidecar.execute_tool(TestSidecar, "ghost", "agent-1", %{})
+               Sidecar.execute_tool(TestSidecar, "ghost", "agent-1", "tc1", %{})
     end
   end
 
@@ -117,29 +119,31 @@ defmodule Planck.Agent.SidecarTest do
     end
   end
 
-  # --- execute_tool/3 ---
+  # --- execute_tool/4 ---
 
-  describe "execute_tool/3" do
+  describe "execute_tool/4" do
     test "executes the tool via the discovered module" do
       :persistent_term.put(@pt_key, TestSidecar)
-      assert {:ok, _} = Sidecar.execute_tool("echo", "agent-1", %{"x" => 1})
+      assert {:ok, _} = Sidecar.execute_tool("echo", "agent-1", "tc1", %{"x" => 1})
     end
 
     test "returns the tool's error result via the discovered module" do
       :persistent_term.put(@pt_key, TestSidecar)
-      assert {:error, "intentional"} = Sidecar.execute_tool("fail", "agent-1", %{})
+      assert {:error, "intentional"} = Sidecar.execute_tool("fail", "agent-1", "tc1", %{})
     end
 
     test "returns error for unknown tool via the discovered module" do
       :persistent_term.put(@pt_key, TestSidecar)
-      assert {:error, "unknown tool: ghost"} = Sidecar.execute_tool("ghost", "agent-1", %{})
+
+      assert {:error, "unknown tool: ghost"} =
+               Sidecar.execute_tool("ghost", "agent-1", "tc1", %{})
     end
 
     test "returns error when no module is discovered" do
       :persistent_term.put(@pt_key, nil)
 
       assert {:error, "no sidecar entry module found"} =
-               Sidecar.execute_tool("echo", "agent-1", %{})
+               Sidecar.execute_tool("echo", "agent-1", "tc1", %{})
     end
   end
 end

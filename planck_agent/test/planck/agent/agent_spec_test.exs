@@ -70,7 +70,7 @@ defmodule Planck.Agent.AgentSpecTest do
         name: "t",
         description: "d",
         parameters: %{},
-        execute_fn: fn _, _ -> :ok end
+        execute_fn: fn _, _, _ -> :ok end
       }
 
       opts = AgentSpec.to_start_opts(@base_spec, tools: [fake_tool])
@@ -116,14 +116,14 @@ defmodule Planck.Agent.AgentSpecTest do
         name: "read",
         description: "r",
         parameters: %{},
-        execute_fn: fn _, _ -> :ok end
+        execute_fn: fn _, _, _ -> :ok end
       }
 
       bash = %Planck.Agent.Tool{
         name: "bash",
         description: "b",
         parameters: %{},
-        execute_fn: fn _, _ -> :ok end
+        execute_fn: fn _, _, _ -> :ok end
       }
 
       spec = %{@base_spec | tools: ["read"]}
@@ -145,14 +145,14 @@ defmodule Planck.Agent.AgentSpecTest do
         name: "read",
         description: "r",
         parameters: %{},
-        execute_fn: fn _, _ -> :ok end
+        execute_fn: fn _, _, _ -> :ok end
       }
 
       extra = %Planck.Agent.Tool{
         name: "extra",
         description: "e",
         parameters: %{},
-        execute_fn: fn _, _ -> :ok end
+        execute_fn: fn _, _, _ -> :ok end
       }
 
       spec = %{@base_spec | tools: ["read"]}
@@ -167,7 +167,7 @@ defmodule Planck.Agent.AgentSpecTest do
         name: "read",
         description: "r",
         parameters: %{},
-        execute_fn: fn _, _ -> :ok end
+        execute_fn: fn _, _, _ -> :ok end
       }
 
       opts = AgentSpec.to_start_opts(@base_spec, tools: [read])

@@ -532,13 +532,12 @@ defmodule Planck.Headless do
       Tools.orchestrator_tools(
         session_id,
         team_id,
-        orchestrator_id,
         store.available_models,
         resolved,
         store.skills,
         cwd
       ) ++
-        Tools.worker_tools(team_id, nil, orchestrator_id) ++
+        Tools.worker_tools(team_id, nil) ++
         skill_discovery_tools(store.skills) ++
         resolved
 
@@ -600,7 +599,7 @@ defmodule Planck.Headless do
         |> Keyword.put(:cwd, cwd)
         |> Keyword.put(
           :tools,
-          Tools.worker_tools(team_id, orchestrator_id, worker_id, sender) ++ resolved
+          Tools.worker_tools(team_id, orchestrator_id, sender) ++ resolved
         )
         |> Keyword.put(:system_prompt, system_prompt)
         |> Keyword.put(:delegator_id, orchestrator_id)
@@ -777,7 +776,7 @@ defmodule Planck.Headless do
           base_opts
           |> Keyword.put(
             :tools,
-            Tools.worker_tools(team_id, orchestrator_id, dynamic_worker_id, sender) ++
+            Tools.worker_tools(team_id, orchestrator_id, sender) ++
               base_opts[:tools]
           )
           |> Keyword.put(:delegator_id, orchestrator_id)

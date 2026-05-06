@@ -539,7 +539,7 @@ defmodule Planck.Agent do
     running =
       Map.new(tool_calls, fn %{id: id, name: name, args: args} ->
         broadcast(state, :tool_start, %{id: id, name: name, args: args})
-        execute_fn = resolve_tool_fn(state.tools, name, id, args)
+        execute_fn = resolve_tool_fn(state.tools, state.id, name, id, args)
 
         {:ok, pid} =
           Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
@@ -567,12 +567,12 @@ defmodule Planck.Agent do
     }
   end
 
-  @spec resolve_tool_fn(%{String.t() => Tool.t()}, String.t(), String.t(), map()) ::
+  @spec resolve_tool_fn(%{String.t() => Tool.t()}, String.t(), String.t(), String.t(), map()) ::
           (-> {:ok, String.t()} | {:error, term()})
-  defp resolve_tool_fn(tools, name, id, args) do
+  defp resolve_tool_fn(tools, agent_id, name, id, args) do
     case Map.get(tools, name) do
       nil -> fn -> {:error, "unknown tool: #{name}"} end
-      %Tool{execute_fn: fun} -> fn -> safe_execute(fun, id, args) end
+      %Tool{execute_fn: fun} -> fn -> safe_execute(fun, agent_id, id, args) end
     end
   end
 
@@ -925,10 +925,10 @@ defmodule Planck.Agent do
     }
   end
 
-  @spec safe_execute(Tool.execute_fn(), String.t(), map()) ::
+  @spec safe_execute(Tool.execute_fn(), String.t(), String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  defp safe_execute(fun, id, args) do
-    fun.(id, args)
+  defp safe_execute(fun, agent_id, id, args) do
+    fun.(agent_id, id, args)
   rescue
     e -> {:error, e}
   catch

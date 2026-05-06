@@ -38,6 +38,7 @@ defmodule Planck.Web.API.EventControllerTest do
     end)
 
     stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
     {:ok, conn: conn, team_dir: write_team(dir)}
   end
@@ -238,6 +239,7 @@ defmodule Planck.Web.API.EventControllerTest do
     }
 
     stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
     stub(MockAI, :stream, fn _model, _context, _opts ->
       n = Agent.get_and_update(counter, &{&1, &1 + 1})

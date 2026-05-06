@@ -10,15 +10,16 @@ defmodule Planck.Agent.Tool do
   @typedoc """
   The function invoked when the LLM requests this tool.
 
-  Receives the tool call `id` (an opaque string from the provider, used to
-  correlate results) and `args` (the JSON-decoded arguments map). Must return
-  `{:ok, result}` or `{:error, reason}` where both values are strings — they
-  are placed directly into the model's context as tool result text. Exceptions
-  and exit signals are caught by the agent and converted to error strings
-  automatically.
+  Receives the calling `agent_id`, the tool call `id` (an opaque string from
+  the provider, used to correlate results), and `args` (the JSON-decoded
+  arguments map). Must return `{:ok, result}` or `{:error, reason}` where both
+  values are strings — they are placed directly into the model's context as
+  tool result text. Exceptions and exit signals are caught by the agent and
+  converted to error strings automatically.
   """
   @type execute_fn ::
-          (id :: String.t(), args :: map() -> {:ok, String.t()} | {:error, String.t()})
+          (agent_id :: String.t(), id :: String.t(), args :: map() ->
+             {:ok, String.t()} | {:error, String.t()})
 
   @typedoc """
   A fully-specified tool: schema fields understood by the LLM plus the
@@ -29,7 +30,7 @@ defmodule Planck.Agent.Tool do
   - `:description` — natural-language description sent to the model; quality
     here directly affects how reliably the model uses the tool
   - `:parameters` — JSON Schema object describing the accepted arguments
-  - `:execute_fn` — the function called with the tool call id and decoded args
+  - `:execute_fn` — the function called with the agent id, tool call id, and decoded args
   """
   @type t :: %__MODULE__{
           name: String.t(),
@@ -50,7 +51,7 @@ defmodule Planck.Agent.Tool do
       ...>   name: "read_file",
       ...>   description: "Read a file",
       ...>   parameters: %{"type" => "object", "properties" => %{"path" => %{"type" => "string"}}, "required" => ["path"]},
-      ...>   execute_fn: fn _id, %{"path" => path} -> File.read(path) end
+      ...>   execute_fn: fn _agent_id, _id, %{"path" => path} -> File.read(path) end
       ...> )
       %Planck.Agent.Tool{name: "read_file", ...}
   """

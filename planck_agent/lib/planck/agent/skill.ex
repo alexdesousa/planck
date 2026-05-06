@@ -158,7 +158,7 @@ defmodule Planck.Agent.Skill do
         },
         "required" => ["name"]
       },
-      execute_fn: fn _id, %{"name" => name} ->
+      execute_fn: fn _agent_id, _id, %{"name" => name} ->
         case Map.get(skill_map, name) do
           nil ->
             available = skill_map |> Map.keys() |> Enum.sort() |> Enum.join(", ")
@@ -189,7 +189,7 @@ defmodule Planck.Agent.Skill do
       name: "list_skills",
       description: "List all available skills with their names and descriptions.",
       parameters: %{"type" => "object", "properties" => %{}, "required" => []},
-      execute_fn: fn _id, _args ->
+      execute_fn: fn _agent_id, _id, _args ->
         if entries == "",
           do: {:ok, "No skills available."},
           else: {:ok, entries}

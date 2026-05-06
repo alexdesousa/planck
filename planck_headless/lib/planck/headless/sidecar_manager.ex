@@ -271,14 +271,14 @@ defmodule Planck.Headless.SidecarManager do
       name: ai_tool.name,
       description: ai_tool.description,
       parameters: inject_timeout_param(ai_tool.parameters),
-      execute_fn: fn agent_id, args ->
+      execute_fn: fn agent_id, tool_call_id, args ->
         timeout = Map.get(args, "timeout_ms", @default_tool_timeout_ms)
 
         case :rpc.call(
                node,
                Planck.Agent.Sidecar,
                :execute_tool,
-               [ai_tool.name, agent_id, args],
+               [ai_tool.name, agent_id, tool_call_id, args],
                timeout
              ) do
           {:badrpc, reason} -> {:error, reason}

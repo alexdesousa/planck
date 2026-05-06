@@ -15,7 +15,7 @@ defmodule Planck.Agent.Tools do
   For an orchestrator:
 
       tools =
-        Planck.Agent.Tools.orchestrator_tools(team_id, available_models) ++
+        Planck.Agent.Tools.orchestrator_tools(session_id, team_id, available_models) ++
         Planck.Agent.Tools.worker_tools(team_id, nil) ++
         [my_custom_tool]
 
@@ -40,17 +40,16 @@ defmodule Planck.Agent.Tools do
   Returns the inter-agent tools available to all agents in a team:
   `ask_agent`, `delegate_task`, `send_response`, `list_team`.
 
-  `own_id` is the calling agent's id — captured in `ask_agent` for deadlock
-  detection.
+  `delegator_id` is the agent the worker should respond to (`nil` for orchestrators).
 
   Pass `delegator_id: nil` for orchestrators (they have no delegator to
   respond to). The optional `sender` map is captured in `send_response` so
   the orchestrator knows which worker replied.
   """
-  @spec worker_tools(String.t(), String.t() | nil, String.t(), map() | nil) :: [Tool.t()]
-  def worker_tools(team_id, delegator_id, own_id, sender \\ nil) do
+  @spec worker_tools(String.t(), String.t() | nil, map() | nil) :: [Tool.t()]
+  def worker_tools(team_id, delegator_id, sender \\ nil) do
     [
-      ask_agent(team_id, own_id),
+      ask_agent(team_id),
       delegate_task(team_id),
       send_response(delegator_id, sender),
       list_team(team_id)
@@ -72,7 +71,6 @@ defmodule Planck.Agent.Tools do
   @spec orchestrator_tools(
           String.t(),
           String.t(),
-          String.t(),
           [Planck.AI.Model.t()],
           [Tool.t()],
           [Skill.t()],
@@ -81,14 +79,13 @@ defmodule Planck.Agent.Tools do
   def orchestrator_tools(
         session_id,
         team_id,
-        orchestrator_id,
         available_models,
         grantable_tools \\ [],
         grantable_skills \\ [],
         cwd \\ ""
       ) do
     [
-      spawn_agent(session_id, team_id, orchestrator_id, grantable_tools, grantable_skills, cwd),
+      spawn_agent(session_id, team_id, grantable_tools, grantable_skills, cwd),
       destroy_agent(team_id),
       interrupt_agent(team_id),
       list_models(available_models)
@@ -100,8 +97,8 @@ defmodule Planck.Agent.Tools do
   # ---------------------------------------------------------------------------
 
   @doc "Build the `ask_agent` tool for a given team."
-  @spec ask_agent(String.t(), String.t()) :: Tool.t()
-  def ask_agent(team_id, own_id) do
+  @spec ask_agent(String.t()) :: Tool.t()
+  def ask_agent(team_id) do
     Tool.new(
       name: "ask_agent",
       description: """
@@ -126,19 +123,19 @@ defmodule Planck.Agent.Tools do
         },
         "required" => ["identifier", "identifier_type", "question"]
       },
-      execute_fn: fn _id, args ->
+      execute_fn: fn agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
           target_id = Agent.get_info(pid).id
 
-          if circular_wait?(own_id, target_id) do
+          if circular_wait?(agent_id, target_id) do
             {:error,
-             "Deadlock detected: #{own_id} cannot ask #{target_id} — " <>
+             "Deadlock detected: #{agent_id} cannot ask #{target_id} — " <>
                "a circular wait chain already exists. Use send_response or " <>
                "delegate_task to communicate without blocking."}
           else
             # Register this wait so others can detect a cycle back to us.
             # The Registry entry is automatically removed when this task exits.
-            Registry.register(Planck.Agent.Registry, {:waiting, own_id}, target_id)
+            Registry.register(Planck.Agent.Registry, {:waiting, agent_id}, target_id)
             ref = Process.monitor(pid)
             Agent.subscribe(pid)
             :ok = Agent.prompt(pid, args["question"])
@@ -180,7 +177,7 @@ defmodule Planck.Agent.Tools do
         },
         "required" => ["identifier", "identifier_type", "task"]
       },
-      execute_fn: fn _id, args ->
+      execute_fn: fn _agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
           Agent.prompt(pid, args["task"])
 
@@ -214,7 +211,7 @@ defmodule Planck.Agent.Tools do
         },
         "required" => ["response"]
       },
-      execute_fn: fn _id, %{"response" => response} ->
+      execute_fn: fn _agent_id, _id, %{"response" => response} ->
         case delegator_id && Agent.whereis(delegator_id) do
           nil ->
             {:error, "No delegator to respond to."}
@@ -247,7 +244,6 @@ defmodule Planck.Agent.Tools do
   @spec spawn_agent(
           String.t(),
           String.t(),
-          String.t(),
           [Tool.t()],
           [Skill.t()],
           String.t()
@@ -255,7 +251,6 @@ defmodule Planck.Agent.Tools do
   def spawn_agent(
         session_id,
         team_id,
-        orchestrator_id,
         grantable_tools \\ [],
         grantable_skills \\ [],
         cwd \\ ""
@@ -325,7 +320,7 @@ defmodule Planck.Agent.Tools do
           "base_url"
         ]
       },
-      execute_fn: fn _id, args ->
+      execute_fn: fn agent_id, _id, args ->
         try do
           provider = String.to_existing_atom(args["provider"])
           base_url = Map.get(args, "base_url")
@@ -335,7 +330,7 @@ defmodule Planck.Agent.Tools do
           ctx = %{
             session_id: session_id,
             team_id: team_id,
-            orchestrator_id: orchestrator_id,
+            orchestrator_id: agent_id,
             cwd: cwd
           }
 
@@ -403,7 +398,7 @@ defmodule Planck.Agent.Tools do
       name: "destroy_agent",
       description: "Permanently terminate a worker in the team.",
       parameters: target_parameters(),
-      execute_fn: fn _id, args ->
+      execute_fn: fn _agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
           Agent.stop(pid)
           {:ok, "Agent destroyed."}
@@ -422,7 +417,7 @@ defmodule Planck.Agent.Tools do
       alive — use destroy_agent to terminate permanently.
       """,
       parameters: target_parameters(),
-      execute_fn: fn _id, args ->
+      execute_fn: fn _agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
           Agent.abort(pid)
           {:ok, "Agent interrupted."}
@@ -440,7 +435,13 @@ defmodule Planck.Agent.Tools do
         "List the configured and connected LLM models available for spawning agents. " <>
           "Use the returned provider, id, and base_url when calling spawn_agent.",
       parameters: %{"type" => "object", "properties" => %{}},
-      execute_fn: fn _id, _args ->
+      execute_fn: fn agent_id, _id, _args ->
+        current_model_id =
+          case Agent.whereis(agent_id) do
+            {:ok, pid} -> Agent.get_state(pid).model.id
+            _ -> nil
+          end
+
         models =
           Enum.map(available_models, fn m ->
             %{
@@ -448,7 +449,8 @@ defmodule Planck.Agent.Tools do
               id: m.id,
               name: m.name,
               context_window: m.context_window,
-              base_url: m.base_url
+              base_url: m.base_url,
+              current: m.id == current_model_id
             }
           end)
 
@@ -482,7 +484,7 @@ defmodule Planck.Agent.Tools do
           }
         }
       },
-      execute_fn: fn _id, args ->
+      execute_fn: fn _agent_id, _id, args ->
         verbose = Map.get(args, "verbose", false)
 
         members =
@@ -575,10 +577,15 @@ defmodule Planck.Agent.Tools do
   @spec resolve_spawn_model(atom(), String.t(), String.t() | nil) ::
           {:ok, Planck.AI.Model.t()} | {:error, String.t()}
   defp resolve_spawn_model(provider, model_id, base_url) do
-    effective_url = if provider in @local_providers, do: base_url, else: nil
+    result =
+      if provider in @local_providers and is_binary(base_url) and base_url != "" do
+        AIBehaviour.client().get_model(provider, model_id, base_url: base_url)
+      else
+        AIBehaviour.client().get_model(provider, model_id)
+      end
 
-    case AIBehaviour.client().get_model(provider, model_id) do
-      {:ok, model} -> {:ok, %{model | base_url: effective_url || model.base_url}}
+    case result do
+      {:ok, model} -> {:ok, model}
       {:error, :not_found} -> {:error, "Model not found."}
       {:error, reason} when is_binary(reason) -> {:error, reason}
     end
@@ -613,7 +620,7 @@ defmodule Planck.Agent.Tools do
       session_id: session_id,
       team_id: team_id,
       delegator_id: orchestrator_id,
-      tools: worker_tools(team_id, orchestrator_id, agent_id, sender) ++ granted_tools
+      tools: worker_tools(team_id, orchestrator_id, sender) ++ granted_tools
     ]
   end
 

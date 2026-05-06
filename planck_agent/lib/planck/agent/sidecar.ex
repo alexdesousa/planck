@@ -51,7 +51,7 @@ defmodule Planck.Agent.Sidecar do
                   }
                 }
               },
-              execute_fn: fn _id, args ->
+              execute_fn: fn _agent_id, _id, args ->
                 timeout = Map.get(args, "timeout_ms", 120_000)
                 case System.cmd("mix", ["test"], timeout: timeout) do
                   {output, 0} -> {:ok, output}
@@ -97,7 +97,7 @@ defmodule Planck.Agent.Sidecar do
               name: "run_tests",
               description: "Run the test suite.",
               parameters: %{"type" => "object", "properties" => %{}},
-              execute_fn: fn _id, _args ->
+              execute_fn: fn _agent_id, _id, _args ->
                 {out, 0} = System.cmd("mix", ["test"])
                 {:ok, out}
               end
@@ -218,16 +218,17 @@ defmodule Planck.Agent.Sidecar do
   Called by planck_headless on the sidecar node:
 
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :execute_tool,
-                [tool_name, agent_id, args], timeout)
+                [tool_name, agent_id, tool_call_id, args], timeout)
 
   The `timeout` is read from `args["timeout_ms"]` by the planck_headless RPC
   wrapper, not by this function.
   """
-  @spec execute_tool(String.t(), String.t(), map()) :: {:ok, term()} | {:error, term()}
-  def execute_tool(tool_name, agent_id, args) do
+  @spec execute_tool(String.t(), String.t(), String.t(), map()) ::
+          {:ok, term()} | {:error, term()}
+  def execute_tool(tool_name, agent_id, tool_call_id, args) do
     case discover() do
       nil -> {:error, "no sidecar entry module found"}
-      module -> execute_tool(module, tool_name, agent_id, args)
+      module -> execute_tool(module, tool_name, agent_id, tool_call_id, args)
     end
   end
 
@@ -236,12 +237,12 @@ defmodule Planck.Agent.Sidecar do
 
   Intended for tests. Production code should use `execute_tool/3`.
   """
-  @spec execute_tool(module(), String.t(), String.t(), map()) ::
+  @spec execute_tool(module(), String.t(), String.t(), String.t(), map()) ::
           {:ok, term()} | {:error, term()}
-  def execute_tool(module, tool_name, agent_id, args) do
+  def execute_tool(module, tool_name, agent_id, tool_call_id, args) do
     case Enum.find(module.tools(), &(&1.name == tool_name)) do
       nil -> {:error, "unknown tool: #{tool_name}"}
-      tool -> tool.execute_fn.(agent_id, args)
+      tool -> tool.execute_fn.(agent_id, tool_call_id, args)
     end
   end
 end

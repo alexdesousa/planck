@@ -32,7 +32,7 @@ defmodule Planck.Agent.ExternalToolTest do
       assert {:ok, tool} = ExternalTool.from_file(path)
       assert tool.name == "echo_tool"
       assert tool.description == "Echoes a message."
-      assert is_function(tool.execute_fn, 2)
+      assert is_function(tool.execute_fn, 3)
     end
 
     test "returns error for a missing file" do
@@ -57,7 +57,7 @@ defmodule Planck.Agent.ExternalToolTest do
     test "execute_fn interpolates {{key}} placeholders", %{tmp_dir: dir} do
       path = write_tool(dir, "echo_tool", @valid_spec)
       {:ok, tool} = ExternalTool.from_file(path)
-      {:ok, output} = tool.execute_fn.("id", %{"message" => "hello"})
+      {:ok, output} = tool.execute_fn.("agent", "id", %{"message" => "hello"})
       assert String.trim(output) == "hello"
     end
 
@@ -65,7 +65,7 @@ defmodule Planck.Agent.ExternalToolTest do
       spec = Map.put(@valid_spec, "command", "echo {{missing}}")
       path = write_tool(dir, "empty_tool", spec)
       {:ok, tool} = ExternalTool.from_file(path)
-      {:ok, output} = tool.execute_fn.("id", %{})
+      {:ok, output} = tool.execute_fn.("agent", "id", %{})
       assert String.trim(output) == ""
     end
 
@@ -73,7 +73,7 @@ defmodule Planck.Agent.ExternalToolTest do
       spec = Map.put(@valid_spec, "command", "exit 1")
       path = write_tool(dir, "failing_tool", spec)
       {:ok, tool} = ExternalTool.from_file(path)
-      assert {:error, reason} = tool.execute_fn.("id", %{})
+      assert {:error, reason} = tool.execute_fn.("agent", "id", %{})
       assert reason =~ "1"
     end
   end

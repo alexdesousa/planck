@@ -66,7 +66,7 @@ defmodule Planck.Agent.AgentTest do
           name: "spawn_agent",
           description: "spawn",
           parameters: %{},
-          execute_fn: fn _, _ -> {:ok, :ok} end
+          execute_fn: fn _, _, _ -> {:ok, :ok} end
         )
 
       agent = start_agent(tools: [spawn_tool])
@@ -300,7 +300,7 @@ defmodule Planck.Agent.AgentTest do
           name: "echo",
           description: "echo",
           parameters: %{},
-          execute_fn: fn _id, %{"msg" => m} -> {:ok, m} end
+          execute_fn: fn _agent_id, _id, %{"msg" => m} -> {:ok, m} end
         )
 
       call = %{id: "c1", name: "echo", args: %{"msg" => "ping"}}
@@ -371,7 +371,7 @@ defmodule Planck.Agent.AgentTest do
           name: "slow",
           description: "slow tool",
           parameters: %{},
-          execute_fn: fn _id, _args ->
+          execute_fn: fn _agent_id, _id, _args ->
             send(parent, :tool_started)
             Process.sleep(5_000)
             {:ok, "done"}
@@ -409,7 +409,7 @@ defmodule Planck.Agent.AgentTest do
           name: "fast",
           description: "fast tool",
           parameters: %{},
-          execute_fn: fn _id, _args -> {:ok, "done"} end
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "done"} end
         )
 
       stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
@@ -437,7 +437,7 @@ defmodule Planck.Agent.AgentTest do
       agent = start_agent()
 
       tool =
-        Tool.new(name: "t", description: "d", parameters: %{}, execute_fn: fn _, _ -> :ok end)
+        Tool.new(name: "t", description: "d", parameters: %{}, execute_fn: fn _, _, _ -> :ok end)
 
       Agent.add_tool(agent, tool)
       assert Map.has_key?(Agent.get_state(agent).tools, "t")
@@ -445,7 +445,7 @@ defmodule Planck.Agent.AgentTest do
 
     test "removes a tool at runtime" do
       tool =
-        Tool.new(name: "t", description: "d", parameters: %{}, execute_fn: fn _, _ -> :ok end)
+        Tool.new(name: "t", description: "d", parameters: %{}, execute_fn: fn _, _, _ -> :ok end)
 
       agent = start_agent(tools: [tool])
       Agent.remove_tool(agent, "t")

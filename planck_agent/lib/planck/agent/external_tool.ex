@@ -126,7 +126,7 @@ defmodule Planck.Agent.ExternalTool do
         name: name,
         description: desc,
         parameters: params,
-        execute_fn: fn _id, args ->
+        execute_fn: fn _agent_id, _id, args ->
           cwd = Map.get(args, "cwd", File.cwd!())
           timeout = Map.get(args, "timeout", @default_timeout)
           command = interpolate(template, args)

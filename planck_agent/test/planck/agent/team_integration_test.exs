@@ -37,7 +37,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
   defp start_worker(team_id, type, delegator_id, extra_opts \\ [], sender \\ nil) do
     id = unique_id()
 
-    tools = Tools.worker_tools(team_id, delegator_id, id, sender)
+    tools = Tools.worker_tools(team_id, delegator_id, sender)
 
     start_dynamic(
       [
@@ -67,8 +67,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     end)
 
     tools =
-      Tools.orchestrator_tools(session_id, team_id, id, [@model]) ++
-        Tools.worker_tools(team_id, nil, id)
+      Tools.orchestrator_tools(session_id, team_id, [@model]) ++
+        Tools.worker_tools(team_id, nil)
 
     pid =
       start_dynamic(
@@ -302,7 +302,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       builder_id = unique_id()
       sender = %{id: builder_id, name: "builder"}
 
-      tools = Tools.worker_tools(team_id, orch_id, builder_id, sender)
+      tools = Tools.worker_tools(team_id, orch_id, sender)
 
       _builder_pid =
         start_dynamic(
@@ -508,7 +508,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       "base_url" => "http://localhost:11434"
     }
 
-    {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
+    {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, "tc-spawn", Map.merge(base, extra_args))
     {:ok, pid} = Agent.whereis(agent_id)
 
     on_exit(fn ->
@@ -528,8 +528,9 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [])
       tools = call_spawn(spawn_tool, orch_id)
 
       assert Map.has_key?(tools, "ask_agent")
@@ -542,8 +543,9 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [BuiltinTools.read()])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [BuiltinTools.read()])
       tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["read"]})
 
       assert Map.has_key?(tools, "read")
@@ -553,8 +555,9 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [BuiltinTools.read()])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [BuiltinTools.read()])
       tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["bash", "write"]})
 
       refute Map.has_key?(tools, "bash")
@@ -566,9 +569,10 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
       spawn_tool =
-        Tools.spawn_agent(unique_id(), team_id, orch_id, [
+        Tools.spawn_agent(unique_id(), team_id, [
           BuiltinTools.read(),
           BuiltinTools.bash()
         ])
@@ -596,7 +600,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       "base_url" => "http://localhost:11434"
     }
 
-    {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
+    {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, "tc-spawn", Map.merge(base, extra_args))
     {:ok, pid} = Agent.whereis(agent_id)
 
     on_exit(fn ->
@@ -612,6 +616,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "code_review",
@@ -620,7 +625,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         skill_file: "/tmp/skills/code_review/SKILL.md"
       }
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [], [skill])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [skill])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["code_review"]})
 
       assert prompt =~ "You are a reviewer."
@@ -632,8 +637,9 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [], [])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["unknown"]})
 
       assert prompt == "You are a reviewer."
@@ -643,6 +649,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "code_review",
@@ -651,7 +658,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         skill_file: "/tmp/skills/code_review/SKILL.md"
       }
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [], [skill])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [skill])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id)
 
       assert prompt == "You are a reviewer."
@@ -666,11 +673,12 @@ defmodule Planck.Agent.TeamIntegrationTest do
     team_id = unique_id()
     orch_id = unique_id()
     stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
 
-    spawn_tool = Tools.spawn_agent(unique_id(), team_id, orch_id, [tool])
+    spawn_tool = Tools.spawn_agent(unique_id(), team_id, [tool])
 
     {:ok, agent_id} =
-      spawn_tool.execute_fn.(orch_id, %{
+      spawn_tool.execute_fn.(orch_id, "tc-spawn", %{
         "type" => "worker",
         "name" => "Worker",
         "description" => "A worker agent.",
