@@ -22,15 +22,23 @@ Hooks.PromptInput = {
 }
 
 // Scroll chat to bottom, highlight code, and format timestamps in local time.
-// Auto-scroll only fires if the user is already near the bottom — preserving
-// scroll position when the user expands a tool call or scrolls up to read.
+// Auto-scroll fires when near the bottom (preserving manual scroll position)
+// or whenever a new entry is appended (e.g. user sends a message).
 Hooks.Chat = {
-  mounted()  { this.initialLoad = true; this.scrollBottom(true); this.highlight(); this.formatTimes() },
-  updated()  { this.scrollBottom(this.initialLoad); this.initialLoad = false; this.highlight(); this.formatTimes() },
+  mounted()  { this.entryCount = this.countEntries(); this.scrollBottom(true); this.highlight(); this.formatTimes() },
+  updated()  {
+    const count = this.countEntries()
+    const newEntry = count > this.entryCount
+    this.entryCount = count
+    const nearBottom = this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight < 80
+    this.scrollBottom(newEntry || nearBottom)
+    this.highlight()
+    this.formatTimes()
+  },
+  countEntries() { return this.el.querySelectorAll('[data-entry]').length },
   scrollBottom(force) {
     const el = this.el
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    if (force || nearBottom) el.scrollTop = el.scrollHeight
+    if (force) el.scrollTop = el.scrollHeight
   },
   highlight() {
     this.el.querySelectorAll('pre code:not([data-highlighted])').forEach(el => {

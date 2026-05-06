@@ -75,13 +75,13 @@ msgctxt "button label"
 msgid "edit"
 msgstr "editar"
 
-#: lib/planck/web/live/chat_component.html.heex:240
+#: lib/planck/web/live/chat_component.html.heex:241
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "agent"
 msgstr "agente"
 
-#: lib/planck/web/live/chat_component.html.heex:229
+#: lib/planck/web/live/chat_component.html.heex:230
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "compacting context…"

@@ -32,7 +32,7 @@
 
   <%!-- Message entries --%>
   <%= for entry <- @entries do %>
-
+  <div data-entry>
     <%!-- RIGHT side: user input, incoming delegations, and worker responses --%>
     <%= if entry.side == :right do %>
       <div class="flex justify-end">
@@ -220,6 +220,7 @@
         <% _ -> %>
       <% end %>
     <% end %>
+  </div>
   <% end %>
 
   <%!-- Compacting indicator --%>
