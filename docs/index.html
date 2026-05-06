@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planck — One goal, many experts.</title>
+  <meta name="description" content="Define a team of specialist agents. Talk to the orchestrator. Planck handles the rest.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    /* ── Tokens ──────────────────────────────────────────────────────── */
+    :root {
+      --bg:       #f5f5f5;
+      --fg:       #1a1a1a;
+      --card:     #ffffff;
+      --primary:  #5F4FE6;
+      --accent:   #FED13B;
+      --muted:    #CFCCEA;
+      --muted-fg: #5B5686;
+      --border:   #1a1a1a;
+      --shadow:   #1a1a1a;
+    }
+    [data-theme="dark"] {
+      --bg:       #0f0f12;
+      --fg:       #f5f5f5;
+      --card:     #1a1a1d;
+      --primary:  #7b6df5;
+      --accent:   #FED13B;
+      --muted:    #3d395a;
+      --muted-fg: #a49fce;
+      --border:   #f5f5f5;
+      --shadow:   #f5f5f5;
+    }
+
+    /* ── Reset ───────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Space Mono', monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Cursor blink ────────────────────────────────────────────────── */
+    .cursor {
+      display: inline-block;
+      width: 0.6em;
+      height: 1.1em;
+      background: var(--fg);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+      margin-left: 3px;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    .container {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    section { padding: 4rem 0; }
+    section + section { border-top: 2px solid var(--border); }
+
+    /* ── Nav ─────────────────────────────────────────────────────────── */
+    nav {
+      border-bottom: 2px solid var(--border);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.85rem;
+      color: var(--fg);
+      display: flex;
+      align-items: center;
+      text-decoration: none;
+      letter-spacing: 0.05em;
+    }
+    .logo:hover { text-decoration: none; }
+
+    .nav-links { display: flex; align-items: center; gap: 0.75rem; }
+
+    /* ── Buttons ─────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-block;
+      border: 2px solid var(--border);
+      padding: 0.45rem 1rem;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      background: var(--card);
+      color: var(--fg);
+      box-shadow: 3px 3px 0 var(--shadow);
+      transition: box-shadow 0.1s, transform 0.1s;
+      white-space: nowrap;
+    }
+    .btn:hover {
+      box-shadow: 1px 1px 0 var(--shadow);
+      transform: translate(2px, 2px);
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn-primary:hover { color: #fff; }
+    .btn-accent  { background: var(--accent);  color: #000; border-color: var(--border); }
+
+    .btn-sm {
+      padding: 0.3rem 0.65rem;
+      font-size: 0.68rem;
+      box-shadow: 2px 2px 0 var(--shadow);
+    }
+    .btn-sm:hover { box-shadow: 0 0 0 var(--shadow); }
+
+    /* ── Theme toggle ────────────────────────────────────────────────── */
+    .theme-toggle {
+      border: 2px solid var(--border);
+      background: var(--card);
+      color: var(--fg);
+      width: 2.2rem;
+      height: 2.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 2px 2px 0 var(--shadow);
+      transition: box-shadow 0.1s, transform 0.1s;
+    }
+    .theme-toggle:hover {
+      box-shadow: 0 0 0 var(--shadow);
+      transform: translate(2px, 2px);
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────────── */
+    .hero { text-align: center; padding: 5rem 0 4rem; }
+
+    .hero h1 {
+      font-size: clamp(2rem, 6vw, 3.5rem);
+      font-weight: 700;
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+    }
+    .hero h1 em { font-style: normal; color: var(--primary); }
+
+    .hero-sub {
+      font-size: 0.88rem;
+      color: var(--muted-fg);
+      max-width: 440px;
+      margin: 0 auto 2.25rem;
+      line-height: 1.8;
+    }
+
+    .hero-cta { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+
+    /* ── Blog banner ─────────────────────────────────────────────────── */
+    .blog-banner {
+      border: 2px solid var(--border);
+      background: var(--accent);
+      color: #000;
+      padding: 0.9rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      box-shadow: 4px 4px 0 var(--shadow);
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-wrap: wrap;
+    }
+    .blog-banner a { color: #000; text-decoration: underline; white-space: nowrap; }
+    .blog-banner a:hover { text-decoration: none; }
+
+    /* ── Section label ───────────────────────────────────────────────── */
+    .section-label {
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted-fg);
+      margin-bottom: 2rem;
+    }
+
+    /* ── How it works ────────────────────────────────────────────────── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .step {
+      border: 2px solid var(--border);
+      background: var(--card);
+      padding: 1.5rem 1.25rem;
+      box-shadow: 4px 4px 0 var(--shadow);
+    }
+
+    .step-num {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.6rem;
+      color: var(--primary);
+      display: block;
+      margin-bottom: 0.9rem;
+    }
+
+    .step h3 { font-size: 0.82rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .step p  { font-size: 0.75rem; color: var(--muted-fg); line-height: 1.7; }
+
+    /* ── Stack ───────────────────────────────────────────────────────── */
+    .stack {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .stack-card {
+      border: 2px solid var(--border);
+      background: var(--card);
+      padding: 1.25rem;
+      box-shadow: 4px 4px 0 var(--shadow);
+      transition: box-shadow 0.1s, transform 0.1s;
+    }
+    .stack-card:hover {
+      box-shadow: 2px 2px 0 var(--shadow);
+      transform: translate(2px, 2px);
+    }
+    .stack-card.engine {
+      border-color: var(--primary);
+      box-shadow: 4px 4px 0 var(--primary);
+    }
+    .stack-card.engine:hover { box-shadow: 2px 2px 0 var(--primary); }
+
+    .pkg-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: var(--primary);
+      border: 2px solid var(--primary);
+      padding: 0.1rem 0.4rem;
+      display: inline-block;
+      margin-bottom: 0.75rem;
+      font-family: 'Space Mono', monospace;
+    }
+    .stack-card p { font-size: 0.74rem; color: var(--muted-fg); line-height: 1.65; }
+
+    /* ── Get started ─────────────────────────────────────────────────── */
+    .code-block {
+      border: 2px solid var(--border);
+      background: #1e2024;
+      color: #abb2bf;
+      padding: 1.25rem 1.5rem;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.9;
+      box-shadow: 4px 4px 0 var(--shadow);
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      white-space: pre;
+    }
+    .co { color: #5c6370; }
+    .kw { color: var(--accent); }
+
+    /* ── OS tabs ─────────────────────────────────────────────────────── */
+    .os-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: -2px;
+    }
+    .os-tab {
+      border: 2px solid var(--border);
+      background: var(--bg);
+      color: var(--muted-fg);
+      padding: 0.4rem 1rem;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: -2px;
+      transition: background 0.1s, color 0.1s;
+    }
+    .os-tab.active {
+      background: #1e2024;
+      color: var(--accent);
+      border-bottom-color: #1e2024;
+      z-index: 1;
+      position: relative;
+    }
+    .os-panel { display: none; }
+    .os-panel.active { display: block; }
+
+    /* ── Footer ──────────────────────────────────────────────────────── */
+    footer {
+      border-top: 2px solid var(--border);
+      padding: 2rem 1.5rem;
+      text-align: center;
+      font-size: 0.7rem;
+      color: var(--muted-fg);
+      background: var(--card);
+    }
+    footer a { color: var(--primary); }
+    footer p + p { margin-top: 0.35rem; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Nav ─────────────────────────────────────────────────────────── -->
+  <nav>
+    <a href="/" class="logo">PLANCK<span class="cursor"></span></a>
+    <div class="nav-links">
+      <a href="https://github.com/alexdesousa/planck" class="btn btn-sm">GitHub</a>
+      <a href="https://hex.pm/packages/planck_headless" class="btn btn-sm">Hex.pm</a>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light / dark">◑</button>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="container">
+      <h1>One goal,<br><em>many experts.</em></h1>
+      <p class="hero-sub">Define a team of specialist agents. Talk to the orchestrator. Planck handles the rest.</p>
+      <div class="hero-cta">
+        <a href="#get-started" class="btn btn-primary">Get started</a>
+        <a href="https://github.com/alexdesousa/planck" class="btn">View on GitHub →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Blog banner ─────────────────────────────────────────────────── -->
+  <div class="container" style="padding-bottom: 3rem;">
+    <div class="blog-banner">
+      <span>New — Introducing Planck: OTP-native multi-agent coding</span>
+      <a href="#">Read the intro post →</a>
+    </div>
+  </div>
+
+  <!-- ── How it works ────────────────────────────────────────────────── -->
+  <section>
+    <div class="container">
+      <p class="section-label">How it works</p>
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">01</span>
+          <h3>Define your team</h3>
+          <p>Planner, builder, reviewer — or whatever the workflow demands. Declare roles, prompts, and tools in a <code>TEAM.json</code>.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">02</span>
+          <h3>Agents coordinate</h3>
+          <p>Each agent runs as an OTP process. Delegation, responses, and interrupts flow as BEAM messages — no queues, no glue code.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">03</span>
+          <h3>You talk to the orchestrator</h3>
+          <p>One conversation. The orchestrator breaks the goal into tasks, delegates to specialists, and reports back when done.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── The stack ───────────────────────────────────────────────────── -->
+  <section>
+    <div class="container">
+      <p class="section-label">The stack</p>
+      <div class="stack">
+        <div class="stack-card">
+          <span class="pkg-tag">planck_ai</span>
+          <p>Typed LLM provider abstraction. Anthropic, OpenAI, Gemini, Ollama, llama.cpp — one API.</p>
+        </div>
+        <div class="stack-card">
+          <span class="pkg-tag">planck_agent</span>
+          <p>OTP multi-agent runtime. Each agent is a supervised GenServer. Teams live and die together.</p>
+        </div>
+        <div class="stack-card engine">
+          <span class="pkg-tag">planck_headless</span>
+          <p>The engine. Sessions, teams, resources, and config. Build your own interface on top.</p>
+        </div>
+        <div class="stack-card">
+          <span class="pkg-tag">planck</span>
+          <p>Web UI + HTTP API wrapped in a Burrito binary. Drop it on any machine, no Elixir required.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Get started ─────────────────────────────────────────────────── -->
+  <section id="get-started">
+    <div class="container">
+      <p class="section-label">Get started</p>
+
+      <div class="os-tabs">
+        <button class="os-tab active" onclick="switchTab('unix')">Linux / macOS</button>
+        <button class="os-tab" onclick="switchTab('windows')">Windows</button>
+      </div>
+
+      <div id="tab-unix" class="os-panel active">
+        <div class="code-block"><span class="co"># Install</span>
+<span class="kw">curl</span> -fsSL https://alexdesousa.github.io/planck/install.sh | sh
+
+<span class="co"># Run</span>
+<span class="kw">planck</span>
+
+<span class="co"># Open http://localhost:4000</span></div>
+      </div>
+
+      <div id="tab-windows" class="os-panel">
+        <div class="code-block"><span class="co"># Install (PowerShell)</span>
+<span class="kw">irm</span> https://alexdesousa.github.io/planck/install.ps1 | iex
+
+<span class="co"># Run</span>
+<span class="kw">planck</span>
+
+<span class="co"># Open http://localhost:4000</span></div>
+      </div>
+
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem;">
+        <a href="https://github.com/alexdesousa/planck" class="btn btn-primary">Documentation</a>
+        <a href="https://hex.pm/packages/planck_headless" class="btn">Hex.pm packages →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <footer>
+    <p>Built with <a href="https://elixir-lang.org">Elixir</a> and OTP by <a href="https://github.com/alexdesousa">Alex de Sousa</a>.</p>
+    <p>MIT License · <a href="https://github.com/alexdesousa/planck">GitHub</a> · <a href="https://hex.pm/packages/planck_headless">Hex.pm</a></p>
+  </footer>
+
+  <script>
+    function switchTab(os) {
+      document.querySelectorAll('.os-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.os-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-' + os).classList.add('active');
+      event.currentTarget.classList.add('active');
+    }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('planck-theme', next);
+    }
+
+    (function () {
+      const saved = localStorage.getItem('planck-theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+</body>
+</html>
