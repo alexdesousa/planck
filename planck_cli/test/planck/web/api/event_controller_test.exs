@@ -233,8 +233,11 @@ defmodule Planck.Web.API.EventControllerTest do
       "description" => "A helper worker",
       "system_prompt" => "You help.",
       "provider" => "ollama",
-      "model_id" => "llama3.2"
+      "model_id" => "llama3.2",
+      "base_url" => "http://localhost:11434"
     }
+
+    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
 
     stub(MockAI, :stream, fn _model, _context, _opts ->
       n = Agent.get_and_update(counter, &{&1, &1 + 1})

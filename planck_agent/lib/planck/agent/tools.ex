@@ -35,7 +35,6 @@ defmodule Planck.Agent.Tools do
 
   alias Planck.Agent
   alias Planck.Agent.{AIBehaviour, Skill, Tool}
-  alias Planck.AI
 
   @doc """
   Returns the inter-agent tools available to all agents in a team:
@@ -301,7 +300,7 @@ defmodule Planck.Agent.Tools do
           "base_url" => %{
             "type" => "string",
             "description" =>
-              "Base URL of the model server. Required when multiple servers of the same provider type are configured (e.g. \"http://localhost:11434\" for a specific Ollama instance)."
+              "Base URL of the model server. REQUIRED for ollama and llama_cpp providers (e.g. \"http://localhost:11434\"). Must not be omitted when using local models."
           },
           "tools" => %{
             "type" => "array",
@@ -320,50 +319,25 @@ defmodule Planck.Agent.Tools do
       },
       execute_fn: fn _id, args ->
         try do
-          type = args["type"]
           provider = String.to_existing_atom(args["provider"])
-          requested_tools = Map.get(args, "tools", [])
-          requested_skills = Map.get(args, "skills", [])
-
-          granted_tools =
-            Enum.flat_map(requested_tools, &List.wrap(Map.get(grantable_tool_map, &1)))
-
-          granted_skills =
-            Enum.flat_map(requested_skills, &List.wrap(Map.get(grantable_skill_map, &1)))
-
           base_url = Map.get(args, "base_url")
+          granted_tools = filter_granted(Map.get(args, "tools", []), grantable_tool_map)
+          granted_skills = filter_granted(Map.get(args, "skills", []), grantable_skill_map)
 
-          model_result =
-            if base_url do
-              AI.get_model(provider, args["model_id"], base_url: base_url)
-            else
-              AIBehaviour.client().get_model(provider, args["model_id"])
-            end
+          ctx = %{
+            session_id: session_id,
+            team_id: team_id,
+            orchestrator_id: orchestrator_id,
+            cwd: cwd
+          }
 
-          with {:ok, model} <- model_result,
-               :ok <- ensure_type_available(team_id, type) do
+          with :ok <- validate_base_url(provider, base_url),
+               {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url),
+               :ok <- ensure_type_available(team_id, args["type"]) do
             agent_id = generate_id()
 
-            sender = %{id: agent_id, name: args["name"]}
-
-            system_prompt =
-              args["system_prompt"]
-              |> prepend_agents_md(cwd)
-              |> build_system_prompt(granted_skills)
-
-            start_opts = [
-              id: agent_id,
-              type: type,
-              name: args["name"],
-              description: args["description"],
-              model: model,
-              cwd: cwd,
-              system_prompt: system_prompt,
-              session_id: session_id,
-              team_id: team_id,
-              delegator_id: orchestrator_id,
-              tools: worker_tools(team_id, orchestrator_id, agent_id, sender) ++ granted_tools
-            ]
+            start_opts =
+              build_spawn_start_opts(args, agent_id, model, granted_tools, granted_skills, ctx)
 
             case DynamicSupervisor.start_child(
                    Planck.Agent.AgentSupervisor,
@@ -372,9 +346,6 @@ defmodule Planck.Agent.Tools do
               {:ok, _pid} -> {:ok, agent_id}
               {:error, reason} -> {:error, "Failed to start agent: #{inspect(reason)}"}
             end
-          else
-            {:error, :not_found} -> {:error, "Model not found."}
-            {:error, reason} when is_binary(reason) -> {:error, reason}
           end
         rescue
           ArgumentError -> {:error, "Unknown provider: #{args["provider"]}."}
@@ -585,6 +556,62 @@ defmodule Planck.Agent.Tools do
       [{pid, _} | _] -> {:ok, pid}
       _ -> {:error, "Agent not found."}
     end
+  end
+
+  @spec filter_granted([String.t()], %{String.t() => term()}) :: [term()]
+  defp filter_granted(names, pool_map) do
+    Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
+  end
+
+  @spec validate_base_url(atom(), String.t() | nil) :: :ok | {:error, String.t()}
+  defp validate_base_url(provider, base_url)
+       when provider in [:ollama, :llama_cpp] and (is_nil(base_url) or base_url == "") do
+    {:error, "base_url is required for #{provider} providers (e.g. \"http://localhost:11434\")."}
+  end
+
+  defp validate_base_url(_provider, _base_url), do: :ok
+
+  @spec resolve_spawn_model(atom(), String.t(), String.t() | nil) ::
+          {:ok, Planck.AI.Model.t()} | {:error, String.t()}
+  defp resolve_spawn_model(provider, model_id, base_url) do
+    case AIBehaviour.client().get_model(provider, model_id) do
+      {:ok, model} -> {:ok, %{model | base_url: base_url || model.base_url}}
+      {:error, :not_found} -> {:error, "Model not found."}
+      {:error, reason} when is_binary(reason) -> {:error, reason}
+    end
+  end
+
+  @spec build_spawn_start_opts(
+          map(),
+          String.t(),
+          Planck.AI.Model.t(),
+          [Tool.t()],
+          [Skill.t()],
+          map()
+        ) ::
+          keyword()
+  defp build_spawn_start_opts(args, agent_id, model, granted_tools, granted_skills, ctx) do
+    %{session_id: session_id, team_id: team_id, orchestrator_id: orchestrator_id, cwd: cwd} = ctx
+    sender = %{id: agent_id, name: args["name"]}
+
+    system_prompt =
+      args["system_prompt"]
+      |> prepend_agents_md(cwd)
+      |> build_system_prompt(granted_skills)
+
+    [
+      id: agent_id,
+      type: args["type"],
+      name: args["name"],
+      description: args["description"],
+      model: model,
+      cwd: cwd,
+      system_prompt: system_prompt,
+      session_id: session_id,
+      team_id: team_id,
+      delegator_id: orchestrator_id,
+      tools: worker_tools(team_id, orchestrator_id, agent_id, sender) ++ granted_tools
+    ]
   end
 
   @spec ensure_type_available(String.t(), String.t()) :: :ok | {:error, String.t()}

@@ -504,7 +504,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
       "description" => "Reviews code",
       "system_prompt" => "You are a reviewer.",
       "provider" => "ollama",
-      "model_id" => "llama3.2"
+      "model_id" => "llama3.2",
+      "base_url" => "http://localhost:11434"
     }
 
     {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
@@ -591,7 +592,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
       "description" => "Reviews code",
       "system_prompt" => "You are a reviewer.",
       "provider" => "ollama",
-      "model_id" => "llama3.2"
+      "model_id" => "llama3.2",
+      "base_url" => "http://localhost:11434"
     }
 
     {:ok, agent_id} = spawn_tool.execute_fn.(orch_id, Map.merge(base, extra_args))
@@ -675,6 +677,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         "system_prompt" => "You are a worker.",
         "provider" => "ollama",
         "model_id" => "llama3.2",
+        "base_url" => "http://localhost:11434",
         "tools" => [tool.name]
       })
 
