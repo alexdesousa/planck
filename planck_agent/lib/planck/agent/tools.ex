@@ -300,7 +300,7 @@ defmodule Planck.Agent.Tools do
           "base_url" => %{
             "type" => "string",
             "description" =>
-              "Base URL of the model server. REQUIRED for ollama and llama_cpp providers (e.g. \"http://localhost:11434\"). Must not be omitted when using local models."
+              "Server URL for the model. For local providers (ollama, llama_cpp) use the server address (e.g. \"http://localhost:11434\"). For cloud providers (anthropic, openai, google) this field is ignored — pass any placeholder value."
           },
           "tools" => %{
             "type" => "array",
@@ -315,7 +315,15 @@ defmodule Planck.Agent.Tools do
               "Skill names to attach; their descriptions are appended to the system prompt. Unknown names are silently ignored."
           }
         },
-        "required" => ["type", "name", "description", "system_prompt", "provider", "model_id"]
+        "required" => [
+          "type",
+          "name",
+          "description",
+          "system_prompt",
+          "provider",
+          "model_id",
+          "base_url"
+        ]
       },
       execute_fn: fn _id, args ->
         try do
@@ -331,8 +339,7 @@ defmodule Planck.Agent.Tools do
             cwd: cwd
           }
 
-          with :ok <- validate_base_url(provider, base_url),
-               {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url),
+          with {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url),
                :ok <- ensure_type_available(team_id, args["type"]) do
             agent_id = generate_id()
 
@@ -563,19 +570,15 @@ defmodule Planck.Agent.Tools do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
   end
 
-  @spec validate_base_url(atom(), String.t() | nil) :: :ok | {:error, String.t()}
-  defp validate_base_url(provider, base_url)
-       when provider in [:ollama, :llama_cpp] and (is_nil(base_url) or base_url == "") do
-    {:error, "base_url is required for #{provider} providers (e.g. \"http://localhost:11434\")."}
-  end
-
-  defp validate_base_url(_provider, _base_url), do: :ok
+  @local_providers [:ollama, :llama_cpp]
 
   @spec resolve_spawn_model(atom(), String.t(), String.t() | nil) ::
           {:ok, Planck.AI.Model.t()} | {:error, String.t()}
   defp resolve_spawn_model(provider, model_id, base_url) do
+    effective_url = if provider in @local_providers, do: base_url, else: nil
+
     case AIBehaviour.client().get_model(provider, model_id) do
-      {:ok, model} -> {:ok, %{model | base_url: base_url || model.base_url}}
+      {:ok, model} -> {:ok, %{model | base_url: effective_url || model.base_url}}
       {:error, :not_found} -> {:error, "Model not found."}
       {:error, reason} when is_binary(reason) -> {:error, reason}
     end
