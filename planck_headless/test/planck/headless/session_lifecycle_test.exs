@@ -935,7 +935,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       result_msg =
         Message.new(:tool_result, [
-          {:tool_result, call_id, {:ok, "agent-id-abc"}}
+          {:tool_result, call_id, "agent-id-abc"}
         ])
 
       Session.append(session_id, old_orch_id, spawn_msg)
@@ -950,6 +950,163 @@ defmodule Planck.Headless.SessionLifecycleTest do
       # The "reviewer" worker should be registered in the team registry.
       assert [{_pid, _meta} | _] =
                Registry.lookup(Agent.Registry, {team_id, "reviewer"})
+    end
+
+    test "reconstructed dynamic worker uses original agent id from spawn_agent tool result",
+         %{tmp_dir: dir} do
+      team_dir = write_team(dir, "id-preserved")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      original_worker_id = "worker-original-#{System.unique_integer()}"
+      call_id = "spawn-id-preserved"
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, call_id, "spawn_agent",
+           %{
+             "type" => "reviewer",
+             "name" => "Reviewer",
+             "description" => "Reviews code.",
+             "system_prompt" => "You are a reviewer.",
+             "provider" => "ollama",
+             "model_id" => "llama3.2",
+             "tools" => []
+           }}
+        ])
+      )
+
+      # Production format: build_tool_result_message stores the plain string, not {:ok, id}.
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [
+          {:tool_result, call_id, original_worker_id}
+        ])
+      )
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      members = Registry.lookup(Agent.Registry, {new_meta["team_id"], :member})
+
+      reconstructed_id =
+        Enum.find_value(members, fn {_pid, m} -> m.type == "reviewer" && m.id end)
+
+      assert reconstructed_id == original_worker_id
+    end
+
+    test "failed spawn_agent (error result) is skipped on reconstruct", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "failed-spawn")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      call_id = "spawn-failed"
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, call_id, "spawn_agent",
+           %{
+             "type" => "reviewer",
+             "name" => "Reviewer",
+             "description" => "Reviews code.",
+             "system_prompt" => "You are a reviewer.",
+             "provider" => "ollama",
+             "model_id" => "llama3.2",
+             "tools" => []
+           }}
+        ])
+      )
+
+      # Error result — should not be used as an agent ID.
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [
+          {:tool_result, call_id, "Error: Model not found."}
+        ])
+      )
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      members = Registry.lookup(Agent.Registry, {new_meta["team_id"], :member})
+      reviewer = Enum.find(members, fn {_pid, m} -> m.type == "reviewer" end)
+
+      # Worker not reconstructed (model still not found, but more importantly no garbage id).
+      assert reviewer == nil
+    end
+
+    test "retry spawn_agent uses most recent successful id", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "retry-spawn")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      worker_spec = %{
+        "type" => "reviewer",
+        "name" => "Reviewer",
+        "description" => "Reviews code.",
+        "system_prompt" => "You are a reviewer.",
+        "provider" => "ollama",
+        "model_id" => "llama3.2",
+        "tools" => []
+      }
+
+      # First attempt fails.
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, "spawn-fail", "spawn_agent", worker_spec}
+        ])
+      )
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [
+          {:tool_result, "spawn-fail", "Error: Model not found."}
+        ])
+      )
+
+      # Second attempt succeeds.
+      successful_id = "worker-retry-#{System.unique_integer()}"
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, "spawn-ok", "spawn_agent", worker_spec}
+        ])
+      )
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [
+          {:tool_result, "spawn-ok", successful_id}
+        ])
+      )
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      members = Registry.lookup(Agent.Registry, {new_meta["team_id"], :member})
+
+      reconstructed_id =
+        Enum.find_value(members, fn {_pid, m} -> m.type == "reviewer" && m.id end)
+
+      assert reconstructed_id == successful_id
     end
 
     test "resume injects recovery message for unfinished delegate_task worker", %{tmp_dir: dir} do

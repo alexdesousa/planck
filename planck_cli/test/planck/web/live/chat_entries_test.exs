@@ -370,6 +370,70 @@ defmodule Planck.Web.Live.ChatEntriesTest do
       assert [%{type: :inter_agent_in, side: :right, text: "review this"}] = entries
     end
 
+    test "orchestrator ask_agent targeting worker by id → right-side :inter_agent_in" do
+      agents = %{
+        "orch" => %{type: "orchestrator", name: "Aria"},
+        "builder" => %{id: "builder-uuid", type: "worker", name: "Bob"}
+      }
+
+      entries =
+        build(
+          [
+            row("orch", :assistant, [
+              {:tool_call, "t1", "ask_agent",
+               %{"question" => "review this", "id" => "builder-uuid"}}
+            ])
+          ],
+          "builder",
+          agents
+        )
+
+      assert [%{type: :inter_agent_in, side: :right, text: "review this"}] = entries
+    end
+
+    test "orchestrator delegate_task targeting worker by id → right-side :inter_agent_in" do
+      agents = %{
+        "orch" => %{type: "orchestrator", name: "Aria"},
+        "builder" => %{id: "builder-uuid", type: "worker", name: "Bob"}
+      }
+
+      entries =
+        build(
+          [
+            row("orch", :assistant, [
+              {:tool_call, "t1", "delegate_task",
+               %{"task" => "implement feature", "id" => "builder-uuid"}}
+            ])
+          ],
+          "builder",
+          agents
+        )
+
+      assert [%{type: :inter_agent_in, side: :right, text: "implement feature"}] = entries
+    end
+
+    test "orchestrator inter-agent call targeting by id does not match a different agent" do
+      agents = %{
+        "orch" => %{type: "orchestrator", name: "Aria"},
+        "builder" => %{id: "builder-uuid", type: "worker", name: "Bob"},
+        "reviewer" => %{id: "reviewer-uuid", type: "reviewer", name: "Eve"}
+      }
+
+      entries =
+        build(
+          [
+            row("orch", :assistant, [
+              {:tool_call, "t1", "ask_agent",
+               %{"question" => "not for Bob", "id" => "reviewer-uuid"}}
+            ])
+          ],
+          "builder",
+          agents
+        )
+
+      assert entries == []
+    end
+
     test "orchestrator inter-agent call targeting a different agent is hidden" do
       entries =
         build(

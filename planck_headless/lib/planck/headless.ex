@@ -80,6 +80,7 @@ defmodule Planck.Headless do
          prev_ids = decode_agent_ids(Map.get(metadata, "agent_ids")),
          {:ok, team_id} <-
            materialize_team(session_id, team, metadata["cwd"] || File.cwd!(), prev_ids, metadata),
+         :ok <- reconstruct_dynamic_workers(session_id, team_id, team),
          :ok <-
            save_metadata(
              session_id,
@@ -90,7 +91,6 @@ defmodule Planck.Headless do
              agent_ids(team_id),
              metadata["team_description"]
            ),
-         :ok <- reconstruct_dynamic_workers(session_id, team_id, team),
          :ok <- maybe_inject_recovery(session_id, team_id) do
       {:ok, session_id}
     end
@@ -692,47 +692,70 @@ defmodule Planck.Headless do
 
       orch_messages
       |> completed_spawn_calls()
-      |> Enum.reject(fn args ->
+      |> Enum.reject(fn {args, _id} ->
         type = args["type"]
         name = args["name"] || type
         MapSet.member?(base_members, {type, name})
       end)
-      |> Enum.each(&start_dynamic_worker(&1, session_id, team_id, orch_id, store))
+      |> Enum.reverse()
+      |> Enum.uniq_by(fn {args, _id} ->
+        type = args["type"]
+        name = args["name"] || type
+        {type, name}
+      end)
+      |> Enum.each(fn {args, original_id} ->
+        start_dynamic_worker(args, session_id, team_id, orch_id, store, original_id)
+      end)
     end
 
     :ok
   end
 
-  @spec completed_spawn_calls([Planck.Agent.Message.t()]) :: [map()]
+  # Returns {args, original_worker_id} pairs. The worker ID is extracted from
+  # the spawn_agent tool result so it matches the ID under which the worker's
+  # messages were stored, restoring history on resume.
+  @spec completed_spawn_calls([Planck.Agent.Message.t()]) :: [{map(), String.t() | nil}]
   defp completed_spawn_calls(messages) do
-    resolved_ids =
+    results_by_id =
       messages
       |> Enum.flat_map(fn msg ->
         Enum.flat_map(msg.content, fn
-          {:tool_result, id, _} -> [id]
+          {:tool_result, id, result} -> [{id, result}]
           _ -> []
         end)
       end)
-      |> MapSet.new()
+      |> Map.new()
 
     messages
     |> Enum.filter(&(&1.role == :assistant))
-    |> Enum.flat_map(&completed_spawn_parts(&1.content, resolved_ids))
+    |> Enum.flat_map(&completed_spawn_parts(&1.content, results_by_id))
   end
 
-  @spec completed_spawn_parts([term()], MapSet.t()) :: [map()]
-  defp completed_spawn_parts(content, resolved_ids) do
+  @spec completed_spawn_parts([term()], %{String.t() => term()}) :: [{map(), String.t() | nil}]
+  defp completed_spawn_parts(content, results_by_id) do
     Enum.flat_map(content, fn
-      {:tool_call, id, "spawn_agent", args} ->
-        if MapSet.member?(resolved_ids, id), do: [args], else: []
-
-      _ ->
-        []
+      {:tool_call, id, "spawn_agent", args} -> successful_spawn(Map.get(results_by_id, id), args)
+      _ -> []
     end)
   end
 
-  @spec start_dynamic_worker(map(), String.t(), String.t(), String.t(), ResourceStore.t()) :: :ok
-  defp start_dynamic_worker(args, session_id, team_id, orchestrator_id, store) do
+  @spec successful_spawn(term(), map()) :: [{map(), String.t()}]
+  defp successful_spawn(worker_id, args)
+       when is_binary(worker_id) and not is_nil(worker_id) do
+    if String.starts_with?(worker_id, "Error"), do: [], else: [{args, worker_id}]
+  end
+
+  defp successful_spawn(_result, _args), do: []
+
+  @spec start_dynamic_worker(
+          map(),
+          String.t(),
+          String.t(),
+          String.t(),
+          ResourceStore.t(),
+          String.t() | nil
+        ) :: :ok
+  defp start_dynamic_worker(args, session_id, team_id, orchestrator_id, store, original_id) do
     case AgentSpec.from_map(args) do
       {:ok, spec} ->
         base_opts =
@@ -743,6 +766,9 @@ defmodule Planck.Headless do
             session_id: session_id,
             available_models: store.available_models
           )
+
+        base_opts =
+          if original_id, do: Keyword.put(base_opts, :id, original_id), else: base_opts
 
         dynamic_worker_id = base_opts[:id]
         sender = %{id: dynamic_worker_id, name: spec.name}

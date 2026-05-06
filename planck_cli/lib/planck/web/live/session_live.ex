@@ -709,7 +709,8 @@ defmodule Planck.Web.SessionLive do
 
   @spec targets_overlay?(map(), map()) :: boolean()
   defp targets_overlay?(args, worker) do
-    (worker[:type] && args["type"] == worker[:type]) ||
+    (worker[:id] && args["id"] == worker[:id]) ||
+      (worker[:type] && args["type"] == worker[:type]) ||
       (worker[:name] && args["name"] == worker[:name])
   end
 

@@ -538,7 +538,8 @@ defmodule Planck.Web.Live.ChatEntries do
 
   @spec targets_agent?(map(), agent_info()) :: boolean()
   defp targets_agent?(args, worker_info) do
-    (worker_info[:type] && args["type"] == worker_info[:type]) ||
+    (worker_info[:id] && args["id"] == worker_info[:id]) ||
+      (worker_info[:type] && args["type"] == worker_info[:type]) ||
       (worker_info[:name] && args["name"] == worker_info[:name])
   end
 
