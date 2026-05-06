@@ -107,7 +107,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
                %{
                  id: "tc1",
                  name: "ask_agent",
-                 args: %{"type" => "builder", "question" => "What are you doing?"}
+                 args: %{
+                   "identifier" => "builder",
+                   "identifier_type" => "type",
+                   "question" => "What are you doing?"
+                 }
                }},
               {:done, %{}}
             ]
@@ -138,7 +142,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
              %{
                id: "tc2",
                name: "ask_agent",
-               args: %{"type" => "nonexistent", "question" => "hello?"}
+               args: %{
+                 "identifier" => "nonexistent",
+                 "identifier_type" => "type",
+                 "question" => "hello?"
+               }
              }},
             {:done, %{}}
           ]
@@ -154,7 +162,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       tool_msg = Enum.find(state.messages, &(&1.role == :tool_result))
       assert tool_msg != nil
       [{:tool_result, _id, value}] = tool_msg.content
-      assert value =~ "not found"
+      assert value =~ "Agent not found"
     end
 
     test "returns a deadlock error when ask_agent would create a circular wait" do
@@ -181,7 +189,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
                %{
                  id: "tc-orch",
                  name: "ask_agent",
-                 args: %{"type" => "builder", "question" => "ping"}
+                 args: %{
+                   "identifier" => "builder",
+                   "identifier_type" => "type",
+                   "question" => "ping"
+                 }
                }},
               {:done, %{}}
             ]
@@ -193,7 +205,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
                %{
                  id: "tc-builder",
                  name: "ask_agent",
-                 args: %{"type" => "orchestrator", "question" => "pong"}
+                 args: %{
+                   "identifier" => "orchestrator",
+                   "identifier_type" => "type",
+                   "question" => "pong"
+                 }
                }},
               {:done, %{}}
             ]
@@ -247,7 +263,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
                %{
                  id: "tc3",
                  name: "delegate_task",
-                 args: %{"type" => "builder", "task" => "Build the feature."}
+                 args: %{
+                   "identifier" => "builder",
+                   "identifier_type" => "type",
+                   "task" => "Build the feature."
+                 }
                }},
               {:done, %{}}
             ]
@@ -326,7 +346,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
                %{
                  id: "tc_d",
                  name: "delegate_task",
-                 args: %{"type" => "builder", "task" => "Do the work."}
+                 args: %{
+                   "identifier" => "builder",
+                   "identifier_type" => "type",
+                   "task" => "Do the work."
+                 }
                }},
               {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
             ]
@@ -451,7 +475,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
         else
           [
             {:tool_call_complete,
-             %{id: "tc5", name: "destroy_agent", args: %{"type" => "builder"}}},
+             %{
+               id: "tc5",
+               name: "destroy_agent",
+               args: %{"identifier" => "builder", "identifier_type" => "type"}
+             }},
             {:done, %{}}
           ]
         end
@@ -796,7 +824,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
           true ->
             [
               {:tool_call_complete,
-               %{id: "tc6", name: "interrupt_agent", args: %{"type" => "builder"}}},
+               %{
+                 id: "tc6",
+                 name: "interrupt_agent",
+                 args: %{"identifier" => "builder", "identifier_type" => "type"}
+               }},
               {:done, %{}}
             ]
         end

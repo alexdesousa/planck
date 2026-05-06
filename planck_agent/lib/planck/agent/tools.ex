@@ -113,12 +113,19 @@ defmodule Planck.Agent.Tools do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "type" => %{"type" => "string", "description" => "Agent type to ask"},
-          "name" => %{"type" => "string", "description" => "Agent name to ask"},
-          "id" => %{"type" => "string", "description" => "Agent id to ask"},
+          "identifier" => %{
+            "type" => "string",
+            "description" => "The value that identifies the target agent"
+          },
+          "identifier_type" => %{
+            "type" => "string",
+            "enum" => ["type", "name", "id"],
+            "description" =>
+              "How to resolve the identifier: by role type, display name, or agent id"
+          },
           "question" => %{"type" => "string", "description" => "The question to ask"}
         },
-        "required" => ["question"]
+        "required" => ["identifier", "identifier_type", "question"]
       },
       execute_fn: fn _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
@@ -160,18 +167,23 @@ defmodule Planck.Agent.Tools do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "type" => %{"type" => "string", "description" => "Agent type to delegate to"},
-          "name" => %{"type" => "string", "description" => "Agent name to delegate to"},
-          "id" => %{"type" => "string", "description" => "Agent id to delegate to"},
+          "identifier" => %{
+            "type" => "string",
+            "description" => "The value that identifies the target agent"
+          },
+          "identifier_type" => %{
+            "type" => "string",
+            "enum" => ["type", "name", "id"],
+            "description" =>
+              "How to resolve the identifier: by role type, display name, or agent id"
+          },
           "task" => %{"type" => "string", "description" => "The task to delegate"}
         },
-        "required" => ["task"]
+        "required" => ["identifier", "identifier_type", "task"]
       },
       execute_fn: fn _id, args ->
-        task = args["task"]
-
         with {:ok, pid} <- resolve_target(team_id, args) do
-          Agent.prompt(pid, task)
+          Agent.prompt(pid, args["task"])
 
           {:ok,
            "Task delegated. End your turn now unless you can delegate something else in parallel that won't be blocked by this delegation. The result will arrive in a future turn."}
@@ -540,27 +552,27 @@ defmodule Planck.Agent.Tools do
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  @spec resolve_target(String.t(), map()) ::
-          {:ok, pid()}
-          | {:error, String.t()}
-  defp resolve_target(team_id, params)
-
-  defp resolve_target(_team_id, %{"id" => id}) when is_binary(id) and id != "" do
+  @spec resolve_target(String.t(), map()) :: {:ok, pid()} | {:error, String.t()}
+  defp resolve_target(_team_id, %{"identifier" => id, "identifier_type" => "id"})
+       when is_binary(id) and id != "" do
     with {:error, :not_found} <- Agent.whereis(id) do
       {:error, "Agent not found."}
     end
   end
 
-  defp resolve_target(team_id, %{"name" => name}) when is_binary(name) and name != "" do
+  defp resolve_target(team_id, %{"identifier" => name, "identifier_type" => "name"})
+       when is_binary(name) and name != "" do
     lookup_team(team_id, name)
   end
 
-  defp resolve_target(team_id, %{"type" => type}) when is_binary(type) and type != "" do
+  defp resolve_target(team_id, %{"identifier" => type, "identifier_type" => "type"})
+       when is_binary(type) and type != "" do
     lookup_team(team_id, type)
   end
 
   defp resolve_target(_team_id, _args) do
-    {:error, "Agent not found."}
+    {:error,
+     "Could not resolve target: provide identifier and identifier_type (\"type\", \"name\", or \"id\")."}
   end
 
   @spec lookup_team(String.t(), String.t()) ::
@@ -590,10 +602,18 @@ defmodule Planck.Agent.Tools do
     %{
       "type" => "object",
       "properties" => %{
-        "type" => %{"type" => "string", "description" => "Agent type"},
-        "name" => %{"type" => "string", "description" => "Agent name"},
-        "id" => %{"type" => "string", "description" => "Agent id"}
-      }
+        "identifier" => %{
+          "type" => "string",
+          "description" => "The value that identifies the target agent"
+        },
+        "identifier_type" => %{
+          "type" => "string",
+          "enum" => ["type", "name", "id"],
+          "description" =>
+            "How to resolve the identifier: by role type, display name, or agent id"
+        }
+      },
+      "required" => ["identifier", "identifier_type"]
     }
   end
 

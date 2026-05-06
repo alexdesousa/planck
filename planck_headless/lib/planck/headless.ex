@@ -923,7 +923,7 @@ defmodule Planck.Headless do
         content_text = args["question"] || args["task"] || ""
 
         if content_text == task_text do
-          [{tool, args["name"] || args["type"] || "worker", task_text}]
+          [{tool, args["identifier"] || "worker", task_text}]
         else
           []
         end

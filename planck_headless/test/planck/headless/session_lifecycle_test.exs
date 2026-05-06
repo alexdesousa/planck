@@ -880,7 +880,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       ask_msg =
         Message.new(:assistant, [
           {:tool_call, "call-1", "ask_agent",
-           %{"type" => "builder", "question" => "What is 2+2?"}}
+           %{"identifier" => "builder", "identifier_type" => "type", "question" => "What is 2+2?"}}
         ])
 
       Session.append(session_id, old_orch_id, ask_msg)
@@ -1119,7 +1119,11 @@ defmodule Planck.Headless.SessionLifecycleTest do
       delegate_msg =
         Message.new(:assistant, [
           {:tool_call, "d-1", "delegate_task",
-           %{"type" => "builder", "task" => "Implement the login endpoint"}}
+           %{
+             "identifier" => "builder",
+             "identifier_type" => "type",
+             "task" => "Implement the login endpoint"
+           }}
         ])
 
       Session.append(session_id, old_orch_id, delegate_msg)
@@ -1159,7 +1163,12 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       ask_msg =
         Message.new(:assistant, [
-          {:tool_call, "c-1", "ask_agent", %{"type" => "builder", "question" => "Are you done?"}}
+          {:tool_call, "c-1", "ask_agent",
+           %{
+             "identifier" => "builder",
+             "identifier_type" => "type",
+             "question" => "Are you done?"
+           }}
         ])
 
       Session.append(session_id, old_orch_id, ask_msg)

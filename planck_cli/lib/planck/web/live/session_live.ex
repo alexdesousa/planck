@@ -709,9 +709,12 @@ defmodule Planck.Web.SessionLive do
 
   @spec targets_overlay?(map(), map()) :: boolean()
   defp targets_overlay?(args, worker) do
-    (worker[:id] && args["id"] == worker[:id]) ||
-      (worker[:type] && args["type"] == worker[:type]) ||
-      (worker[:name] && args["name"] == worker[:name])
+    case {args["identifier"], args["identifier_type"]} do
+      {val, "id"} -> worker[:id] == val
+      {val, "type"} -> worker[:type] == val
+      {val, "name"} -> worker[:name] == val
+      _ -> false
+    end
   end
 
   @spec send_to_sidebar(tuple()) :: :ok

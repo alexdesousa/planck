@@ -269,11 +269,11 @@ defmodule Planck.Web.Live.ChatEntries do
   def tool_subtitle("edit", %{"path" => path}), do: path
 
   def tool_subtitle("ask_agent", args) do
-    agent_subtitle(args["name"] || args["type"] || args["id"], args["question"])
+    agent_subtitle(args["identifier"], args["question"])
   end
 
   def tool_subtitle("delegate_task", args) do
-    agent_subtitle(args["name"] || args["type"] || args["id"], args["task"])
+    agent_subtitle(args["identifier"], args["task"])
   end
 
   def tool_subtitle("load_skill", %{"name" => name}), do: name
@@ -538,9 +538,12 @@ defmodule Planck.Web.Live.ChatEntries do
 
   @spec targets_agent?(map(), agent_info()) :: boolean()
   defp targets_agent?(args, worker_info) do
-    (worker_info[:id] && args["id"] == worker_info[:id]) ||
-      (worker_info[:type] && args["type"] == worker_info[:type]) ||
-      (worker_info[:name] && args["name"] == worker_info[:name])
+    case {args["identifier"], args["identifier_type"]} do
+      {val, "id"} -> worker_info[:id] == val
+      {val, "type"} -> worker_info[:type] == val
+      {val, "name"} -> worker_info[:name] == val
+      _ -> false
+    end
   end
 
   @spec extract_text([tuple()]) :: String.t()
