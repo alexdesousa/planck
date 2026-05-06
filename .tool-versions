@@ -1,4 +1,4 @@
 elixir 1.19.5-otp-28
 erlang 28.5
-zig 0.16.0
+zig 0.15.2
 nodejs 25.9.0

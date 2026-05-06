@@ -5,21 +5,138 @@ on:
     tags:
       - "v*"
 
-defaults:
-  run:
-    working-directory: planck_cli
+env:
+  HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+
+# ── Hex.pm publish ────────────────────────────────────────────────────────────
+# Published in dependency order so each package is available on Hex before the
+# next one tries to resolve it.
 
 jobs:
+  publish-ai:
+    name: Publish planck_ai
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: planck_ai
+    env:
+      MIX_ENV: dev
+      PLANCK_LOCAL: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Publish to Hex.pm
+        run: mix hex.publish --yes
+
+  publish-agent:
+    name: Publish planck_agent
+    runs-on: ubuntu-latest
+    needs: publish-ai
+    defaults:
+      run:
+        working-directory: planck_agent
+    env:
+      MIX_ENV: dev
+      PLANCK_LOCAL: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Publish to Hex.pm
+        run: mix hex.publish --yes
+
+  publish-headless:
+    name: Publish planck_headless
+    runs-on: ubuntu-latest
+    needs: publish-agent
+    defaults:
+      run:
+        working-directory: planck_headless
+    env:
+      MIX_ENV: dev
+      PLANCK_LOCAL: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+
+      - name: Verify tag matches mix.exs version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix do local.rebar --force, local.hex --force, deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Publish to Hex.pm
+        run: mix hex.publish --yes
+
+# ── Binary release ────────────────────────────────────────────────────────────
+# Runs after all Hex packages are published so deps.get resolves from Hex.
+
   build:
     name: Build binaries
     runs-on: ubuntu-latest
+    needs: publish-headless
 
     permissions:
       contents: write
 
     env:
-      PLANCK_LOCAL: true
       PLANCK_BUILD_ALL: true
+
+    defaults:
+      run:
+        working-directory: planck_cli
 
     steps:
       - uses: actions/checkout@v4
@@ -33,10 +150,10 @@ jobs:
       - name: Install Zig (required for Burrito cross-compilation)
         uses: mlugg/setup-zig@v1
         with:
-          version: "0.16.0"
+          version: "0.15.2"
 
-      - name: Install xz-utils
-        run: sudo apt-get install -y xz-utils
+      - name: Install system dependencies
+        run: sudo apt-get install -y xz-utils p7zip-full
 
       - name: Set up Node.js (required for highlight.js asset bundling)
         uses: actions/setup-node@v4
@@ -45,6 +162,8 @@ jobs:
 
       - name: Install dependencies
         run: mix do local.rebar --force, local.hex --force, deps.get
+        env:
+          MIX_ENV: prod
 
       - name: Install and compile dev dependencies (esbuild/tailwind)
         run: mix deps.compile
@@ -61,18 +180,12 @@ jobs:
         env:
           MIX_ENV: prod
 
-      - name: Extract version from mix.exs
-        id: mix_version
-        run: |
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Verify tag matches mix.exs version
         run: |
           TAG="${{ github.ref_name }}"
-          MIX="${{ steps.mix_version.outputs.version }}"
-          if [ "v$MIX" != "$TAG" ]; then
-            echo "Tag $TAG does not match mix.exs version $MIX"
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match mix.exs version $VERSION"
             exit 1
           fi
 
