@@ -134,8 +134,8 @@ response/communication subset.
 
 | Tool | Description |
 |---|---|
-| `ask_agent` | Send a prompt to another agent and block until it responds |
-| `delegate_task` | Send a task without waiting (non-blocking) |
+| `ask_agent` | Send a prompt to another agent and block until it responds. Requires `identifier` (value) and `identifier_type` (`"type"`, `"name"`, or `"id"`) |
+| `delegate_task` | Send a task without waiting (non-blocking). Same `identifier`/`identifier_type` targeting |
 | `send_response` | Send a response back to the delegating agent |
 | `list_team` | List all agents with type, name, status, and optionally tools and model |
 | `load_skill` | Load a skill by name and return its content (auto-injected when skills exist) |
@@ -151,7 +151,7 @@ response/communication subset.
 | `system_prompt` | ✅ | System prompt (AGENTS.md is prepended automatically) |
 | `provider` | ✅ | LLM provider |
 | `model_id` | ✅ | Model id — use `list_models` to discover available models |
-| `base_url` | | Base URL for local/custom servers; required when multiple servers of the same provider are configured |
+| `base_url` | ✅ | Server URL. For ollama/llama_cpp use the server address (e.g. `"http://localhost:11434"`). Cloud providers may pass any placeholder. |
 | `tools` | | Built-in tool names to grant (subset of the orchestrator's own tools) |
 | `skills` | | Skill names to attach; their content is appended to the system prompt |
 

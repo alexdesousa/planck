@@ -2,6 +2,57 @@
 
 ## v0.1.0
 
+### execute_fn receives agent_id
+
+- `Tool.execute_fn` type updated to `(agent_id, tool_call_id, args)` — every
+  tool now receives the calling agent's id as the first argument.
+- `ask_agent` drops the `own_id` closure capture — reads from `agent_id`.
+- `spawn_agent` drops the `orchestrator_id` closure capture — reads from `agent_id`.
+- `worker_tools/3` (was `/4`) and `orchestrator_tools/6` (was `/7`) — each lost
+  one parameter as a result.
+- `list_models` marks the caller's current model with `current: true` via a
+  dynamic `Agent.get_state` lookup — works correctly when granted to workers.
+- `AIBehaviour` — added `get_model/3` callback for base-url-aware lookups.
+
+### Explicit agent targeting
+
+- `ask_agent`, `delegate_task`, `destroy_agent`, `interrupt_agent` — replaced
+  the three optional `type`/`name`/`id` fields with a required `identifier`
+  string and a required `identifier_type` enum (`"type"`, `"name"`, `"id"`).
+  The LLM can no longer omit all three and silently fail to target an agent.
+
+### spawn_agent hardening
+
+- `base_url` is now always required in `spawn_agent` (cloud providers may pass
+  a placeholder; only ollama/llama_cpp use it).
+- `spawn_agent` execute_fn refactored into focused helpers: `validate_base_url`,
+  `resolve_spawn_model`, `build_spawn_start_opts`, `filter_granted`.
+
+### Tool output truncation
+
+- Tool results are now capped at 2 000 lines **or** 50 KB (whichever is
+  reached first) before being stored in the session. Outputs that exceed either
+  limit are truncated and suffixed with `\n[output truncated]`. Both limits are
+  always enforced — line truncation is applied first, then byte truncation on
+  the result.
+
+### Compactor fixes
+
+- `estimate_tokens` now counts `{:tool_call, id, name, args}` content parts
+  (previously ignored, causing systematic underestimates).
+- `compact_local` filters all `{:custom, :summary}` messages from `old` before
+  calling `summarize/2` — only messages since the last checkpoint are
+  summarised, preventing the previous checkpoint from bloating the request.
+- `format_history` strips thinking blocks and truncates tool results to 2 000
+  chars — keeps the summarisation input small without losing signal.
+
+### Queued message follow-up fix
+
+- A user message sent while the orchestrator is executing tools now correctly
+  triggers a dedicated follow-up turn after all tools complete. Previously,
+  `do_run_llm` called during tool continuation advanced `stream_start` past the
+  queued message, so `maybe_turn_start` found no pending input.
+
 ### Runtime model switching
 
 - `Agent.change_model/2` — replaces the model in the agent's GenServer state

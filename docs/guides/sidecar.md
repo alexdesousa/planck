@@ -81,7 +81,7 @@ defmodule MySidecar.Planck do
           },
           "required" => ["message"]
         },
-        execute_fn: fn _id, %{"message" => msg} ->
+        execute_fn: fn _agent_id, _id, %{"message" => msg} ->
           MySidecar.Telegram.send(msg)
         end
       )

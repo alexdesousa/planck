@@ -83,7 +83,7 @@ Extends `Planck.AI.Tool` with an execution function. Converted to `Planck.AI.Too
   name:        String.t(),
   description: String.t(),
   parameters:  map(),
-  execute_fn:  (id :: String.t(), args :: map() -> {:ok, String.t()} | {:error, String.t()})
+  execute_fn:  (agent_id :: String.t(), id :: String.t(), args :: map() -> {:ok, String.t()} | {:error, String.t()})
 }
 ```
 

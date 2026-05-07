@@ -827,6 +827,10 @@ defmodule Planck.Agent do
   defp prepend_if(list, true, item), do: [item | list]
   defp prepend_if(list, false, _item), do: list
 
+  # 2000 lines or 50 KB, whichever is hit first — matching pi-mono's limits.
+  @max_tool_output_lines 2_000
+  @max_tool_output_bytes 50_000
+
   @spec build_tool_result_message([{String.t(), {:ok, String.t()} | {:error, term()}}]) ::
           Message.t()
   defp build_tool_result_message(results) do
@@ -840,10 +844,31 @@ defmodule Planck.Agent do
             {:error, reason} -> "Error: #{inspect(reason)}"
           end
 
-        {:tool_result, id, value}
+        {:tool_result, id, truncate_tool_output(value)}
       end)
 
     Message.new(:tool_result, content)
+  end
+
+  @spec truncate_tool_output(String.t()) :: String.t()
+  defp truncate_tool_output(value) do
+    lines = String.split(value, "\n")
+
+    {value, line_truncated} =
+      if length(lines) > @max_tool_output_lines do
+        {Enum.take(lines, @max_tool_output_lines) |> Enum.join("\n"), true}
+      else
+        {value, false}
+      end
+
+    {value, truncated} =
+      if byte_size(value) > @max_tool_output_bytes do
+        {binary_part(value, 0, @max_tool_output_bytes), true}
+      else
+        {value, line_truncated}
+      end
+
+    if truncated, do: value <> "\n[output truncated]", else: value
   end
 
   @spec apply_compact(t()) :: {[Message.t()], t()}

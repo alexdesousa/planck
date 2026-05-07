@@ -2,6 +2,28 @@
 
 ## v0.1.0
 
+### API keys now stored under :req_llm app
+
+- `anthropic_api_key`, `openai_api_key`, `google_api_key` Skogsra entries now
+  write into `Application.env(:req_llm, ...)` instead of `:planck`, so req_llm
+  resolves them directly from its own config source without extra wiring.
+
+### Dynamic worker session history preserved on resume
+
+- On session resume, dynamic worker agents are reconstructed with their original
+  agent ids extracted from the `spawn_agent` tool-result messages in session
+  history. Worker message history is fully visible after restart.
+- Failed `spawn_agent` calls (error results) are skipped during reconstruction.
+  The most recent successful spawn wins when the orchestrator retried.
+- `save_metadata` now runs after `reconstruct_dynamic_workers` so reconstructed
+  worker ids are captured for subsequent resumes.
+
+### Worker duplication fix on resume
+
+- `reconstruct_dynamic_workers` deduplicates spawn calls by `{type, name}` —
+  a worker spawned multiple times (e.g. after a recovery nudge) is only
+  reconstructed once.
+
 ### API key loading from .planck/.env
 
 - New `Planck.Headless.Config.EnvBinding` — Skogsra binding that reads API

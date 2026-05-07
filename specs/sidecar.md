@@ -46,7 +46,7 @@ defmodule MySidecar.Planck do
             }
           }
         },
-        execute_fn: fn _id, args ->
+        execute_fn: fn _agent_id, _id, args ->
           timeout = Map.get(args, "timeout_ms", 300_000)
           case System.cmd("mix", ["test"], timeout: timeout) do
             {output, 0} -> {:ok, output}
@@ -150,10 +150,10 @@ For each tool discovered from the sidecar, `SidecarManager` builds a wrapper
 that reads the AI-supplied `timeout_ms` from the tool arguments:
 
 ```elixir
-execute_fn: fn agent_id, args ->
+execute_fn: fn agent_id, tool_call_id, args ->
   timeout = Map.get(args, "timeout_ms", 300_000)
   case :rpc.call(sidecar_node, Planck.Agent.Sidecar, :execute_tool,
-                 [tool_name, agent_id, args], timeout) do
+                 [tool_name, agent_id, tool_call_id, args], timeout) do
     {:badrpc, reason} -> {:error, reason}
     result -> result
   end

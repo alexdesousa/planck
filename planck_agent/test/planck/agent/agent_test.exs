@@ -1164,6 +1164,141 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  # --- tool output truncation ---
+
+  describe "tool output truncation" do
+    test "short output is stored unchanged" do
+      tool =
+        Tool.new(
+          name: "short",
+          description: "d",
+          parameters: %{},
+          execute_fn: fn _, _, _ -> {:ok, "hello"} end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)),
+          do: [{:done, %{}}],
+          else: [{:tool_call_complete, %{id: "t1", name: "short", args: %{}}}, {:done, %{}}]
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      [{:tool_result, _, value}] =
+        agent
+        |> Agent.get_state()
+        |> Map.get(:messages)
+        |> Enum.find(&(&1.role == :tool_result))
+        |> Map.get(:content)
+
+      assert value == "hello"
+    end
+
+    test "output exceeding line limit is truncated and marked" do
+      long_output = Enum.map_join(1..2_100, "\n", &"line #{&1}")
+
+      tool =
+        Tool.new(
+          name: "lines",
+          description: "d",
+          parameters: %{},
+          execute_fn: fn _, _, _ -> {:ok, long_output} end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)),
+          do: [{:done, %{}}],
+          else: [{:tool_call_complete, %{id: "t1", name: "lines", args: %{}}}, {:done, %{}}]
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      [{:tool_result, _, value}] =
+        agent
+        |> Agent.get_state()
+        |> Map.get(:messages)
+        |> Enum.find(&(&1.role == :tool_result))
+        |> Map.get(:content)
+
+      assert String.ends_with?(value, "\n[output truncated]")
+      assert length(String.split(value, "\n")) <= 2_001
+    end
+
+    test "output exceeding byte limit is truncated and marked" do
+      big_output = String.duplicate("x", 60_000)
+
+      tool =
+        Tool.new(
+          name: "big",
+          description: "d",
+          parameters: %{},
+          execute_fn: fn _, _, _ -> {:ok, big_output} end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)),
+          do: [{:done, %{}}],
+          else: [{:tool_call_complete, %{id: "t1", name: "big", args: %{}}}, {:done, %{}}]
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      [{:tool_result, _, value}] =
+        agent
+        |> Agent.get_state()
+        |> Map.get(:messages)
+        |> Enum.find(&(&1.role == :tool_result))
+        |> Map.get(:content)
+
+      assert String.ends_with?(value, "\n[output truncated]")
+      assert byte_size(value) <= 50_000 + byte_size("\n[output truncated]")
+    end
+
+    test "both limits are enforced: 2000 large lines are further byte-truncated" do
+      # Each line is 100 bytes — 2000 lines = 200KB > 50KB limit
+      line = String.duplicate("a", 99)
+      big_lines_output = Enum.map_join(1..2_100, "\n", fn _ -> line end)
+
+      tool =
+        Tool.new(
+          name: "biglines",
+          description: "d",
+          parameters: %{},
+          execute_fn: fn _, _, _ -> {:ok, big_lines_output} end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)),
+          do: [{:done, %{}}],
+          else: [{:tool_call_complete, %{id: "t1", name: "biglines", args: %{}}}, {:done, %{}}]
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      [{:tool_result, _, value}] =
+        agent
+        |> Agent.get_state()
+        |> Map.get(:messages)
+        |> Enum.find(&(&1.role == :tool_result))
+        |> Map.get(:content)
+
+      assert String.ends_with?(value, "\n[output truncated]")
+      assert byte_size(value) <= 50_000 + byte_size("\n[output truncated]")
+    end
+  end
+
   describe "whereis/1" do
     test "returns {:ok, pid} for a running agent" do
       id = unique_id()
