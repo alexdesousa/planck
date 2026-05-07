@@ -1023,6 +1023,147 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  # --- prompt queued during tool execution ---
+
+  describe "prompt/2 queued during tool execution" do
+    test "message queued while executing a tool triggers a follow-up turn" do
+      # A slow tool gives the test time to queue a message while the agent
+      # is in :executing_tools status.
+      tool =
+        Tool.new(
+          name: "slow_tool",
+          description: "slow",
+          parameters: %{},
+          execute_fn: fn _agent_id, _id, _args ->
+            Process.sleep(200)
+            {:ok, "tool done"}
+          end
+        )
+
+      call = %{id: "tc1", name: "slow_tool", args: %{}}
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
+        has_user_followup = Enum.any?(msgs, fn m -> m.role == :user and length(msgs) > 2 end)
+
+        cond do
+          has_user_followup ->
+            [{:text_delta, "Addressed your message."}, {:done, %{}}]
+
+          has_tool_result ->
+            [{:text_delta, "Tool complete."}, {:done, %{}}]
+
+          true ->
+            [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "use the tool")
+
+      # Wait until tool execution starts, then queue a message
+      assert_receive {:agent_event, :tool_start, _}, 1_000
+      Agent.prompt(agent, "also answer this")
+
+      # First turn ends (after tool + LLM response)
+      assert_receive {:agent_event, :turn_end, _}, 3_000
+
+      # The queued message must trigger a dedicated follow-up turn
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, %{message: %{content: [{:text, text}]}}}, 2_000
+      assert text =~ "Addressed"
+    end
+
+    test "message queued during multi-step tool execution triggers follow-up after all tools complete" do
+      step = :counters.new(1, [])
+
+      tool =
+        Tool.new(
+          name: "step_tool",
+          description: "step",
+          parameters: %{},
+          execute_fn: fn _agent_id, _id, _args ->
+            Process.sleep(100)
+            {:ok, "step done"}
+          end
+        )
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        n = :counters.get(step, 1)
+        :counters.add(step, 1, 1)
+        tool_results = Enum.count(msgs, &match?(%{role: :tool_result}, &1))
+
+        cond do
+          # After two tool rounds, user message is pending — address it
+          tool_results >= 2 ->
+            [{:text_delta, "Both tools done, addressing your message."}, {:done, %{}}]
+
+          # Second tool call
+          tool_results == 1 ->
+            [{:tool_call_complete, %{id: "tc#{n}", name: "step_tool", args: %{}}}, {:done, %{}}]
+
+          # First tool call
+          true ->
+            [{:tool_call_complete, %{id: "tc#{n}", name: "step_tool", args: %{}}}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "run both steps")
+      assert_receive {:agent_event, :tool_start, _}, 1_000
+
+      # Queue message during tool execution
+      Agent.prompt(agent, "what is 2+2?")
+
+      # Full turn ends (both tools + final LLM response)
+      assert_receive {:agent_event, :turn_end, _}, 5_000
+
+      # Follow-up turn must start for the queued message
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "no extra turn when no message was queued during tool execution" do
+      tool =
+        Tool.new(
+          name: "quick_tool",
+          description: "quick",
+          parameters: %{},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "done"} end
+        )
+
+      call = %{id: "tc1", name: "quick_tool", args: %{}}
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:text_delta, "finished"}, {:done, %{}}]
+        else
+          [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "use quick tool")
+
+      # Drain the first turn completely
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      assert_receive {:agent_event, :tool_start, _}, 1_000
+      assert_receive {:agent_event, :tool_end, _}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # No follow-up turn should start since nothing was queued
+      refute_receive {:agent_event, :turn_start, _}, 200
+
+      assert Agent.get_state(agent).status == :idle
+    end
+  end
+
   describe "whereis/1" do
     test "returns {:ok, pid} for a running agent" do
       id = unique_id()

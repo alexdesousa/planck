@@ -376,7 +376,7 @@ defmodule Planck.Agent do
 
     if has_pending_input?(new_state.messages, new_state.stream_start) do
       broadcast(new_state, :turn_start, %{index: new_state.turn_index})
-      {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
+      {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
     else
       {:reply, :ok, new_state}
     end
@@ -387,7 +387,7 @@ defmodule Planck.Agent do
 
   def handle_cast(:nudge, %{status: :idle} = state) do
     broadcast(state, :turn_start, %{index: state.turn_index})
-    {:noreply, %{state | status: :streaming}, {:continue, :run_llm}}
+    {:noreply, %{state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
   end
 
   def handle_cast(:nudge, state) do
@@ -415,7 +415,11 @@ defmodule Planck.Agent do
   def handle_continue(message, state)
 
   def handle_continue(:run_llm, state) do
-    {:noreply, do_run_llm(state)}
+    {:noreply, do_run_llm(state, :continuation)}
+  end
+
+  def handle_continue({:run_llm, :new_turn}, state) do
+    {:noreply, do_run_llm(state, :new_turn)}
   end
 
   def handle_continue({:execute_tools, calls}, state) do
@@ -480,7 +484,7 @@ defmodule Planck.Agent do
   # ---------------------------------------------------------------------------
 
   @spec do_prompt(String.t() | [Planck.AI.Message.content_part()], t()) ::
-          {:reply, :ok, t(), {:continue, :run_llm}}
+          {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
   defp do_prompt(content, state) do
     parts = normalize_content(content)
     msg = Message.new(:user, parts)
@@ -494,15 +498,22 @@ defmodule Planck.Agent do
     }
 
     broadcast(new_state, :turn_start, %{index: new_state.turn_index})
-    {:reply, :ok, %{new_state | status: :streaming}, {:continue, :run_llm}}
+    {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
   end
 
-  defp do_run_llm(state)
-
-  defp do_run_llm(state) do
+  defp do_run_llm(state, turn_type) do
     {messages, state} = apply_compact(state)
     state = flush_unpersisted_messages(state)
-    stream_start = length(state.messages)
+
+    # Only advance stream_start for fresh turns. Tool continuations keep the
+    # original stream_start so any user message queued during tool execution
+    # remains detectable by maybe_turn_start after the turn ends.
+    stream_start =
+      case turn_type do
+        :new_turn -> length(state.messages)
+        :continuation -> state.stream_start
+      end
+
     ai_tools = state.tools |> Map.values() |> Enum.map(&Tool.to_ai_tool/1)
 
     context = %Context{
@@ -606,7 +617,8 @@ defmodule Planck.Agent do
   end
 
   @spec do_agent_response(String.t(), term(), t()) ::
-          {:noreply, t()} | {:noreply, t(), {:continue, :run_llm}}
+          {:noreply, t()}
+          | {:noreply, t(), {:continue, {:run_llm, :new_turn}}}
   defp do_agent_response(response, sender, state) do
     metadata =
       case sender do
@@ -620,7 +632,7 @@ defmodule Planck.Agent do
 
     if state.status == :idle do
       broadcast(new_state, :turn_start, %{index: new_state.turn_index})
-      {:noreply, %{new_state | status: :streaming}, {:continue, :run_llm}}
+      {:noreply, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
     else
       {:noreply, new_state}
     end
@@ -866,13 +878,13 @@ defmodule Planck.Agent do
 
   @spec maybe_turn_start(t()) ::
           {:noreply, t()}
-          | {:noreply, t(), {:continue, :run_llm}}
+          | {:noreply, t(), {:continue, {:run_llm, :new_turn}}}
   defp maybe_turn_start(state)
 
   defp maybe_turn_start(%__MODULE__{} = state) do
     if has_pending_input?(state.messages, state.stream_start) do
       broadcast(state, :turn_start, %{index: state.turn_index})
-      {:noreply, %{state | status: :streaming}, {:continue, :run_llm}}
+      {:noreply, %{state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
     else
       {:noreply, state}
     end
