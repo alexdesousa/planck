@@ -86,14 +86,14 @@ defmodule Planck.Headless.SidecarIntegrationTest do
   describe "sidecar tool execution" do
     test "echo returns the message" do
       [tool] = ResourceStore.get().tools
-      assert {:ok, "hello"} = tool.execute_fn.("agent-1", %{"message" => "hello"})
+      assert {:ok, "hello"} = tool.execute_fn.("agent-1", "tc-1", %{"message" => "hello"})
     end
 
     test "timeout_ms in args is forwarded as the RPC timeout" do
       [tool] = ResourceStore.get().tools
 
       assert {:ok, "fast"} =
-               tool.execute_fn.("agent-1", %{"message" => "fast", "timeout_ms" => 5_000})
+               tool.execute_fn.("agent-1", "tc-2", %{"message" => "fast", "timeout_ms" => 5_000})
     end
 
     test "unknown tool returns an error via direct RPC" do
@@ -104,7 +104,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
                  node,
                  Planck.Agent.Sidecar,
                  :execute_tool,
-                 ["ghost", "agent-1", %{}],
+                 ["ghost", "agent-1", "tc-3", %{}],
                  10_000
                )
     end
