@@ -212,7 +212,11 @@ defmodule Planck.Agent.Compactor do
   defp compact_local(messages, model, keep_recent) do
     {old, kept} = Enum.split(messages, -keep_recent)
 
-    case {old, summarize(old, model)} do
+    # Filter out summary checkpoints — only summarize messages since the last
+    # checkpoint, not the checkpoints themselves, to keep the request small.
+    to_summarize = Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1))
+
+    case {to_summarize, summarize(to_summarize, model)} do
       {[], _} ->
         :skip
 
@@ -270,7 +274,6 @@ defmodule Planck.Agent.Compactor do
   defp extract_text(content) do
     Enum.reduce(content, "", fn
       {:text, text}, acc -> acc <> text
-      {:thinking, text}, acc -> acc <> text
       {:tool_result, _id, value}, acc -> acc <> value
       _other, acc -> acc
     end)

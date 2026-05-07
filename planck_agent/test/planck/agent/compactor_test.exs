@@ -130,6 +130,75 @@ defmodule Planck.Agent.CompactorTest do
 
       assert compact_fn.(messages) == :skip
     end
+
+    test "filters all summary checkpoints from old messages before summarizing" do
+      parent = self()
+
+      stub(MockAI, :stream, fn _model,
+                               %Context{messages: [%{content: [{:text, history}]}]},
+                               _opts ->
+        send(parent, {:summarize_input, history})
+        [{:text_delta, "New summary."}, {:done, %{}}]
+      end)
+
+      summary1 = Message.new({:custom, :summary}, [{:text, "First summary."}])
+      summary2 = Message.new({:custom, :summary}, [{:text, "Second summary."}])
+      new_msgs = make_messages(3, 4_000)
+      # summaries mixed in with messages
+      messages = [summary1 | new_msgs] ++ [summary2]
+
+      compact_fn = Compactor.build(@model, keep_recent: 1)
+      assert {:compact, summary_msg, _kept} = compact_fn.(messages)
+      assert summary_msg.role == {:custom, :summary}
+
+      # Neither summary should appear in what's sent to the LLM
+      assert_received {:summarize_input, history}
+      refute history =~ "First summary."
+      refute history =~ "Second summary."
+    end
+
+    test "thinking blocks are excluded from the summarization input" do
+      parent = self()
+
+      stub(MockAI, :stream, fn _model,
+                               %Context{messages: [%{content: [{:text, history}]}]},
+                               _opts ->
+        send(parent, {:summarize_input, history})
+        [{:text_delta, "Summary."}, {:done, %{}}]
+      end)
+
+      thinking_msg = Message.new(:assistant, [{:thinking, "Internal reasoning, lots of it."}])
+
+      mixed_msg =
+        Message.new(:assistant, [{:thinking, "More reasoning."}, {:text, "Visible reply."}])
+
+      messages = [thinking_msg, mixed_msg] ++ make_messages(1, 4_000)
+
+      compact_fn = Compactor.build(@model, keep_recent: 1)
+      compact_fn.(messages)
+
+      assert_received {:summarize_input, history}
+      refute history =~ "Internal reasoning"
+      refute history =~ "More reasoning"
+      assert history =~ "Visible reply"
+    end
+
+    test "tool_call content is counted toward token estimate" do
+      # A message with a large tool_call arg should push estimate over threshold
+      # even without text content.
+      large_args = %{"command" => String.duplicate("x", 3_200)}
+      tool_msg = Message.new(:assistant, [{:tool_call, "id1", "bash", large_args}])
+
+      compact_fn = Compactor.build(@model, ratio: 0.8, keep_recent: 1)
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "Summary."}, {:done, %{}}]
+      end)
+
+      # Should compact (threshold = trunc(1000 * 0.8) = 800 tokens;
+      # tool_call args alone are ~3200/4 = 800 tokens, plus name)
+      assert {:compact, _summary, _kept} = compact_fn.([tool_msg, tool_msg])
+    end
   end
 
   # --- build/2 (remote, same-node simulation) ---

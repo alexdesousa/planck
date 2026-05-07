@@ -29,10 +29,20 @@ defmodule Planck.Agent.Message do
   def estimate_tokens(messages) do
     Enum.reduce(messages, 0, fn msg, acc ->
       Enum.reduce(msg.content, acc, fn
-        {:text, text}, a -> a + div(String.length(text), 4)
-        {:thinking, text}, a -> a + div(String.length(text), 4)
-        {:tool_result, _id, value}, a -> a + div(String.length(value), 4)
-        _other, a -> a
+        {:text, text}, a ->
+          a + div(String.length(text), 4)
+
+        {:thinking, text}, a ->
+          a + div(String.length(text), 4)
+
+        {:tool_result, _id, value}, a ->
+          a + div(String.length(value), 4)
+
+        {:tool_call, _id, name, args}, a ->
+          a + div(String.length(name) + String.length(inspect(args)), 4)
+
+        _other, a ->
+          a
       end)
     end)
   end

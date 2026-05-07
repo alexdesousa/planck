@@ -49,9 +49,15 @@ defmodule Planck.Agent.MessageTest do
       assert Message.estimate_tokens([msg]) == 1
     end
 
-    test "ignores other content parts (tool_call, image_url)" do
-      msg = Message.new(:assistant, [{:tool_call, "id1", "bash", %{}}, {:image_url, "http://x"}])
-      assert Message.estimate_tokens([msg]) == 0
+    test "counts tool_call name and args, ignores other parts (image_url)" do
+      msg =
+        Message.new(:assistant, [
+          {:tool_call, "id1", "bash", %{"command" => "ls"}},
+          {:image_url, "http://x"}
+        ])
+
+      tokens = Message.estimate_tokens([msg])
+      assert tokens > 0
     end
 
     test "sums across all messages and all content parts" do
