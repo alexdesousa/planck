@@ -59,6 +59,11 @@ fi
 
 chmod +x "$dest"
 
+# ── macOS Gatekeeper ─────────────────────────────────────────────────────────
+if [ "$os" = "Darwin" ]; then
+  xattr -d com.apple.quarantine "$dest" 2>/dev/null || true
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo "Installed planck to $dest"
 
