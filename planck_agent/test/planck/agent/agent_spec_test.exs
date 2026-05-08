@@ -37,7 +37,7 @@ defmodule Planck.Agent.AgentSpecTest do
 
       assert is_binary(opts[:id])
       assert opts[:type] == "builder"
-      assert opts[:system_prompt] == "You are a builder."
+      assert opts[:system_prompt] =~ "You are a builder."
       assert opts[:model] == @model
       assert opts[:opts] == []
     end
@@ -189,10 +189,11 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:opts] == [temperature: 0.5]
     end
 
-    test "system_prompt passes through unchanged when skills is empty" do
+    test "system_prompt includes identity prefix and original prompt when skills is empty" do
       expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
-      assert opts[:system_prompt] == "You are a builder."
+      assert opts[:system_prompt] =~ "You are builder."
+      assert opts[:system_prompt] =~ "You are a builder."
     end
 
     test "appends resolved skill section to system_prompt when skills is non-empty" do
@@ -219,7 +220,7 @@ defmodule Planck.Agent.AgentSpecTest do
       spec = %{@base_spec | skills: ["unknown"]}
       opts = AgentSpec.to_start_opts(spec, skill_pool: [])
 
-      assert opts[:system_prompt] == "You are a builder."
+      assert opts[:system_prompt] =~ "You are a builder."
     end
 
     test "load_skill tool is auto-injected when skill_pool is non-empty" do

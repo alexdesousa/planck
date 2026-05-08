@@ -127,19 +127,24 @@ defmodule Planck.Agent.Tools do
         with {:ok, pid} <- resolve_target(team_id, args) do
           target_id = Agent.get_info(pid).id
 
-          if circular_wait?(agent_id, target_id) do
-            {:error,
-             "Deadlock detected: #{agent_id} cannot ask #{target_id} — " <>
-               "a circular wait chain already exists. Use send_response or " <>
-               "delegate_task to communicate without blocking."}
-          else
-            # Register this wait so others can detect a cycle back to us.
-            # The Registry entry is automatically removed when this task exits.
-            Registry.register(Planck.Agent.Registry, {:waiting, agent_id}, target_id)
-            ref = Process.monitor(pid)
-            Agent.subscribe(pid)
-            :ok = Agent.prompt(pid, args["question"])
-            await_turn_end(ref)
+          cond do
+            target_id == agent_id ->
+              {:error, "Cannot ask yourself. Use a different agent."}
+
+            circular_wait?(agent_id, target_id) ->
+              {:error,
+               "Deadlock detected: #{agent_id} cannot ask #{target_id} — " <>
+                 "a circular wait chain already exists. Use send_response or " <>
+                 "delegate_task to communicate without blocking."}
+
+            true ->
+              # Register this wait so others can detect a cycle back to us.
+              # The Registry entry is automatically removed when this task exits.
+              Registry.register(Planck.Agent.Registry, {:waiting, agent_id}, target_id)
+              ref = Process.monitor(pid)
+              Agent.subscribe(pid)
+              :ok = Agent.prompt(pid, args["question"])
+              await_turn_end(ref)
           end
         end
       end
@@ -177,12 +182,16 @@ defmodule Planck.Agent.Tools do
         },
         "required" => ["identifier", "identifier_type", "task"]
       },
-      execute_fn: fn _agent_id, _id, args ->
+      execute_fn: fn agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
-          Agent.prompt(pid, args["task"])
+          if Agent.get_info(pid).id == agent_id do
+            {:error, "Cannot delegate a task to yourself. Use a different agent."}
+          else
+            Agent.prompt(pid, args["task"])
 
-          {:ok,
-           "Task delegated. End your turn now unless you can delegate something else in parallel that won't be blocked by this delegation. The result will arrive in a future turn."}
+            {:ok,
+             "Task delegated. End your turn now unless you can delegate something else in parallel that won't be blocked by this delegation. The result will arrive in a future turn."}
+          end
         end
       end
     )

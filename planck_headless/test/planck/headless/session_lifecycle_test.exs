@@ -161,7 +161,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
       system_prompt = Agent.get_state(orch_pid).system_prompt
-      assert system_prompt == "You coordinate."
+      assert system_prompt =~ "You coordinate."
     end
 
     test "AGENTS.md is prepended to static worker system prompts", %{tmp_dir: dir} do

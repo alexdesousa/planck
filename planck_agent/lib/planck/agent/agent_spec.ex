@@ -274,20 +274,27 @@ defmodule Planck.Agent.AgentSpec do
 
   @spec assemble_system_prompt(t(), keyword()) :: String.t()
   defp assemble_system_prompt(spec, overrides) do
-    case spec.skills do
-      [] ->
-        spec.system_prompt
+    base =
+      with [_ | _] = names <- spec.skills,
+           pool = Keyword.get(overrides, :skill_pool, []),
+           pool_map = Map.new(pool, &{&1.name, &1}),
+           resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1))),
+           section when is_binary(section) <- Skill.system_prompt_section(resolved) do
+        spec.system_prompt <> "\n\n" <> section
+      else
+        _ ->
+          spec.system_prompt
+      end
 
-      names ->
-        pool = Keyword.get(overrides, :skill_pool, [])
-        pool_map = Map.new(pool, &{&1.name, &1})
-        resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
+    identity_line(spec) <> base
+  end
 
-        case Skill.system_prompt_section(resolved) do
-          nil -> spec.system_prompt
-          section -> spec.system_prompt <> "\n\n" <> section
-        end
-    end
+  @spec identity_line(t()) :: String.t()
+  defp identity_line(spec)
+
+  defp identity_line(%__MODULE__{name: name, type: type}) do
+    label = if name != type, do: "#{name} (#{type})", else: type
+    "You are #{label}.\n\n"
   end
 
   # ---------------------------------------------------------------------------
