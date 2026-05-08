@@ -45,7 +45,14 @@ jobs:
         run: mix compile --warnings-as-errors
 
       - name: Publish to Hex.pm
-        run: mix hex.publish --yes
+        run: |
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PKG=$(grep '@app' mix.exs | head -1 | sed 's/.*:\([a-z_]*\).*/\1/')
+          if curl -sf "https://hex.pm/api/packages/${PKG}/releases/${VERSION}" > /dev/null; then
+            mix hex.publish --yes --replace
+          else
+            mix hex.publish --yes
+          fi
 
   publish-agent:
     name: Publish planck_agent
@@ -80,7 +87,14 @@ jobs:
         run: mix compile --warnings-as-errors
 
       - name: Publish to Hex.pm
-        run: mix hex.publish --yes
+        run: |
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PKG=$(grep '@app' mix.exs | head -1 | sed 's/.*:\([a-z_]*\).*/\1/')
+          if curl -sf "https://hex.pm/api/packages/${PKG}/releases/${VERSION}" > /dev/null; then
+            mix hex.publish --yes --replace
+          else
+            mix hex.publish --yes
+          fi
 
   publish-headless:
     name: Publish planck_headless
@@ -115,7 +129,14 @@ jobs:
         run: mix compile --warnings-as-errors
 
       - name: Publish to Hex.pm
-        run: mix hex.publish --yes
+        run: |
+          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PKG=$(grep '@app' mix.exs | head -1 | sed 's/.*:\([a-z_]*\).*/\1/')
+          if curl -sf "https://hex.pm/api/packages/${PKG}/releases/${VERSION}" > /dev/null; then
+            mix hex.publish --yes --replace
+          else
+            mix hex.publish --yes
+          fi
 
 # ── Binary release ────────────────────────────────────────────────────────────
 # Runs after all Hex packages are published so deps.get resolves from Hex.
