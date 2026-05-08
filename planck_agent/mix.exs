@@ -94,7 +94,7 @@ defmodule Planck.Agent.MixProject do
   defp package do
     [
       description: @description,
-      files: ["lib", "mix.exs", "README.md", "CHANGELOG.md", ".formatter.exs"],
+      files: ["lib", "mix.exs", "README.md", "CHANGELOG.md", ".formatter.exs", "LICENSE"],
       maintainers: ["Alexander de Sousa"],
       licenses: ["MIT"],
       links: %{
