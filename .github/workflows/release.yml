@@ -21,7 +21,6 @@ jobs:
         working-directory: planck_ai
     env:
       MIX_ENV: dev
-      PLANCK_LOCAL: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +56,6 @@ jobs:
         working-directory: planck_agent
     env:
       MIX_ENV: dev
-      PLANCK_LOCAL: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -93,7 +91,6 @@ jobs:
         working-directory: planck_headless
     env:
       MIX_ENV: dev
-      PLANCK_LOCAL: "true"
     steps:
       - uses: actions/checkout@v4
 
