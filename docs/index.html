@@ -351,6 +351,15 @@
     </div>
   </div>
 
+  <!-- ── Demo video ──────────────────────────────────────────────────── -->
+  <div class="container" style="padding-bottom: 3rem;">
+    <video id="demo-video"
+           src="planck-light.webm"
+           autoplay loop muted playsinline
+           style="width:100%;border:2px solid var(--border);box-shadow:4px 4px 0 var(--shadow);display:block;">
+    </video>
+  </div>
+
   <!-- ── How it works ────────────────────────────────────────────────── -->
   <section>
     <div class="container">
@@ -380,22 +389,22 @@
     <div class="container">
       <p class="section-label">The stack</p>
       <div class="stack">
-        <div class="stack-card">
+        <a href="https://github.com/alexdesousa/planck/tree/main/planck_ai" class="stack-card" style="text-decoration:none;color:inherit;display:block;">
           <span class="pkg-tag">planck_ai</span>
           <p>Typed LLM provider abstraction. Anthropic, OpenAI, Gemini, Ollama, llama.cpp — one API.</p>
-        </div>
-        <div class="stack-card">
+        </a>
+        <a href="https://github.com/alexdesousa/planck/tree/main/planck_agent" class="stack-card" style="text-decoration:none;color:inherit;display:block;">
           <span class="pkg-tag">planck_agent</span>
           <p>OTP multi-agent runtime. Each agent is a supervised GenServer. Teams live and die together.</p>
-        </div>
-        <div class="stack-card engine">
+        </a>
+        <a href="https://github.com/alexdesousa/planck/tree/main/planck_headless" class="stack-card engine" style="text-decoration:none;color:inherit;display:block;">
           <span class="pkg-tag">planck_headless</span>
           <p>The engine. Sessions, teams, resources, and config. Build your own interface on top.</p>
-        </div>
-        <div class="stack-card">
+        </a>
+        <a href="https://github.com/alexdesousa/planck/tree/main/planck_cli" class="stack-card" style="text-decoration:none;color:inherit;display:block;">
           <span class="pkg-tag">planck</span>
           <p>Web UI + HTTP API wrapped in a Burrito binary. Drop it on any machine, no Elixir required.</p>
-        </div>
+        </a>
       </div>
     </div>
   </section>
@@ -456,15 +465,22 @@
       const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       html.setAttribute('data-theme', next);
       localStorage.setItem('planck-theme', next);
+      swapVideo(next);
+    }
+
+    function swapVideo(theme) {
+      const video = document.getElementById('demo-video');
+      if (!video) return;
+      video.src = theme === 'dark' ? 'planck-dark.webm' : 'planck-light.webm';
+      video.load();
+      video.play();
     }
 
     (function () {
       const saved = localStorage.getItem('planck-theme');
-      if (saved) {
-        document.documentElement.setAttribute('data-theme', saved);
-      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
+      const theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+      window.addEventListener('DOMContentLoaded', () => swapVideo(theme));
     })();
   </script>
 </body>
