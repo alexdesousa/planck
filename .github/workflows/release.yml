@@ -166,7 +166,7 @@ jobs:
           otp-version: "28.5"
 
       - name: Install Zig (required for Burrito cross-compilation)
-        uses: mlugg/setup-zig@v1
+        uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.15.2"
 
