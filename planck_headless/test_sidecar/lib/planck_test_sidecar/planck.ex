@@ -14,7 +14,7 @@ defmodule PlanckTestSidecar.Planck do
           },
           "required" => ["message"]
         },
-        execute_fn: fn _id, %{"message" => msg} -> {:ok, msg} end
+        execute_fn: fn _agent_id, _id, %{"message" => msg} -> {:ok, msg} end
       )
     ]
   end
