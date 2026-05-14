@@ -1371,6 +1371,132 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- register_tool / unregister_tool ---
+
+  describe "register_tool/1 and unregister_tool/1" do
+    test "registered tool is available in a new session", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "reg-tool-team")
+
+      custom_tool =
+        Planck.Agent.Tool.new(
+          name: "custom_hello",
+          description: "Says hello.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "hello"} end
+        )
+
+      Headless.register_tool(custom_tool)
+
+      on_exit(fn -> Headless.unregister_tool("custom_hello") end)
+
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      assert "custom_hello" in tool_names
+    end
+
+    test "registered tool shadows a built-in of the same name", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "shadow-team")
+
+      no_bash =
+        Planck.Agent.Tool.new(
+          name: "bash",
+          description: "Disabled.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:error, "bash is disabled"} end
+        )
+
+      Headless.register_tool(no_bash)
+      on_exit(fn -> Headless.unregister_tool("bash") end)
+
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool = Map.get(Agent.get_state(orch_pid).tools, "bash")
+      assert {:error, "bash is disabled"} = tool.execute_fn.("agent", "id", %{})
+    end
+
+    test "unregister_tool removes the tool from subsequent sessions", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "unreg-tool-team")
+
+      tool =
+        Planck.Agent.Tool.new(
+          name: "temp_tool",
+          description: "Temporary.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "ok"} end
+        )
+
+      Headless.register_tool(tool)
+      Headless.unregister_tool("temp_tool")
+
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      refute "temp_tool" in tool_names
+    end
+  end
+
+  describe "start_session/1 with tools:" do
+    test "per-session tool is available only in that session", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "per-session-tool-team")
+
+      session_tool =
+        Planck.Agent.Tool.new(
+          name: "session_only",
+          description: "Session-scoped tool.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "session"} end
+        )
+
+      {:ok, sid1} = Headless.start_session(template: team_dir, tools: [session_tool])
+      {:ok, sid2} = Headless.start_session(template: team_dir)
+
+      {:ok, meta1} = Session.get_metadata(sid1)
+      {:ok, meta2} = Session.get_metadata(sid2)
+      {:ok, orch1} = find_orchestrator(meta1["team_id"])
+      {:ok, orch2} = find_orchestrator(meta2["team_id"])
+
+      assert "session_only" in Map.keys(Agent.get_state(orch1).tools)
+      refute "session_only" in Map.keys(Agent.get_state(orch2).tools)
+    end
+
+    test "per-session tool shadows a registered tool of the same name", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "per-session-shadow-team")
+
+      registered =
+        Planck.Agent.Tool.new(
+          name: "read",
+          description: "Registered read.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "registered"} end
+        )
+
+      session_override =
+        Planck.Agent.Tool.new(
+          name: "read",
+          description: "Session read.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "session_override"} end
+        )
+
+      Headless.register_tool(registered)
+      on_exit(fn -> Headless.unregister_tool("read") end)
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, tools: [session_override])
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool = Map.get(Agent.get_state(orch_pid).tools, "read")
+      assert {:ok, "session_override"} = tool.execute_fn.("agent", "id", %{})
+    end
+  end
+
   defp find_worker(team_id) do
     case Registry.lookup(Agent.Registry, {team_id, "worker"}) do
       [{pid, _} | _] -> {:ok, pid}

@@ -24,12 +24,13 @@ defmodule Planck.Headless.ResourceStore do
 
   @type t :: %__MODULE__{
           tools: [Planck.Agent.Tool.t()],
+          registered_tools: [Planck.Agent.Tool.t()],
           skills: [Skill.t()],
           teams: %{String.t() => Team.t()},
           available_models: [Planck.AI.Model.t()]
         }
 
-  defstruct tools: [], skills: [], teams: %{}, available_models: []
+  defstruct tools: [], registered_tools: [], skills: [], teams: %{}, available_models: []
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -70,6 +71,18 @@ defmodule Planck.Headless.ResourceStore do
     GenServer.call(__MODULE__, :clear_tools)
   end
 
+  @doc "Register a local-node tool globally. Replaces any existing tool with the same name."
+  @spec register_tool(Planck.Agent.Tool.t()) :: :ok
+  def register_tool(tool) do
+    GenServer.call(__MODULE__, {:register_tool, tool})
+  end
+
+  @doc "Remove a globally registered tool by name. No-op if not found."
+  @spec unregister_tool(String.t()) :: :ok
+  def unregister_tool(name) do
+    GenServer.call(__MODULE__, {:unregister_tool, name})
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer callbacks
   # ---------------------------------------------------------------------------
@@ -97,6 +110,18 @@ defmodule Planck.Headless.ResourceStore do
   @impl true
   def handle_call(:clear_tools, _from, state) do
     {:reply, :ok, %{state | tools: []}}
+  end
+
+  @impl true
+  def handle_call({:register_tool, tool}, _from, state) do
+    updated = Enum.reject(state.registered_tools, &(&1.name == tool.name)) ++ [tool]
+    {:reply, :ok, %{state | registered_tools: updated}}
+  end
+
+  @impl true
+  def handle_call({:unregister_tool, name}, _from, state) do
+    updated = Enum.reject(state.registered_tools, &(&1.name == name))
+    {:reply, :ok, %{state | registered_tools: updated}}
   end
 
   # ---------------------------------------------------------------------------

@@ -40,17 +40,20 @@ defmodule Planck.Headless do
     default dynamic team (lone orchestrator built from config defaults).
   - `name:` — session name; auto-generated as `<adjective>-<noun>` if absent.
   - `cwd:` — working directory for the session (default: `File.cwd!()`).
+  - `tools:` — extra `Planck.Agent.Tool.t()` list available only for this
+    session. These shadow registered and built-in tools of the same name.
   """
   @spec start_session(keyword()) :: {:ok, session_id()} | {:error, term()}
   def start_session(opts \\ []) do
     template = Keyword.get(opts, :template)
     cwd = Keyword.get(opts, :cwd, File.cwd!())
     user_name = Keyword.get(opts, :name)
+    session_tools = Keyword.get(opts, :tools, [])
 
     with {:ok, team} <- resolve_team(template),
          {:ok, session_name} <- resolve_name(user_name),
          {:ok, session_id} <- create_session(session_name, cwd),
-         {:ok, team_id} <- materialize_team(session_id, team, cwd),
+         {:ok, team_id} <- materialize_team(session_id, team, cwd, session_tools: session_tools),
          :ok <-
            save_metadata(
              session_id,
@@ -79,7 +82,10 @@ defmodule Planck.Headless do
          {:ok, team} <- resolve_team(metadata["team_alias"]),
          prev_ids = decode_agent_ids(Map.get(metadata, "agent_ids")),
          {:ok, team_id} <-
-           materialize_team(session_id, team, metadata["cwd"] || File.cwd!(), prev_ids, metadata),
+           materialize_team(session_id, team, metadata["cwd"] || File.cwd!(),
+             prev_ids: prev_ids,
+             metadata: metadata
+           ),
          :ok <- reconstruct_dynamic_workers(session_id, team_id, team),
          :ok <-
            save_metadata(
@@ -232,6 +238,20 @@ defmodule Planck.Headless do
   @doc "Return models available for use (providers with API keys configured)."
   @spec available_models() :: [Planck.AI.Model.t()]
   def available_models, do: ResourceStore.get().available_models
+
+  @doc """
+  Register a local-node tool globally. Available to all new sessions.
+
+  If a tool with the same name is already registered it is replaced.
+  Registered tools shadow sidecar tools and built-ins of the same name.
+  See the tool-shadowing guide for details.
+  """
+  @spec register_tool(Planck.Agent.Tool.t()) :: :ok
+  def register_tool(tool), do: ResourceStore.register_tool(tool)
+
+  @doc "Remove a globally registered tool by name. No-op if not found."
+  @spec unregister_tool(String.t()) :: :ok
+  def unregister_tool(name), do: ResourceStore.unregister_tool(name)
 
   @doc """
   Persist a model configuration to the JSON config and `.env` files, then
@@ -472,9 +492,14 @@ defmodule Planck.Headless do
   # Private — team materialization
   # ---------------------------------------------------------------------------
 
-  @spec materialize_team(String.t(), Team.t(), Path.t(), map(), map()) ::
+  @spec materialize_team(String.t(), Team.t(), Path.t(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
-  defp materialize_team(session_id, team, cwd, prev_ids \\ %{}, metadata \\ %{}) do
+  defp materialize_team(session_id, team, cwd, opts) do
+    prev_ids = Keyword.get(opts, :prev_ids, %{})
+    metadata = Keyword.get(opts, :metadata, %{})
+    session_tools = Keyword.get(opts, :session_tools, [])
+    ctx = %{prev_ids: prev_ids, metadata: metadata, session_tools: session_tools}
+
     store = ResourceStore.get()
     team_id = generate_id()
 
@@ -483,26 +508,8 @@ defmodule Planck.Headless do
     orchestrator_id = Map.get(prev_ids, orch_spec.name || orch_spec.type, generate_id())
 
     with {:ok, _} <-
-           start_orchestrator(
-             session_id,
-             team_id,
-             orchestrator_id,
-             orch_spec,
-             store,
-             cwd,
-             metadata
-           ),
-         :ok <-
-           start_workers(
-             session_id,
-             team_id,
-             orchestrator_id,
-             workers,
-             store,
-             cwd,
-             prev_ids,
-             metadata
-           ) do
+           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store, cwd, ctx),
+         :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx) do
       {:ok, team_id}
     end
   end
@@ -514,12 +521,17 @@ defmodule Planck.Headless do
           AgentSpec.t(),
           ResourceStore.t(),
           Path.t(),
-          map()
+          %{metadata: map(), session_tools: [Planck.Agent.Tool.t()], prev_ids: map()}
         ) :: {:ok, pid()} | {:error, term()}
-  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, metadata) do
+  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
+    %{metadata: metadata, session_tools: session_tools} = ctx
+
     base_opts =
       AgentSpec.to_start_opts(spec,
-        tool_pool: builtins() ++ store.tools ++ skill_discovery_tools(store.skills),
+        tool_pool:
+          builtins() ++
+            store.tools ++
+            store.registered_tools ++ skill_discovery_tools(store.skills),
         skill_pool: store.skills,
         team_id: team_id,
         session_id: session_id,
@@ -539,7 +551,9 @@ defmodule Planck.Headless do
       ) ++
         Tools.worker_tools(team_id, nil) ++
         skill_discovery_tools(store.skills) ++
-        resolved
+        resolved ++
+        store.registered_tools ++
+        session_tools
 
     system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
     {usage, cost} = load_agent_usage(metadata, orchestrator_id)
@@ -564,23 +578,17 @@ defmodule Planck.Headless do
           [AgentSpec.t()],
           ResourceStore.t(),
           Path.t(),
-          map(),
-          map()
+          %{prev_ids: map(), metadata: map(), session_tools: [Planck.Agent.Tool.t()]}
         ) :: :ok | {:error, term()}
-  defp start_workers(
-         session_id,
-         team_id,
-         orchestrator_id,
-         workers,
-         store,
-         cwd,
-         prev_ids,
-         metadata
-       ) do
+  defp start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx) do
+    %{prev_ids: prev_ids, metadata: metadata, session_tools: session_tools} = ctx
+
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
       base_opts =
         AgentSpec.to_start_opts(spec,
-          tool_pool: builtins() ++ store.tools ++ skill_discovery_tools(store.skills),
+          tool_pool:
+            builtins() ++
+              store.tools ++ store.registered_tools ++ skill_discovery_tools(store.skills),
           skill_pool: store.skills,
           team_id: team_id,
           session_id: session_id,
@@ -599,7 +607,8 @@ defmodule Planck.Headless do
         |> Keyword.put(:cwd, cwd)
         |> Keyword.put(
           :tools,
-          Tools.worker_tools(team_id, orchestrator_id, sender) ++ resolved
+          Tools.worker_tools(team_id, orchestrator_id, sender) ++
+            resolved ++ store.registered_tools ++ session_tools
         )
         |> Keyword.put(:system_prompt, system_prompt)
         |> Keyword.put(:delegator_id, orchestrator_id)
@@ -759,7 +768,9 @@ defmodule Planck.Headless do
       {:ok, spec} ->
         base_opts =
           AgentSpec.to_start_opts(spec,
-            tool_pool: builtins() ++ store.tools,
+            tool_pool:
+              builtins() ++
+                store.tools ++ store.registered_tools ++ skill_discovery_tools(store.skills),
             skill_pool: store.skills,
             team_id: team_id,
             session_id: session_id,
