@@ -140,6 +140,80 @@ Assign it to an agent in `TEAM.json`:
 { "type": "builder", "compactor": "MySidecar.Compactors.Summary" }
 ```
 
+## Auto-reload in development
+
+Because Planck calls sidecar tools via `:rpc.call/5`, the call always resolves
+the **current loaded version** of the module on the sidecar node. If you reload
+a module on the sidecar, the next tool call automatically picks up the new
+implementation — no Planck restart needed.
+
+Add `file_system` as a dev dependency and a small `Reloader` GenServer to watch
+`lib/` for changes:
+
+### OS requirements
+
+`file_system` uses native OS APIs for file watching:
+
+| OS | Backend | Requirement |
+|---|---|---|
+| Linux | `inotify` | `inotify-tools` — `sudo apt install inotify-tools` or `sudo dnf install inotify-tools` |
+| macOS | `FSEvents` | Built into macOS — no extra packages needed |
+| Windows | `ReadDirectoryChangesW` | Built into Windows — no extra packages needed |
+
+### mix.exs (dev deps)
+
+```elixir
+defp deps do
+  [
+    {:planck_agent, "~> 0.1"},
+    {:file_system, "~> 1.0", only: :dev}
+  ]
+end
+```
+
+### lib/my_sidecar/reloader.ex
+
+```elixir
+defmodule MySidecar.Reloader do
+  use GenServer
+
+  def start_link(_), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
+
+  def init(_) do
+    {:ok, watcher} = FileSystem.start_link(dirs: [Path.expand("lib")])
+    FileSystem.subscribe(watcher)
+    {:ok, watcher}
+  end
+
+  def handle_info({:file_event, _watcher, {path, events}}, state) do
+    if :modified in events and String.ends_with?(to_string(path), ".ex") do
+      IEx.Helpers.recompile()
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
+end
+```
+
+### application.ex (start Reloader in dev)
+
+```elixir
+def start(_type, _args) do
+  headless = System.get_env("PLANCK_HEADLESS_NODE") |> String.to_atom()
+
+  children =
+    [{Task, fn -> Node.connect(headless) end}] ++
+      if Mix.env() == :dev, do: [MySidecar.Reloader], else: []
+
+  Supervisor.start_link(children, strategy: :one_for_one)
+end
+```
+
+Run the sidecar with `MIX_ENV=dev mix run --no-halt`. Edit any module in `lib/`
+and the change is live on the next tool call.
+
 ## Configuration
 
 Enable the sidecar in `.planck/config.json`:
