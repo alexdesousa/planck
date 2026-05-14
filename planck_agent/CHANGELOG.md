@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.1.1
+
+### `checkpoint_agent` tool + `Planck.Agent.checkpoint/2`
+
+- `checkpoint_agent` — orchestrator-only tool that inserts a `{:custom, :summary}`
+  message into a target worker's conversation. The worker's next LLM call only sees
+  the checkpoint and later messages; prior history is preserved in the session DB.
+  Added to `orchestrator_tools/6` alongside `spawn_agent`, `destroy_agent`, and
+  `interrupt_agent`.
+- `Planck.Agent.checkpoint/2` — new public API: `checkpoint(agent, summary_text)` issues a
+  synchronous `GenServer.call/2` that builds, persists, and appends the summary
+  message. Works regardless of the agent's current status.
+
+### Dynamic skill injection
+
+- `Agent` state gains `skill_names: [String.t()]` and
+  `skill_refresh_fn: (-> [Skill.t()]) | nil` fields.
+- `do_run_llm` now calls `build_system_prompt/1` (private) before each LLM turn:
+  invokes `skill_refresh_fn.()` to get the current skill pool from `ResourceStore`
+  and appends a fresh skill section. Skills are no longer baked into
+  `state.system_prompt` at agent start time.
+- `AgentSpec.assemble_system_prompt/1` returns the base prompt only (identity line +
+  user prompt). `to_start_opts/2` stores skill names in the `skill_names:` start opt
+  and accepts a `skill_refresh_fn:` override.
+
+### Dependency update
+
+- `ex_doc` bumped to `~> 0.40.2`.
+
 ## v0.1.0
 
 ### execute_fn receives agent_id

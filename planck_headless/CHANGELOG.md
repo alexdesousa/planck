@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.1.1
+
+### Local node tools
+
+- `Planck.Headless.register_tool/1` — registers a tool globally in `ResourceStore`;
+  available to all new sessions for the lifetime of the node.
+- `Planck.Headless.unregister_tool/1` — removes a globally registered tool by name;
+  no-op if not found.
+- `start_session/1` gains a `tools:` option for per-session tools that shadow global
+  ones without touching `ResourceStore`.
+- `ResourceStore` gains `registered_tools: [Tool.t()]` field; `put_tools/1` and
+  `clear_tools/0` only affect sidecar tools and never touch `registered_tools`.
+- `materialize_team` tool pool expanded to
+  `builtins() ++ store.tools ++ store.registered_tools ++ session_tools`.
+
+### `Watcher` GenServer + `file_system` dep
+
+- `Planck.Headless.Watcher` — new GenServer started by `AppSupervisor`; watches
+  configured skill and team directories with a 300 ms debounce and calls
+  `ResourceStore.reload/0` automatically on file changes. Uses the `file_system`
+  Hex package (wraps `inotify` / `FSEvents` / `ReadDirectoryChangesW`).
+- `file_system` added to `planck_headless` deps.
+
+### Dynamic skill injection
+
+- All `AgentSpec.to_start_opts/2` call sites (`start_orchestrator`,
+  `start_workers`, `start_dynamic_worker`) now pass
+  `skill_refresh_fn: fn -> ResourceStore.get().skills end` so every agent
+  resolves skill descriptions fresh from `ResourceStore` on each LLM turn.
+
 ## v0.1.0
 
 ### API keys now stored under :req_llm app

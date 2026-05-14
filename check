@@ -52,6 +52,7 @@ for pkg in "${PACKAGES[@]}"; do
   run "$pkg" credo    mix credo
   run "$pkg" test     mix test --warnings-as-errors
   run "$pkg" dialyzer mix dialyzer
+  run "$pkg" docs     bash -c "mix docs 2>&1 | grep -q 'warning:' && exit 1 || exit 0"
 
   if [ -d "$ROOT/$pkg/priv/gettext" ]; then
     run "$pkg" gettext  bash -c "mix gettext.extract --merge && git -C '$ROOT' diff --exit-code '$ROOT/$pkg/priv/gettext'"

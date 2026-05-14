@@ -39,7 +39,9 @@ the `---` separator is the skill body injected into the system prompt.
 
 ## Assigning skills in TEAM.json
 
-Add a `"skills"` array to any agent spec to inject skill content at session start:
+Add a `"skills"` array to any agent spec. The skill names are stored in the
+agent's state and resolved to fresh descriptions from `ResourceStore` before
+each LLM turn — not baked into the system prompt at session start:
 
 ```json
 {
@@ -101,6 +103,18 @@ worker's system prompt at spawn time — no TEAM.json entry needed:
 ```
 
 Only skills the orchestrator itself has access to can be granted.
+
+## Dynamic loading — live updates without restart
+
+Skill descriptions are resolved fresh from `ResourceStore` before each LLM
+turn. When you edit a `SKILL.md` file on disk, the running `Watcher` GenServer
+detects the change (300 ms debounce) and calls `ResourceStore.reload/0`.
+On the agent's next turn, `build_system_prompt` picks up the new content
+automatically — no agent restart needed.
+
+The same applies to new skills added to the pool after a session has started:
+any agent that declares the skill name in its `"skills"` array will see the
+updated description on its next turn.
 
 ## Example use cases
 

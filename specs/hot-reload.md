@@ -31,14 +31,13 @@ skill files on disk have no effect on running agents.
 A new field `state.skill_names` (list of strings) replaces the baked-in skill
 section in `state.system_prompt`.
 
-At the start of each `do_run_llm` call, the current skill pool is read from
-`ResourceStore` and a fresh skill section is built and appended to the base
-system prompt before building the `Context`:
+At the start of each `do_run_llm` call, the private `build_system_prompt/1`
+invokes `state.skill_refresh_fn.()` to get the current skill pool and appends
+a fresh skill section to the base system prompt before building the `Context`:
 
 ```elixir
 defp do_run_llm(state, turn_type) do
-  skills = ResourceStore.get().skills
-  system = build_system_with_skills(state.system_prompt, state.skill_names, skills)
+  system = build_system_prompt(state)   # calls skill_refresh_fn.() internally
 
   context = %Context{
     system: presence(system),
@@ -49,9 +48,13 @@ defp do_run_llm(state, turn_type) do
 end
 ```
 
-`build_system_with_skills/3` resolves `state.skill_names` against the current
-skill pool and appends their descriptions, the same way
-`assemble_system_prompt` does today.
+`build_system_prompt/1` resolves `state.skill_names` against the pool returned
+by `skill_refresh_fn` and appends their descriptions, the same way
+`assemble_system_prompt` did previously.
+
+`skill_refresh_fn` is a `(-> [Skill.t()]) | nil` closure injected by the
+caller (e.g. `planck_headless` passes `fn -> ResourceStore.get().skills end`).
+This keeps `planck_agent` free of any dependency on `ResourceStore`.
 
 ### Effect
 
@@ -65,8 +68,9 @@ skill pool and appends their descriptions, the same way
 ### Migration
 
 `assemble_system_prompt` no longer appends skills. It returns the base prompt
-only. `AgentSpec.to_start_opts/2` stores skill names in a new `skill_names`
-start opt. `Agent` state gains `skill_names: [String.t()]`.
+only. `AgentSpec.to_start_opts/2` stores skill names in a `skill_names:` start
+opt and accepts a `skill_refresh_fn:` override from callers. `Agent` state
+gains `skill_names: [String.t()]` and `skill_refresh_fn: (-> [Skill.t()]) | nil`.
 
 ---
 
@@ -157,9 +161,13 @@ any manual action.
 
 ## Package ownership
 
-- `Planck.Agent` — adds `skill_names` field; `do_run_llm` builds context with
-  fresh skill section
+- `Planck.Agent` — adds `skill_names` and `skill_refresh_fn` fields;
+  `do_run_llm` calls `build_system_prompt/1` which invokes `skill_refresh_fn`
+  for a fresh skill section each turn
 - `Planck.Agent.AgentSpec` — `assemble_system_prompt` returns base prompt only;
-  `to_start_opts` returns `skill_names:` in start opts
+  `to_start_opts` returns `skill_names:` in start opts; accepts `skill_refresh_fn:`
+  from callers
+- `Planck.Headless` — passes `skill_refresh_fn: fn -> ResourceStore.get().skills end`
+  to all `AgentSpec.to_start_opts/2` call sites
 - `Planck.Headless.Watcher` — new GenServer; started by `AppSupervisor`
 - `Planck.Headless.AppSupervisor` — starts `Watcher` under supervision

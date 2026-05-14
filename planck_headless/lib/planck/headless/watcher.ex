@@ -18,9 +18,9 @@ defmodule Planck.Headless.Watcher do
 
   Directories are derived from `Config` at startup:
 
-  - `Config.skills_dirs!/0` — skill content directories
-  - `Config.teams_dirs!/0` — team definition directories
-  - Parent directories of `Config.config_files!/0` and `Config.env_files!/0`
+  - `Planck.Headless.Config.skills_dirs!/0` — skill content directories
+  - `Planck.Headless.Config.teams_dirs!/0` — team definition directories
+  - Parent directories of `Planck.Headless.Config.config_files!/0` and `Planck.Headless.Config.env_files!/0`
     — so config and API-key changes are also detected
 
   Only directories that exist on disk are passed to `FileSystem`; missing

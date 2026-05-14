@@ -37,7 +37,7 @@ read_file =
       "properties" => %{"path" => %{"type" => "string"}},
       "required" => ["path"]
     },
-    execute_fn: fn _id, %{"path" => path} ->
+    execute_fn: fn _agent_id, _call_id, %{"path" => path} ->
       case File.read(path) do
         {:ok, content} -> {:ok, content}
         {:error, reason} -> {:error, "could not read #{path}: #{reason}"}
@@ -187,7 +187,7 @@ tools = [
 ### Granting tools to spawned workers
 
 When building the orchestrator's tools, pass a `grantable_tools` list to
-`Planck.Agent.Tools.orchestrator_tools/5`. The orchestrator can then grant any
+`Planck.Agent.Tools.orchestrator_tools/6`. The orchestrator can then grant any
 subset of those tools to workers it spawns by including a `"tools"` key in the
 `spawn_agent` call:
 
@@ -447,7 +447,9 @@ description: Reviews code for correctness, style, and performance.
 Review the provided code...
 ```
 
-Load skills and inject them into an agent's system prompt:
+Load skills and pass them to `AgentSpec.to_start_opts/2` via `skill_pool:`.
+Skill descriptions are resolved fresh from the pool before each LLM turn —
+not baked into the system prompt at start time:
 
 ```elixir
 alias Planck.Agent.Skill

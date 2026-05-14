@@ -46,9 +46,18 @@ parsing.
 
 ### Declared skills (predictable, pre-configured)
 
-Skills can be declared per-agent in TEAM.json. At start time,
-`Planck.Agent.AgentSpec.to_start_opts/2` resolves the names against the global
-`skill_pool:` and injects a system prompt section listing the agent's skills:
+Skills can be declared per-agent in TEAM.json. Skill names are stored in
+`AgentSpec` and passed to the agent as `skill_names` at start time.
+`AgentSpec.to_start_opts/2` **no longer** bakes skill descriptions into
+`state.system_prompt`; instead it stores them as names only.
+
+At the start of each LLM turn, `do_run_llm` calls `build_system_prompt/1`
+which invokes `skill_refresh_fn.()` to get the current pool from
+`ResourceStore` and resolves fresh descriptions from it. This means skill
+content changes on disk (picked up by `Watcher` → `ResourceStore.reload/0`)
+take effect on the agent's next turn with no restart.
+
+The section appended to the system prompt each turn looks like:
 
 ```
 ## Available skills

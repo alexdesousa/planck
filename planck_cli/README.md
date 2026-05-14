@@ -3,8 +3,6 @@
 The web UI and HTTP API for Planck — a Phoenix LiveView application that provides the
 browser-based interface and a REST/SSE API for interacting with agents.
 
-<video src="https://alexdesousa.github.io/planck/planck-light.webm" autoplay loop muted playsinline width="800"></video>
-
 ## Running
 
 ```bash
