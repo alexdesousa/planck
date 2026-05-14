@@ -12,7 +12,8 @@ defmodule Planck.Headless.AppSupervisor do
   def init(_opts) do
     children = [
       Planck.Headless.ResourceStore,
-      Planck.Headless.SidecarManager
+      Planck.Headless.SidecarManager,
+      Planck.Headless.Watcher
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

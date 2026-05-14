@@ -196,7 +196,7 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:system_prompt] =~ "You are a builder."
     end
 
-    test "appends resolved skill section to system_prompt when skills is non-empty" do
+    test "skill names are passed as skill_names opt (not baked into system_prompt)" do
       expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
@@ -206,12 +206,15 @@ defmodule Planck.Agent.AgentSpecTest do
         skill_file: "/tmp/skills/code_review/SKILL.md"
       }
 
+      refresh_fn = fn -> [skill] end
       spec = %{@base_spec | skills: ["code_review"]}
-      opts = AgentSpec.to_start_opts(spec, skill_pool: [skill])
+      opts = AgentSpec.to_start_opts(spec, skill_pool: [skill], skill_refresh_fn: refresh_fn)
 
-      assert opts[:system_prompt] =~ "You are a builder."
-      assert opts[:system_prompt] =~ "code_review"
-      assert opts[:system_prompt] =~ "Reviews code for correctness."
+      # skill section is NOT baked into system_prompt
+      refute opts[:system_prompt] =~ "code_review"
+      # skill names and refresh fn are stored for dynamic resolution
+      assert opts[:skill_names] == ["code_review"]
+      assert is_function(opts[:skill_refresh_fn], 0)
     end
 
     test "ignores unknown skill names" do

@@ -533,6 +533,7 @@ defmodule Planck.Headless do
             store.tools ++
             store.registered_tools ++ skill_discovery_tools(store.skills),
         skill_pool: store.skills,
+        skill_refresh_fn: fn -> ResourceStore.get().skills end,
         team_id: team_id,
         session_id: session_id,
         available_models: store.available_models
@@ -590,6 +591,7 @@ defmodule Planck.Headless do
             builtins() ++
               store.tools ++ store.registered_tools ++ skill_discovery_tools(store.skills),
           skill_pool: store.skills,
+          skill_refresh_fn: fn -> ResourceStore.get().skills end,
           team_id: team_id,
           session_id: session_id,
           available_models: store.available_models
@@ -772,6 +774,7 @@ defmodule Planck.Headless do
               builtins() ++
                 store.tools ++ store.registered_tools ++ skill_discovery_tools(store.skills),
             skill_pool: store.skills,
+            skill_refresh_fn: fn -> ResourceStore.get().skills end,
             team_id: team_id,
             session_id: session_id,
             available_models: store.available_models

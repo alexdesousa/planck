@@ -105,6 +105,8 @@ defmodule Planck.Agent do
           role: :orchestrator | :worker,
           model: Planck.AI.Model.t() | nil,
           on_compact: ([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip) | nil,
+          skill_names: [String.t()],
+          skill_refresh_fn: (-> [Planck.Agent.Skill.t()]) | nil,
           cwd: String.t(),
           system_prompt: String.t(),
           messages: [Message.t()],
@@ -137,6 +139,8 @@ defmodule Planck.Agent do
     :role,
     :model,
     :on_compact,
+    skill_names: [],
+    skill_refresh_fn: nil,
     cwd: "",
     system_prompt: "",
     messages: [],
@@ -322,6 +326,8 @@ defmodule Planck.Agent do
       opts: Keyword.get(opts, :opts, []),
       available_models: Keyword.get(opts, :available_models, []),
       on_compact: Keyword.get(opts, :on_compact),
+      skill_names: Keyword.get(opts, :skill_names, []),
+      skill_refresh_fn: Keyword.get(opts, :skill_refresh_fn),
       usage: Keyword.get(opts, :usage, %{input_tokens: 0, output_tokens: 0}),
       cost: Keyword.get(opts, :cost, 0.0)
     }
@@ -535,9 +541,10 @@ defmodule Planck.Agent do
       end
 
     ai_tools = state.tools |> Map.values() |> Enum.map(&Tool.to_ai_tool/1)
+    system = build_system_prompt(state)
 
     context = %Context{
-      system: presence(state.system_prompt),
+      system: presence(system),
       messages: Message.to_ai_messages(messages),
       tools: ai_tools
     }
@@ -996,6 +1003,26 @@ defmodule Planck.Agent do
           [Planck.AI.Message.content_part()]
   defp normalize_content(text) when is_binary(text), do: [{:text, text}]
   defp normalize_content(parts) when is_list(parts), do: parts
+
+  @spec build_system_prompt(t()) :: String.t()
+  defp build_system_prompt(%__MODULE__{skill_names: [], system_prompt: base}), do: base
+
+  defp build_system_prompt(%__MODULE__{skill_refresh_fn: nil, system_prompt: base}), do: base
+
+  defp build_system_prompt(%__MODULE__{
+         skill_names: names,
+         skill_refresh_fn: refresh_fn,
+         system_prompt: base
+       }) do
+    pool = refresh_fn.()
+    pool_map = Map.new(pool, &{&1.name, &1})
+    resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
+
+    case Planck.Agent.Skill.system_prompt_section(resolved) do
+      nil -> base
+      section -> base <> "\n\n" <> section
+    end
+  end
 
   @spec presence(String.t()) :: String.t() | nil
   defp presence(""), do: nil

@@ -230,7 +230,7 @@ defmodule Planck.Agent.AgentSpec do
     available_models = Keyword.get(overrides, :available_models, [])
     model = resolve_model!(spec.provider, spec.model_id, spec.base_url, available_models)
     tools = resolve_tools(spec, overrides)
-    system_prompt = assemble_system_prompt(spec, overrides)
+    system_prompt = assemble_system_prompt(spec)
 
     [
       id: generate_id(),
@@ -241,6 +241,8 @@ defmodule Planck.Agent.AgentSpec do
       system_prompt: system_prompt,
       opts: spec.opts,
       tools: tools,
+      skill_names: spec.skills,
+      skill_refresh_fn: Keyword.get(overrides, :skill_refresh_fn),
       team_id: Keyword.get(overrides, :team_id),
       session_id: Keyword.get(overrides, :session_id),
       available_models: Keyword.get(overrides, :available_models, []),
@@ -272,21 +274,9 @@ defmodule Planck.Agent.AgentSpec do
     end
   end
 
-  @spec assemble_system_prompt(t(), keyword()) :: String.t()
-  defp assemble_system_prompt(spec, overrides) do
-    base =
-      with [_ | _] = names <- spec.skills,
-           pool = Keyword.get(overrides, :skill_pool, []),
-           pool_map = Map.new(pool, &{&1.name, &1}),
-           resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1))),
-           section when is_binary(section) <- Skill.system_prompt_section(resolved) do
-        spec.system_prompt <> "\n\n" <> section
-      else
-        _ ->
-          spec.system_prompt
-      end
-
-    identity_line(spec) <> base
+  @spec assemble_system_prompt(t()) :: String.t()
+  defp assemble_system_prompt(spec) do
+    identity_line(spec) <> spec.system_prompt
   end
 
   @spec identity_line(t()) :: String.t()

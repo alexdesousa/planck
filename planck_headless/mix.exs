@@ -47,6 +47,7 @@ defmodule Planck.Headless.MixProject do
     [
       local_or_hex(:planck_agent, "~> 0.1"),
       {:erlexec, "~> 2.0"},
+      {:file_system, "~> 1.0"},
       {:jason, "~> 1.4"},
       {:skogsra, "~> 2.5"},
       {:mox, "~> 1.2", only: :test},
