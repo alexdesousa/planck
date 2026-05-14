@@ -1,7 +1,7 @@
 defmodule Planck.AI.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @app :planck_ai
   @description "Typed LLM provider abstraction built on top of req_llm"
   @repo "https://github.com/alexdesousa/planck"
@@ -50,7 +50,7 @@ defmodule Planck.AI.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:mox, "~> 1.2", only: :test},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.40.2", only: :dev, runtime: false}
     ]
   end
 

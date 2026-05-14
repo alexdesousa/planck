@@ -1,7 +1,7 @@
 defmodule Planck.Headless.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @app :planck_headless
   @description "Headless core for the Planck coding agent — config, resources, and session lifecycle"
   @repo "https://github.com/alexdesousa/planck"
@@ -53,7 +53,7 @@ defmodule Planck.Headless.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.40.2", only: :dev, runtime: false}
     ]
   end
 
