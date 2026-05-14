@@ -215,6 +215,20 @@ defmodule Planck.Agent do
     GenServer.cast(agent, {:rewind_to_message, message_id})
   end
 
+  @doc """
+  Insert a summary checkpoint into the agent's conversation.
+
+  Builds a `{:custom, :summary}` message with `summary_text`, persists it,
+  and appends it to in-memory history. The agent's next LLM call will only
+  see the checkpoint and any messages after it via `messages_since_last_summary`.
+
+  Works regardless of the agent's current status.
+  """
+  @spec checkpoint(agent(), String.t()) :: :ok
+  def checkpoint(agent, summary_text) do
+    GenServer.call(agent, {:checkpoint, summary_text})
+  end
+
   @doc "Stop the agent. Cancels any in-flight work and removes it from the supervisor."
   @spec stop(agent()) :: :ok
   def stop(agent) do
@@ -380,6 +394,12 @@ defmodule Planck.Agent do
     else
       {:reply, :ok, new_state}
     end
+  end
+
+  def handle_call({:checkpoint, summary_text}, _from, state) do
+    msg = Message.new({:custom, :summary}, [{:text, summary_text}])
+    msg = persist_message(state, msg)
+    {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
   end
 
   @impl true

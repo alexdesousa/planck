@@ -494,6 +494,107 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   # ---------------------------------------------------------------------------
+  # checkpoint_agent
+  # ---------------------------------------------------------------------------
+
+  describe "checkpoint_agent" do
+    test "inserts a summary checkpoint into a worker's message history" do
+      team_id = unique_id()
+      {_orch_id, orch_pid} = start_orchestrator(team_id)
+      builder_id = start_worker(team_id, "builder", nil)
+      {:ok, builder_pid} = Agent.whereis(builder_id)
+
+      # Add some messages to the worker
+      :sys.replace_state(builder_pid, fn s ->
+        msgs = [
+          %Planck.Agent.Message{
+            id: "m1",
+            role: :user,
+            content: [{:text, "do something"}],
+            timestamp: DateTime.utc_now(),
+            metadata: %{}
+          }
+        ]
+
+        %{s | messages: msgs}
+      end)
+
+      # Orchestrator checkpoints the builder
+      checkpoint_tool =
+        orch_pid
+        |> Agent.get_state()
+        |> Map.get(:tools)
+        |> Map.get("checkpoint_agent")
+
+      assert {:ok, "Checkpoint inserted."} =
+               checkpoint_tool.execute_fn.(
+                 unique_id(),
+                 "tc1",
+                 %{
+                   "identifier" => "builder",
+                   "identifier_type" => "type",
+                   "summary" => "Builder completed task X."
+                 }
+               )
+
+      state = Agent.get_state(builder_pid)
+      last_msg = List.last(state.messages)
+      assert last_msg.role == {:custom, :summary}
+      assert [{:text, "Builder completed task X."}] = last_msg.content
+    end
+
+    test "returns error when targeting self" do
+      team_id = unique_id()
+      {orch_id, orch_pid} = start_orchestrator(team_id)
+
+      checkpoint_tool =
+        orch_pid |> Agent.get_state() |> Map.get(:tools) |> Map.get("checkpoint_agent")
+
+      assert {:error, "Cannot checkpoint yourself."} =
+               checkpoint_tool.execute_fn.(
+                 orch_id,
+                 "tc1",
+                 %{
+                   "identifier" => "orchestrator",
+                   "identifier_type" => "type",
+                   "summary" => "summary"
+                 }
+               )
+    end
+
+    test "summary is the last message and sits after prior history" do
+      team_id = unique_id()
+      {_orch_id, orch_pid} = start_orchestrator(team_id)
+      builder_id = start_worker(team_id, "builder", nil)
+      {:ok, builder_pid} = Agent.whereis(builder_id)
+
+      old_msg = %Planck.Agent.Message{
+        id: "old",
+        role: :user,
+        content: [{:text, "old message"}],
+        timestamp: DateTime.utc_now(),
+        metadata: %{}
+      }
+
+      :sys.replace_state(builder_pid, fn s -> %{s | messages: [old_msg]} end)
+
+      checkpoint_tool =
+        orch_pid |> Agent.get_state() |> Map.get(:tools) |> Map.get("checkpoint_agent")
+
+      checkpoint_tool.execute_fn.(unique_id(), "tc1", %{
+        "identifier" => "builder",
+        "identifier_type" => "type",
+        "summary" => "Clean slate."
+      })
+
+      state = Agent.get_state(builder_pid)
+      assert length(state.messages) == 2
+      assert hd(state.messages).role == :user
+      assert List.last(state.messages).role == {:custom, :summary}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # interrupt_agent
   # ---------------------------------------------------------------------------
 

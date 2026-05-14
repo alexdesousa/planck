@@ -30,6 +30,7 @@ defmodule Planck.Agent.Tools do
   | `spawn_agent` | orchestrator only | no |
   | `destroy_agent` | orchestrator only | no |
   | `interrupt_agent` | orchestrator only | no |
+  | `checkpoint_agent` | orchestrator only | no |
   | `list_models` | orchestrator only | no |
   """
 
@@ -88,6 +89,7 @@ defmodule Planck.Agent.Tools do
       spawn_agent(session_id, team_id, grantable_tools, grantable_skills, cwd),
       destroy_agent(team_id),
       interrupt_agent(team_id),
+      checkpoint_agent(team_id),
       list_models(available_models)
     ]
   end
@@ -430,6 +432,53 @@ defmodule Planck.Agent.Tools do
         with {:ok, pid} <- resolve_target(team_id, args) do
           Agent.abort(pid)
           {:ok, "Agent interrupted."}
+        end
+      end
+    )
+  end
+
+  @doc "Build the `checkpoint_agent` tool for a given team."
+  @spec checkpoint_agent(String.t()) :: Tool.t()
+  def checkpoint_agent(team_id) do
+    Tool.new(
+      name: "checkpoint_agent",
+      description: """
+      Insert a context checkpoint into a worker's conversation. Messages
+      before the checkpoint are archived — the worker's next LLM call will
+      only see the checkpoint summary and any messages after it. Use this
+      to give a worker a clean slate with a curated summary of prior work.
+      """,
+      parameters: %{
+        "type" => "object",
+        "properties" => %{
+          "identifier" => %{
+            "type" => "string",
+            "description" => "The value that identifies the target agent"
+          },
+          "identifier_type" => %{
+            "type" => "string",
+            "enum" => ["type", "name", "id"],
+            "description" =>
+              "How to resolve the identifier: by role type, display name, or agent id"
+          },
+          "summary" => %{
+            "type" => "string",
+            "description" =>
+              "Summary of completed work and current state. The worker will use this as its only context for prior history."
+          }
+        },
+        "required" => ["identifier", "identifier_type", "summary"]
+      },
+      execute_fn: fn agent_id, _id, args ->
+        with {:ok, pid} <- resolve_target(team_id, args) do
+          target_id = Agent.get_info(pid).id
+
+          if target_id == agent_id do
+            {:error, "Cannot checkpoint yourself."}
+          else
+            Agent.checkpoint(pid, args["summary"])
+            {:ok, "Checkpoint inserted."}
+          end
         end
       end
     )
