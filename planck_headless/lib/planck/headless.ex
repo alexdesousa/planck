@@ -7,7 +7,7 @@ defmodule Planck.Headless do
   this module; they are rendering surfaces only and never call `planck_agent`
   directly.
 
-  See `specs/planck-headless.md` for the full design.
+  See the design specs in the `specs/` directory of the repository.
   """
 
   require Logger
@@ -139,7 +139,7 @@ defmodule Planck.Headless do
   @doc """
   Edit a previous user message: rewind the orchestrator to strictly before the
   given DB row id (truncates both the SQLite session and in-memory history via
-  `Agent.rewind_to_message/2`), then re-prompt with `new_text`.
+  `Planck.Agent.rewind_to_message/2`), then re-prompt with `new_text`.
   """
   @spec rewind_to_message(session_id(), pos_integer(), String.t()) ::
           :ok | {:error, term()}

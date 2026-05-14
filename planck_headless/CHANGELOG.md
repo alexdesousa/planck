@@ -26,7 +26,7 @@
 
 ### API key loading from .planck/.env
 
-- New `Planck.Headless.Config.EnvBinding` — Skogsra binding that reads API
+- New `EnvBinding` (internal) — Skogsra binding that reads API
   keys from `./.planck/.env` (project-local) and `~/.planck/.env` (global).
   Priority: system env → project .env → global .env → Elixir config.
   Standard dotenv format; skipped in tests via `skip_env_config: true`.
@@ -112,7 +112,7 @@ First release.
 
 - `Headless.rewind_to_message/3` — truncates the session to strictly before the
   given DB row id (`Session.truncate_after/2`), rewinds the orchestrator's
-  in-memory history to before that same id (`Agent.rewind_to_message/2`, since
+  in-memory history to before that same id (`Planck.Agent.rewind_to_message/2`, since
   `Message.id == db_id` for persisted messages), then re-prompts with `new_text`;
   powers the edit-message UI feature
 
@@ -150,7 +150,7 @@ First release.
 
 ### Config
 
-- `Planck.Headless.Config.JsonBinding` — Skogsra `Binding` that reads
+- `JsonBinding` (internal) — Skogsra `Binding` that reads
   `~/.planck/config.json` and `.planck/config.json` at resolution time; results
   cached in persistent_term; `invalidate/0` for cache busting before reload.
 - `config_files` app_env (`PLANCK_CONFIG_FILES`) — controls which JSON files
@@ -159,7 +159,7 @@ First release.
   `[Planck.AI.Model.t()]`; replaces `local_servers`; no network at boot.
 - Provider atoms pre-loaded at boot via `Planck.AI.Model.providers()` to avoid
   `String.to_existing_atom` failures on lazy module load.
-- `PathList` inline as `Planck.Headless.Config.PathList` submodule.
+- `PathList` inline as `PathList` (internal) submodule.
 
 ### ResourceStore
 
@@ -177,7 +177,7 @@ First release.
 
 ### Other
 
-- `Planck.Headless.DefaultPrompt` — default system prompt for dynamic-team
+- `DefaultPrompt` (internal) — default system prompt for dynamic-team
   orchestrator.
 - `Mox` in test deps; `Planck.Agent.MockAI` wired in test.exs.
 - `start_session(template: alias)` exercised via ResourceStore in tests.

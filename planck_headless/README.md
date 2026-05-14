@@ -8,7 +8,7 @@ sidecar OTP application that provides custom tools and compactors.
 UIs (`planck_tui`, `planck_web`) depend on this package; they are rendering
 surfaces only and never call `planck_agent` directly.
 
-See [`specs/planck-headless.md`](../specs/planck-headless.md) for the full design.
+See the design specs in the `specs/` directory of the repository.
 
 ## Session lifecycle
 

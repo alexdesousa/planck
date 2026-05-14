@@ -68,7 +68,7 @@ defmodule Planck.Agent.AgentSpec do
     `nil`, the provider's default URL is used.
   - `:compactor` — fully-qualified module name of a sidecar compactor for this agent,
     e.g. `"MySidecar.Compactors.Builder"`. The module must implement `compact/2`.
-    planck_headless resolves this via `Planck.Agent.Sidecar.compactor_for/1` when
+    planck_headless resolves this via `Planck.Agent.Compactor.build/2` when
     materialising the agent. `nil` means the default compactor is used.
   """
   @type t :: %__MODULE__{

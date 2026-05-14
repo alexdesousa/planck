@@ -55,7 +55,7 @@
 
 ### Runtime model switching
 
-- `Agent.change_model/2` — replaces the model in the agent's GenServer state
+- `Planck.Agent.change_model/2` — replaces the model in the agent's GenServer state
   for subsequent LLM turns without affecting the current conversation history
   or status.
 
@@ -112,7 +112,7 @@
 - `cost: float()` added to agent state; accumulated from model rates on each
   `:done` event; persisted to session metadata; broadcast in `:usage_delta`.
 - `Message.estimate_tokens/1` — public character-based token estimator.
-- `Agent.estimate_tokens/1` — public API that computes current context size.
+- `Planck.Agent.estimate_tokens/1` — public API that computes current context size.
 - `running_tools` / `tool_results_acc` added to agent state for non-blocking
   tool tracking.
 
@@ -171,10 +171,10 @@ First release.
 - `Message.id` is **not** stored in the serialised blob — the field is stripped
   before writing and set from the DB `id` column on every read; the row id is
   therefore authoritative for all rows, including legacy ones that stored a UUID
-- `Agent.rewind_to_message/2` — truncates both the session and in-memory history to
+- `Planck.Agent.rewind_to_message/2` — truncates both the session and in-memory history to
   strictly before the given db_id, then reloads from the DB to restore canonical
   order and rebuild `turn_checkpoints`; replaces the old `rewind/2` (removed)
-- `Agent.rewind/2` removed — replaced by `rewind_to_message/2`
+- `rewind/2` removed — replaced by `Planck.Agent.rewind_to_message/2`
 
 ### Message persistence ordering
 
@@ -189,7 +189,7 @@ First release.
 
 ### Agent API
 
-- `Agent.prompt/3` is now a synchronous `call` (was a `cast`) — returns `:ok` once the agent
+- `Planck.Agent.prompt/3` is now a synchronous `call` (was a `cast`) — returns `:ok` once the agent
   has set its status to `:streaming`; if the agent is already busy the message is queued
   (appended to history) and re-triggered automatically after the current turn ends via
   `maybe_turn_start/1`

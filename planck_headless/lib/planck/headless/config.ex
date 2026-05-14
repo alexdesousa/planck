@@ -15,7 +15,7 @@ defmodule Planck.Headless.Config do
   Skogsra-generated `reload_<key>/0` function.
 
   JSON config files (`~/.planck/config.json` and `.planck/config.json`) are
-  read via `JsonBinding` as part of Skogsra's binding chain. Keys that appear
+  read via `JsonBinding` (internal module) as part of Skogsra's binding chain. Keys that appear
   in a JSON file override application config but are overridden by env vars.
 
   ## Env vars
@@ -40,7 +40,7 @@ defmodule Planck.Headless.Config do
 
   API keys are not included in `get/0` or the `%Config{}` struct to avoid
   accidental exposure in logs or inspect output. Use the generated getter
-  functions directly (e.g. `Config.anthropic_api_key!/0`).
+  functions directly (e.g. `Planck.Headless.Config.anthropic_api_key!/0`).
 
   | Env var               | Config key             | Used for                   |
   |-----------------------|------------------------|----------------------------|
@@ -52,7 +52,7 @@ defmodule Planck.Headless.Config do
   use Skogsra
 
   defmodule Models do
-    @moduledoc false
+    @moduledoc "Skogsra type for the list of local model configurations."
 
     # Skogsra type for the `models` config key. Accepts a list of model-entry
     # maps and parses them via `Planck.AI.Config.from_list/1`, producing a list
@@ -71,7 +71,7 @@ defmodule Planck.Headless.Config do
   end
 
   defmodule PathList do
-    @moduledoc false
+    @moduledoc "Skogsra type for colon-separated path lists (e.g. `~/.planck/skills:./planck/skills`)."
 
     use Skogsra.Type
 

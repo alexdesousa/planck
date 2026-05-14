@@ -3,7 +3,7 @@ defmodule Planck.Headless.SidecarManager do
   Manages the optional sidecar OTP application.
 
   At startup `SidecarManager` checks whether a sidecar directory is configured
-  (`Config.sidecar!/0`). When it exists on disk, it:
+  (`Planck.Headless.Config.sidecar!/0`). When it exists on disk, it:
 
   1. Runs `mix deps.get` and `mix compile` synchronously (fast-fail on error).
   2. Spawns the sidecar as a long-lived OS process via erlexec using:

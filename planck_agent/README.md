@@ -70,7 +70,7 @@ end
 
 ## Pub/Sub events
 
-Subscribe to `{:agent_event, type, payload}` messages via `Agent.subscribe/1`.
+Subscribe to `{:agent_event, type, payload}` messages via `Planck.Agent.subscribe/1`.
 Events are broadcast on two topics: `"agent:#{id}"` and, when a `session_id` is
 set, `"session:#{session_id}"`.
 

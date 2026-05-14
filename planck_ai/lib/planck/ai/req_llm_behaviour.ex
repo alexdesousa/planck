@@ -3,7 +3,7 @@ defmodule Planck.AI.ReqLLMBehaviour do
   Behaviour wrapping the `req_llm` streaming call.
 
   Exists so that `Planck.AI.Adapter` can be tested without making real HTTP
-  requests. In production, `Planck.AI.ReqLLM` delegates directly to
+  requests. In production, Planck.AI.ReqLLM (internal) delegates directly to
   `ReqLLM.stream_text/3`. In tests, `Planck.AI.MockReqLLM` is injected via
   application config.
   """
