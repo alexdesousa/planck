@@ -14,6 +14,8 @@ is message passing. `planck_ai`, `planck_agent`, and `planck_headless` are publi
 to Hex as reusable libraries. The coding agent ships as a self-contained binary
 called `planck`.
 
+https://github.com/user-attachments/assets/4045b308-4b1c-4315-9024-11574a8c8eb5
+
 ---
 
 ## Packages
