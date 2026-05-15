@@ -2,6 +2,15 @@
 
 ## v0.1.1
 
+### Proxy config hot-reload
+
+- `PLANCK_PROXY_IMAGE_DOMAINS` and `PLANCK_PROXY_IMAGE_PATHS` are now reloaded
+  automatically when `.env` or `config.json` files change on disk. Previously,
+  the Watcher fired but Skogsra's persistent-term cache held the old value.
+- Registers a `ResourceStore.register_on_reload/1` closure at startup that
+  calls `Config.reload_proxy_image_domains/0` and `Config.reload_proxy_image_paths/0`
+  after each file-watcher reload.
+
 ### Image proxy
 
 - `GET /api/proxy?url=...` — server-side image proxy for both HTTP/HTTPS and

@@ -2,6 +2,19 @@
 
 ## v0.1.1
 
+### Config + `.env` hot-reload
+
+- `ResourceStore.register_on_reload/1` — accepts a zero-arity closure from
+  packages above `planck_headless` in the dependency tree. Closures are fired
+  after binding invalidation on every `reload/0` call and preserved across
+  reloads. Enables callers to invalidate their own Skogsra caches without
+  creating a reverse dependency.
+- `reload/0` now invalidates `JsonBinding` and `EnvBinding` persistent-term
+  caches before reloading resources, so changes to `config.json` and `.env`
+  files are picked up immediately by all Skogsra keys.
+- `registered_tools` is preserved across reloads (previously wiped by
+  `load_resources/0` returning a fresh struct).
+
 ### Local node tools
 
 - `Planck.Headless.register_tool/1` — registers a tool globally in `ResourceStore`;
