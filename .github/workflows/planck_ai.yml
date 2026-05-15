@@ -24,7 +24,7 @@ jobs:
     env:
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout repository
       - uses: erlef/setup-beam@v1
         name: Setup Elixir
@@ -32,7 +32,7 @@ jobs:
           otp-version: ${{ matrix.otp }}
           elixir-version: ${{ matrix.elixir }}
       - name: Get dependencies
-        run: mix do local.rebar --force, local.hex --force, deps.get
+        run: mix do local.rebar --force + local.hex --force + deps.get
       - name: Compile dependencies
         run: mix deps.compile
       - name: Compile project
@@ -57,7 +57,7 @@ jobs:
     env:
       MIX_ENV: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout repository
       - uses: erlef/setup-beam@v1
         name: Setup Elixir
@@ -71,7 +71,7 @@ jobs:
           path: planck_ai/priv/plts
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-plts-${{ hashFiles('planck_ai/mix.lock') }}
       - name: Get dependencies
-        run: mix do local.rebar --force, local.hex --force, deps.get
+        run: mix do local.rebar --force + local.hex --force + deps.get
       - name: Compile dependencies
         run: mix deps.compile
       - name: Run Dialyzer

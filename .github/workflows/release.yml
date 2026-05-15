@@ -22,7 +22,7 @@ jobs:
     env:
       MIX_ENV: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: erlef/setup-beam@v1
         with:
@@ -39,7 +39,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: mix do local.rebar --force, local.hex --force, deps.get
+        run: mix do local.rebar --force + local.hex --force + deps.get
 
       - name: Compile
         run: mix compile --warnings-as-errors
@@ -64,7 +64,7 @@ jobs:
     env:
       MIX_ENV: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: erlef/setup-beam@v1
         with:
@@ -81,7 +81,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: mix do local.rebar --force, local.hex --force, deps.get
+        run: mix do local.rebar --force + local.hex --force + deps.get
 
       - name: Compile
         run: mix compile --warnings-as-errors
@@ -106,7 +106,7 @@ jobs:
     env:
       MIX_ENV: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: erlef/setup-beam@v1
         with:
@@ -123,7 +123,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: mix do local.rebar --force, local.hex --force, deps.get
+        run: mix do local.rebar --force + local.hex --force + deps.get
 
       - name: Compile
         run: mix compile --warnings-as-errors
@@ -157,7 +157,7 @@ jobs:
         working-directory: planck_cli
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -179,7 +179,7 @@ jobs:
           node-version: "25.9.0"
 
       - name: Install dependencies
-        run: mix do local.rebar --force, local.hex --force, deps.get
+        run: mix do local.rebar --force + local.hex --force + deps.get
         env:
           MIX_ENV: prod
 
@@ -189,7 +189,7 @@ jobs:
           MIX_ENV: dev
 
       - name: Build and digest assets
-        run: mix do assets.setup, assets.deploy
+        run: mix do assets.setup + assets.deploy
         env:
           MIX_ENV: dev
 
