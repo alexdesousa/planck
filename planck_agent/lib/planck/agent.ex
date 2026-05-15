@@ -879,6 +879,14 @@ defmodule Planck.Agent do
 
   @spec truncate_tool_output(String.t()) :: String.t()
   defp truncate_tool_output(value) do
+    if String.valid?(value) do
+      truncate_text_output(value)
+    else
+      "[binary file, #{byte_size(value)} bytes — cannot display]"
+    end
+  end
+
+  defp truncate_text_output(value) do
     lines = String.split(value, "\n")
 
     {value, line_truncated} =

@@ -24,6 +24,10 @@ defmodule Planck.Agent.Skill do
       description: Expert at building n8n workflows and automation.
       ---
 
+  Descriptions containing colons must be quoted:
+
+      description: "Expert at n8n: workflow automation"
+
       # N8N Expert
 
       You are an expert at n8n...
@@ -144,9 +148,8 @@ defmodule Planck.Agent.Skill do
   their TEAM.json `"tools"` array.
   """
   @spec load_skill_tool([t()]) :: Tool.t()
-  def load_skill_tool(skills) do
-    skill_map = Map.new(skills, &{&1.name, &1})
-
+  @spec load_skill_tool([t()], (-> [t()]) | nil) :: Tool.t()
+  def load_skill_tool(skills, skill_refresh_fn \\ nil) do
     Tool.new(
       name: "load_skill",
       description:
@@ -159,6 +162,9 @@ defmodule Planck.Agent.Skill do
         "required" => ["name"]
       },
       execute_fn: fn _agent_id, _id, %{"name" => name} ->
+        current = if skill_refresh_fn, do: skill_refresh_fn.(), else: skills
+        skill_map = Map.new(current, &{&1.name, &1})
+
         case Map.get(skill_map, name) do
           nil ->
             available = skill_map |> Map.keys() |> Enum.sort() |> Enum.join(", ")
@@ -245,29 +251,31 @@ defmodule Planck.Agent.Skill do
     content = String.replace(content, "\r\n", "\n")
 
     case Regex.run(@frontmatter_re, content, capture: :all_but_first) do
-      nil ->
-        {:error, "#{path} has no frontmatter (expected --- ... --- at the top)"}
-
-      [frontmatter] ->
-        with {:ok, name} <- extract_field(frontmatter, "name", path),
-             {:ok, description} <- extract_field(frontmatter, "description", path) do
-          {:ok, name, description}
-        end
+      nil -> {:error, "#{path} has no frontmatter (expected --- ... --- at the top)"}
+      [frontmatter] -> parse_yaml_fields(frontmatter, path)
     end
   end
 
-  @spec extract_field(String.t(), String.t(), Path.t()) ::
-          {:ok, String.t()} | {:error, String.t()}
-  defp extract_field(frontmatter, field, path) do
-    pattern = ~r/^#{Regex.escape(field)}:\s*(.+)$/m
+  @spec parse_yaml_fields(String.t(), Path.t()) ::
+          {:ok, String.t(), String.t()} | {:error, String.t()}
+  defp parse_yaml_fields(yaml, path) do
+    Application.ensure_all_started(:yamerl)
 
-    case Regex.run(pattern, frontmatter, capture: :all_but_first) do
-      [value] ->
-        trimmed = String.trim(value)
-        if trimmed != "", do: {:ok, trimmed}, else: {:error, "#{path}: #{field} is blank"}
+    case :yamerl_constr.string(String.to_charlist(yaml)) do
+      [[_ | _] = pairs] ->
+        name = Enum.find_value(pairs, fn {k, v} -> k == ~c"name" && v end)
+        desc = Enum.find_value(pairs, fn {k, v} -> k == ~c"description" && v end)
 
-      nil ->
-        {:error, "#{path}: missing required frontmatter field '#{field}'"}
+        cond do
+          is_nil(name) -> {:error, "#{path}: missing required frontmatter field 'name'"}
+          is_nil(desc) -> {:error, "#{path}: missing required frontmatter field 'description'"}
+          true -> {:ok, to_string(name), to_string(desc)}
+        end
+
+      _ ->
+        {:error, "#{path}: frontmatter must be a YAML mapping"}
     end
+  catch
+    _, reason -> {:error, "#{path}: invalid YAML in frontmatter: #{inspect(reason)}"}
   end
 end

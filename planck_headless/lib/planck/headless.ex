@@ -640,7 +640,24 @@ defmodule Planck.Headless do
   # by AgentSpec.to_start_opts when skill_pool is non-empty.
   @spec skill_discovery_tools([Skill.t()]) :: [Planck.Agent.Tool.t()]
   defp skill_discovery_tools([]), do: []
-  defp skill_discovery_tools(skills), do: [Skill.list_skills_tool(skills)]
+
+  defp skill_discovery_tools(skills) do
+    base = Skill.list_skills_tool(skills)
+
+    execute_fn =
+      fn _agent_id, _id, _args ->
+        current = ResourceStore.get().skills
+
+        entries =
+          Enum.map_join(current, "\n", fn %Skill{name: name, description: desc} ->
+            "- **#{name}**: #{desc}"
+          end)
+
+        if entries == "", do: {:ok, "No skills available."}, else: {:ok, entries}
+      end
+
+    [%{base | execute_fn: execute_fn}]
+  end
 
   @spec load_agent_usage(map(), String.t()) ::
           {%{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()}, float()}

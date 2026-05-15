@@ -46,6 +46,7 @@ defmodule Planck.Agent.MixProject do
   defp deps do
     [
       local_or_hex(:planck_ai, "~> 0.1"),
+      {:yamerl, "~> 0.10"},
       {:jason, "~> 1.4"},
       {:nimble_options, "~> 1.0"},
       {:phoenix_pubsub, "~> 2.1"},

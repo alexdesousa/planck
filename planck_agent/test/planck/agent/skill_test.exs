@@ -64,9 +64,19 @@ defmodule Planck.Agent.SkillTest do
       assert reason =~ "description"
     end
 
-    test "handles descriptions with colons", %{tmp_dir: dir} do
-      {_, skill_file} =
-        write_skill(dir, "colon", valid_md("colon", "Expert at n8n: workflow automation"))
+    test "handles descriptions with colons (must be quoted in YAML)", %{tmp_dir: dir} do
+      content = """
+      ---
+      name: colon
+      description: "Expert at n8n: workflow automation"
+      ---
+
+      # Colon
+
+      You are an expert.
+      """
+
+      {_, skill_file} = write_skill(dir, "colon", content)
 
       assert {:ok, skill} = Skill.from_file(skill_file)
       assert skill.description == "Expert at n8n: workflow automation"
@@ -159,6 +169,35 @@ defmodule Planck.Agent.SkillTest do
       tool = Skill.load_skill_tool([])
       {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "anything"})
       assert msg =~ "Unknown skill"
+    end
+
+    test "skill_refresh_fn is called on each invocation — new skills visible without restart",
+         %{tmp_dir: dir} do
+      write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
+      [skill] = Skill.load_all([dir])
+
+      pool = :ets.new(:pool, [:set, :public])
+      :ets.insert(pool, {:skills, [skill]})
+
+      refresh_fn = fn ->
+        [{:skills, skills}] = :ets.lookup(pool, :skills)
+        skills
+      end
+
+      tool = Skill.load_skill_tool([skill], refresh_fn)
+
+      # Initially only elixir-dev is available
+      assert {:ok, _} = tool.execute_fn.("agent", "id", %{"name" => "elixir-dev"})
+      assert {:error, _} = tool.execute_fn.("agent", "id", %{"name" => "new-skill"})
+
+      # Add a new skill to the pool (simulating hot reload)
+      write_skill(dir, "new-skill", valid_md("new-skill", "Brand new skill"))
+      [new_skill] = Skill.load_all([dir]) |> Enum.filter(&(&1.name == "new-skill"))
+      :ets.insert(pool, {:skills, [skill, new_skill]})
+
+      # Now load_skill picks it up without rebuilding the tool
+      assert {:ok, content} = tool.execute_fn.("agent", "id", %{"name" => "new-skill"})
+      assert content =~ "new-skill"
     end
   end
 

@@ -268,9 +268,11 @@ defmodule Planck.Agent.AgentSpec do
 
     # load_skill is automatically available to every agent when skills exist —
     # agents do not need to declare it in their TEAM.json.
+    skill_refresh_fn = Keyword.get(overrides, :skill_refresh_fn)
+
     case skill_pool do
       [] -> declared
-      pool -> declared ++ [Skill.load_skill_tool(pool)]
+      pool -> declared ++ [Skill.load_skill_tool(pool, skill_refresh_fn)]
     end
   end
 
