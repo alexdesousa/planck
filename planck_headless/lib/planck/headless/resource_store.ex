@@ -30,7 +30,12 @@ defmodule Planck.Headless.ResourceStore do
           available_models: [Planck.AI.Model.t()]
         }
 
-  defstruct tools: [], registered_tools: [], skills: [], teams: %{}, available_models: []
+  defstruct tools: [],
+            registered_tools: [],
+            skills: [],
+            teams: %{},
+            available_models: [],
+            on_reload: []
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -83,6 +88,18 @@ defmodule Planck.Headless.ResourceStore do
     GenServer.call(__MODULE__, {:unregister_tool, name})
   end
 
+  @doc """
+  Register a zero-arity function to be called after every `reload/0`.
+
+  Useful for packages that sit above `planck_headless` in the dependency tree
+  and need to invalidate their own caches (e.g. Skogsra config values) when
+  files change on disk. Callbacks are preserved across reloads.
+  """
+  @spec register_on_reload((-> any())) :: :ok
+  def register_on_reload(fun) when is_function(fun, 0) do
+    GenServer.call(__MODULE__, {:register_on_reload, fun})
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer callbacks
   # ---------------------------------------------------------------------------
@@ -98,8 +115,14 @@ defmodule Planck.Headless.ResourceStore do
   end
 
   @impl true
-  def handle_call(:reload, _from, _state) do
-    {:reply, :ok, load_resources()}
+  def handle_call(:reload, _from, state) do
+    Config.JsonBinding.invalidate()
+    Config.EnvBinding.invalidate()
+    Enum.each(state.on_reload, & &1.())
+    new_state = load_resources()
+
+    {:reply, :ok,
+     %{new_state | on_reload: state.on_reload, registered_tools: state.registered_tools}}
   end
 
   @impl true
@@ -122,6 +145,11 @@ defmodule Planck.Headless.ResourceStore do
   def handle_call({:unregister_tool, name}, _from, state) do
     updated = Enum.reject(state.registered_tools, &(&1.name == name))
     {:reply, :ok, %{state | registered_tools: updated}}
+  end
+
+  @impl true
+  def handle_call({:register_on_reload, fun}, _from, state) do
+    {:reply, :ok, %{state | on_reload: state.on_reload ++ [fun]}}
   end
 
   # ---------------------------------------------------------------------------

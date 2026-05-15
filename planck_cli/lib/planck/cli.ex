@@ -21,6 +21,11 @@ defmodule Planck.CLI do
     Config.preload()
     Config.validate!()
 
+    Planck.Headless.ResourceStore.register_on_reload(fn ->
+      Config.reload_proxy_image_domains()
+      Config.reload_proxy_image_paths()
+    end)
+
     start_distribution(Config.sname!(), Config.cookie!())
 
     if System.get_env("__BURRITO") do
