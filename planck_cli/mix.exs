@@ -61,6 +61,7 @@ defmodule Planck.CLI.MixProject do
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:burrito, "~> 1.0"},
+      {:bypass, "~> 2.1", only: :test},
       {:mox, "~> 1.2", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

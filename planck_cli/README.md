@@ -36,6 +36,16 @@ IP_ADDRESS=0.0.0.0 PLANCK_LOCAL=true mix run --no-halt
 PLANCK_LOCAL=true mix run --no-halt -- --port 8080 --sname my_planck
 ```
 
+## HTTP API
+
+`planck_cli` exposes a small HTTP API alongside the LiveView UI:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/proxy?url=<url>` | Image proxy — forwards HTTP/HTTPS image requests or serves local `file://` paths. Requests are checked against the `proxy_image_domains` and `proxy_image_paths` allowlists; unrecognised sources return `403`. See the [images guide](../../docs/guides/images.md). |
+
+The full REST/SSE session API is documented in [`docs/guides/api.md`](../../docs/guides/api.md).
+
 ## Sidecar
 
 If you have a sidecar configured (at `~/.planck/sidecar` by default), it will be built

@@ -14,6 +14,21 @@ defmodule Planck.CLI.Config do
 
   use Skogsra
 
+  defmodule CommaSeparatedList do
+    @moduledoc false
+    use Skogsra.Type
+
+    @impl true
+    def cast(value) when is_list(value), do: {:ok, value}
+
+    def cast(value) when is_binary(value) do
+      items = value |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      {:ok, items}
+    end
+
+    def cast(_), do: {:error, "expected a comma-separated string or list"}
+  end
+
   defmodule IpAddress do
     @moduledoc false
 
@@ -87,4 +102,27 @@ defmodule Planck.CLI.Config do
   app_env :cookie, :planck_cli, :cookie,
     os_env: "NODE_COOKIE",
     default: "planck"
+
+  @envdoc """
+  Comma-separated list of domains (with optional port) allowed for the image proxy
+  (`/api/proxy`). Requests to unlisted domains return 403. Defaults to empty (deny all).
+
+  Example: `PLANCK_PROXY_IMAGE_DOMAINS=image.coroto.net,cdn.example.com:8080`
+  """
+  app_env :proxy_image_domains, :planck_cli, :proxy_image_domains,
+    os_env: "PLANCK_PROXY_IMAGE_DOMAINS",
+    type: Planck.CLI.Config.CommaSeparatedList,
+    default: []
+
+  @envdoc """
+  Colon-separated list of local path prefixes allowed for the image proxy.
+  Only files under these paths are served via `file://` URLs. Path traversal
+  is prevented. Defaults to empty (deny all local files).
+
+  Example: `PLANCK_PROXY_IMAGE_PATHS=/home/user/comfyui/output:/tmp/images`
+  """
+  app_env :proxy_image_paths, :planck_cli, :proxy_image_paths,
+    os_env: "PLANCK_PROXY_IMAGE_PATHS",
+    type: Planck.Headless.Config.PathList,
+    default: []
 end

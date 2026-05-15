@@ -25,7 +25,13 @@ Hooks.PromptInput = {
 // Auto-scroll fires when near the bottom (preserving manual scroll position)
 // or whenever a new entry is appended (e.g. user sends a message).
 Hooks.Chat = {
-  mounted()  { this.entryCount = this.countEntries(); this.scrollBottom(true); this.highlight(); this.formatTimes() },
+  mounted()  {
+    this.entryCount = this.countEntries();
+    this.scrollBottom(true);
+    this.highlight();
+    this.formatTimes();
+    this.proxyImages()
+  },
   updated()  {
     const count = this.countEntries()
     const newEntry = count > this.entryCount
@@ -34,6 +40,7 @@ Hooks.Chat = {
     this.scrollBottom(newEntry || nearBottom)
     this.highlight()
     this.formatTimes()
+    this.proxyImages()
   },
   countEntries() { return this.el.querySelectorAll('[data-entry]').length },
   scrollBottom(force) {
@@ -43,6 +50,16 @@ Hooks.Chat = {
   highlight() {
     this.el.querySelectorAll('pre code:not([data-highlighted])').forEach(el => {
       hljs.highlightElement(el)
+    })
+  },
+  // Rewrite external image src through the server-side proxy so they load
+  // regardless of CORS restrictions. Skips images already proxied.
+  proxyImages() {
+    this.el.querySelectorAll('img[src]:not([data-proxied])').forEach(img => {
+      const src = img.getAttribute('src')
+      if (!src || src.startsWith('data:') || src.startsWith('/') || src.startsWith('blob:') || src.startsWith('http://localhost')) return
+      img.setAttribute('data-proxied', '1')
+      img.src = '/api/proxy?url=' + encodeURIComponent(src)
     })
   },
   formatTimes() {

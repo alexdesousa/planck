@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.1
+
+### Image proxy
+
+- `GET /api/proxy?url=...` — server-side image proxy for both HTTP/HTTPS and
+  `file://` URLs. The browser's `fetch()` cannot reach cross-origin or local
+  images directly; the proxy fetches them server-side and streams the response.
+- **Deny-by-default allowlist** — every request returns `403` unless the domain
+  or path is explicitly whitelisted. Prevents open-proxy and filesystem-traversal
+  abuse.
+- `PLANCK_PROXY_IMAGE_DOMAINS` (comma-separated, supports `host:port`) — allowed
+  remote domains.
+- `PLANCK_PROXY_IMAGE_PATHS` (colon-separated) — allowed local path prefixes;
+  paths are `Path.expand`-ed before comparison to block `../` traversal.
+- `Planck.CLI.Config.CommaSeparatedList` — new Skogsra type that splits on commas
+  so domain values with `:port` are not misinterpreted.
+- JS hook `Chat.proxyImages()` — rewrites `img[src]` that are not already local or
+  data-URIs through `/api/proxy?url=...`; runs on both `mounted` and `updated`.
+  Images already rewritten get a `data-proxied` attribute to avoid double-rewriting.
+- Max proxied response body: 10 MB (truncated silently if exceeded).
+- See [docs/guides/images.md](../docs/guides/images.md) for the full security model
+  and configuration.
+
 ## v0.1.0
 
 ### Server configuration via CLI flags and env vars

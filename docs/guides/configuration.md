@@ -60,6 +60,23 @@ Project config lives in `.planck/config.json` at the working directory root.
 | `sidecar` | `PLANCK_SIDECAR` | Path to a sidecar Mix project; omit or set to non-existent path to disable |
 | `locale` | `PLANCK_LOCALE` | UI language (`en`, `es`). Overrides browser language. Set globally in `~/.planck/config.json` or per-project in `.planck/config.json` |
 
+## Image proxy
+
+The image proxy (`GET /api/proxy`) is configured via environment variables only — these
+are not read from `config.json`.
+
+| Env var | Separator | Description |
+|---|---|---|
+| `PLANCK_PROXY_IMAGE_DOMAINS` | comma | HTTP/HTTPS `host` (with optional `:port`) allowed for proxying. Default: empty (deny all). |
+| `PLANCK_PROXY_IMAGE_PATHS` | colon | Local filesystem path prefixes from which files may be served. Default: empty (deny all). |
+
+```sh
+PLANCK_PROXY_IMAGE_DOMAINS=image.coroto.net,cdn.example.com:8080
+PLANCK_PROXY_IMAGE_PATHS=/home/user/comfyui/output:/tmp/planck-images
+```
+
+See the [images guide](images.md) for the full security model.
+
 ## Local model declarations
 
 The `models` key declares local or custom models not in the built-in catalog:

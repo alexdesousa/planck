@@ -30,6 +30,7 @@ defmodule Planck.Web.Router do
   scope "/api", Planck.Web.API do
     pipe_through(:api)
 
+    get("/proxy", ProxyController, :image)
     get("/sessions", SessionController, :index)
     post("/sessions", SessionController, :create)
     get("/sessions/:id", SessionController, :show)

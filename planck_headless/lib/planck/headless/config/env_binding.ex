@@ -70,6 +70,7 @@ defmodule Planck.Headless.Config.EnvBinding do
         :skip -> acc
       end
     end)
+    |> tap(&System.put_env/1)
   end
 
   @spec load_file(Path.t()) :: {:ok, map()} | :skip

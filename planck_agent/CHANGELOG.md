@@ -25,6 +25,27 @@
   user prompt). `to_start_opts/2` stores skill names in the `skill_names:` start opt
   and accepts a `skill_refresh_fn:` override.
 
+### YAML frontmatter via yamerl
+
+- `Planck.Agent.Skill` now parses SKILL.md frontmatter using `yamerl` instead of a
+  hand-rolled regex. Handles multi-line values, special characters, and the YAML
+  `>` folded-scalar syntax without fragile string splitting.
+- `yamerl ~> 0.10` added as a dependency.
+- Note: YAML description values containing `:` must be quoted:
+  `description: "Generate images: text-to-image and img2img."`
+
+### Binary tool output guard
+
+- `truncate_tool_output/1` now checks `String.valid?/1` before truncating.
+  Non-UTF-8 binary output (e.g. raw image bytes returned by a tool) is replaced
+  with `[binary file, N bytes — cannot display]` instead of crashing.
+
+### Dynamic skill injection — `load_skill_tool/2`
+
+- `Skill.load_skill_tool/2` accepts an optional `skill_refresh_fn` second argument.
+  When provided, `load_skill` resolves the skill at call time rather than at agent
+  start, enabling hot reload of edited SKILL.md files without restarting the agent.
+
 ### Dependency update
 
 - `ex_doc` bumped to `~> 0.40.2`.
