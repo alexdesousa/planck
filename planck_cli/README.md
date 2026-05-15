@@ -3,6 +3,8 @@
 The web UI and HTTP API for Planck — a Phoenix LiveView application that provides the
 browser-based interface and a REST/SSE API for interacting with agents.
 
+https://github.com/user-attachments/assets/4045b308-4b1c-4315-9024-11574a8c8eb5
+
 ## Running
 
 ```bash
