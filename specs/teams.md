@@ -128,17 +128,14 @@ lives in the `Planck.Agent.AgentSpec` module docs; the summary is:
 
 Exactly one member must have `"type": "orchestrator"`; the rest are workers.
 
-**Types may repeat** (e.g. two `"builder"` members named "Bob" and "Charlie").
-`name` defaults to `type` when not provided, which means multiple same-type
+**Types may repeat** (e.g. two `"developer"` agents working on different features
+in parallel). `name` defaults to `type` when not provided, so multiple same-type
 members must declare explicit names — otherwise `Team.load/1` rejects the team
-with a duplicate-name error. Repeated types with unique names are accepted.
+with a duplicate-name error.
 
-> Note: the existing `spawn_agent` tool forbids duplicate types at runtime
-> (`planck_agent/lib/planck/agent/tools.ex`). That constraint is inconsistent
-> with the `Planck.Agent.Registry`, which is configured with `keys: :duplicate`
-> and already allows repeated types. Loosening `spawn_agent` and making type
-> lookups explicit about ambiguity is a planned follow-up and out of scope for
-> this spec.
+`spawn_agent` also allows duplicate types at runtime. All agents are uniquely
+identified by their `id`; type is display metadata only. Use `list_team` to
+discover current agent IDs before targeting.
 
 `system_prompt` paths are resolved **relative to the team directory**. The
 convention is `"members/<name>.md"` where `<name>` is the member's `name`

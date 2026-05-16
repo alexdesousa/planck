@@ -2,6 +2,14 @@
 
 ## v0.1.2
 
+### Duplicate agent types allowed
+
+- `spawn_agent` no longer enforces type uniqueness. Multiple agents of the same
+  type are now permitted (e.g. two `"developer"` agents working on different
+  features in parallel). All agents are uniquely identified by their `id`; `type`
+  is display metadata only. `list_team` + ID-based targeting makes type uniqueness
+  unnecessary.
+
 ### Agent resilience
 
 - **Tool task crash recovery** — `execute_fn` is now wrapped in try/rescue

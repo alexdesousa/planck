@@ -184,17 +184,18 @@ defmodule Planck.Agent.SystemPrompt do
     """
     ### spawn_agent
 
-    Use when the team doesn't yet have the specialist you need. Before calling it:
+    Use when you need a new specialist in the team. Before calling it:
 
-    1. Call `list_team` — never spawn a type that already exists.
+    1. Call `list_team` — check who is already there and save existing IDs for reuse.
     2. Call `list_models` — pick a model suited to the worker's task.
 
     Always grant the tools the worker needs via the `tools` parameter (e.g.
     `["read", "bash", "edit"]`). A worker spawned without tools cannot do useful work.
     Use `skills` to attach skill context — call `list_skills` first to see what is available.
 
-    Workers persist across tasks. Spawn once and save the returned ID — you will
-    need it to call_agent or send_agent to this worker later.
+    Multiple agents of the same type are allowed — e.g. two developers working on
+    different features in parallel. Save the returned ID; you will need it to
+    call_agent or send_agent to that specific worker.
     """
     |> String.trim_trailing()
   end

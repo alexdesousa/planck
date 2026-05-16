@@ -282,7 +282,8 @@ defmodule Planck.Agent.Tools do
       description: """
       Create a new worker agent in the team. Returns the new agent's ID — save
       it to use with call_agent, send_agent, interrupt_agent, or destroy_agent.
-      Fails if an agent of the same type already exists. #{tools_description} #{skills_description}
+      Multiple agents of the same type are allowed (e.g. two developers working
+      on different features in parallel). #{tools_description} #{skills_description}
       """,
       parameters: %{
         "type" => "object",
@@ -342,8 +343,7 @@ defmodule Planck.Agent.Tools do
           }
 
           with :ok <- validate_local_base_url(provider, base_url),
-               {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url),
-               :ok <- ensure_type_available(team_id, args["type"]) do
+               {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url) do
             agent_id = generate_id()
 
             start_opts =
@@ -632,20 +632,6 @@ defmodule Planck.Agent.Tools do
       delegator_id: orchestrator_id,
       tools: worker_tools(team_id, orchestrator_id, sender) ++ granted_tools
     ]
-  end
-
-  @spec ensure_type_available(String.t(), String.t()) :: :ok | {:error, String.t()}
-  defp ensure_type_available(team_id, type)
-
-  defp ensure_type_available(team_id, type) do
-    case Registry.lookup(Planck.Agent.Registry, {team_id, type}) do
-      [] ->
-        :ok
-
-      _ ->
-        {:error,
-         "An agent of this type already exists in the team. Call list_team to see current members."}
-    end
   end
 
   @spec target_parameters() :: map()

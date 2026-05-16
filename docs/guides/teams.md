@@ -19,7 +19,7 @@ Exactly one member must have `"type": "orchestrator"`. All others are workers.
 | Field | Required | Description |
 |---|---|---|
 | `type` | ✅ | Role string — `"orchestrator"` or any worker type (e.g. `"planner"`, `"builder"`) |
-| `name` | | Display name; defaults to `type` if omitted; must be unique within the team |
+| `name` | | Display name; defaults to `type` if omitted; must be unique within the team (types may repeat, names may not) |
 | `description` | | One-line description shown to the orchestrator via `list_team` |
 | `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp` |
 | `model_id` | ✅ | Model identifier (e.g. `"claude-sonnet-4-6"`, `"llama3.2"`) |
