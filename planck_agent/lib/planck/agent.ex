@@ -448,7 +448,11 @@ defmodule Planck.Agent do
   def handle_continue(message, state)
 
   def handle_continue(:load_session_history, state) do
-    {:noreply, reload_messages_from_session(state)}
+    # Load history without stripping orphans — resume_session may not have
+    # injected its recovery message yet, so stripping here would race with it.
+    # Orphan stripping happens later in reload_messages_from_session (called from
+    # flush_unpersisted_messages) once the session state is fully settled.
+    {:noreply, load_messages_from_session(state)}
   end
 
   def handle_continue(:run_llm, state) do
@@ -755,13 +759,21 @@ defmodule Planck.Agent do
   end
 
   # Reload the agent's message history from the session DB and rebuild
-  # turn_checkpoints. Used after any operation that changes the canonical
-  # sequence (rewind, flush of queued messages).
+  # Rebuild turn_checkpoints. Used after any operation that changes the canonical
+  # sequence (rewind, flush of queued messages). Strips orphaned tool-call turns.
   @spec reload_messages_from_session(t()) :: t()
-  defp reload_messages_from_session(state) do
+  defp reload_messages_from_session(state), do: do_load_session(state, strip: true)
+
+  # Load session history without stripping orphans. Used at init so that
+  # resume_session can inject its recovery message before the agent sees clean state.
+  @spec load_messages_from_session(t()) :: t()
+  defp load_messages_from_session(state), do: do_load_session(state, strip: false)
+
+  @spec do_load_session(t(), keyword()) :: t()
+  defp do_load_session(state, opts) do
     case Session.messages(state.session_id, agent_id: state.id) do
       {:ok, rows} ->
-        rows = strip_orphaned_tool_call(state.session_id, rows)
+        rows = if opts[:strip], do: strip_orphaned_tool_call(state.session_id, rows), else: rows
         messages = Enum.map(rows, & &1.message)
 
         checkpoints =

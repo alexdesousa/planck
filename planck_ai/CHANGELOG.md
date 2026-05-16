@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.2
+
+- Version bump to stay in sync with the monorepo release; no functional changes.
+
 ## v0.1.1
 
 - `ex_doc` bumped to `~> 0.40.2`; no functional changes.

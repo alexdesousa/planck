@@ -1660,11 +1660,13 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
-  # --- resilience: orphaned tool-call on restart ---
+  # --- resilience: orphaned tool-call stripping ---
 
-  describe "orphaned tool-call stripping on session load" do
-    # Stripping fires in flush_unpersisted_messages just before the first LLM call.
-    # We stub MockAI to return immediately so we can inspect state after the turn.
+  describe "orphaned tool-call stripping" do
+    # Stripping fires in reload_messages_from_session (called from rewind_to_message
+    # and flush_unpersisted_messages) when the last DB message is an assistant turn
+    # with unanswered tool calls. On init, history is loaded WITHOUT stripping so
+    # that resume_session can inject its recovery message first.
 
     defp session_with_orphan do
       session_id = unique_id()
@@ -1688,7 +1690,7 @@ defmodule Planck.Agent.AgentTest do
       {session_id, agent_id}
     end
 
-    test "strips orphaned tool-call turn from agent state on init" do
+    test "session history (including orphan) is loaded into agent state on init" do
       {session_id, agent_id} = session_with_orphan()
 
       agent =
@@ -1696,13 +1698,17 @@ defmodule Planck.Agent.AgentTest do
           {Agent, id: agent_id, model: @model, system_prompt: "helpful.", session_id: session_id}
         )
 
-      # get_state is a synchronous call — queues behind handle_continue(:load_session_history)
-      refute Enum.any?(Agent.get_state(agent).messages, fn m ->
+      # init loads history without stripping so resume_session can inject recovery first
+      messages = Agent.get_state(agent).messages
+      assert length(messages) == 2
+      assert Enum.any?(messages, &(&1.role == :user))
+
+      assert Enum.any?(messages, fn m ->
                m.role == :assistant and Enum.any?(m.content, &match?({:tool_call, _, _, _}, &1))
              end)
     end
 
-    test "strips orphaned tool-call turn from the session DB on init" do
+    test "strips orphaned tool-call turn from DB when rewind triggers a session reload" do
       {session_id, agent_id} = session_with_orphan()
 
       agent =
@@ -1710,12 +1716,21 @@ defmodule Planck.Agent.AgentTest do
           {Agent, id: agent_id, model: @model, system_prompt: "helpful.", session_id: session_id}
         )
 
-      # Force the continue to complete before querying the DB
-      Agent.get_state(agent)
-
+      # Rewind to the orphan's db_id — truncates it and reloads, stripping the orphan
       {:ok, rows} = Session.messages(session_id, agent_id: agent_id)
 
-      refute Enum.any?(rows, fn r ->
+      orphan =
+        Enum.find(rows, fn r ->
+          r.message.role == :assistant and
+            Enum.any?(r.message.content, &match?({:tool_call, _, _, _}, &1))
+        end)
+
+      Agent.rewind_to_message(agent, orphan.db_id)
+      Process.sleep(50)
+
+      {:ok, rows_after} = Session.messages(session_id, agent_id: agent_id)
+
+      refute Enum.any?(rows_after, fn r ->
                r.message.role == :assistant and
                  Enum.any?(r.message.content, &match?({:tool_call, _, _, _}, &1))
              end)

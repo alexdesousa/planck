@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.1.2
+
+### Agent resilience
+
+- **Tool task crash recovery** — `execute_fn` is now wrapped in try/rescue
+  inside the task. Any exception sends `{:tool_done, id, name, {:error, message}}`
+  instead of leaving the agent stuck in `:executing_tools`. Queued user messages
+  sent during tool execution are therefore always flushed and persisted, preventing
+  them from disappearing on page refresh.
+- **Stream task crash recovery** — the LLM stream task is also wrapped in
+  try/rescue. Exceptions send `{:stream_event, ref, {:error, message}}`, hitting
+  the existing `reset_streaming` path and returning the agent to `:idle`.
+- **Orphaned tool-call stripping** — when an agent starts with an existing session,
+  `handle_continue(:load_session_history)` loads the DB history and strips any
+  trailing assistant turn whose tool calls were never answered (left by a previous
+  crash). The turn is removed from both in-memory state and the session DB.
+- **`bash` nil-command guard** — the `bash` builtin returns
+  `{:error, "missing required argument: command"}` instead of crashing when
+  the LLM omits the `command` argument.
+
+### Identity line moved to runtime
+
+- `AgentSpec.to_start_opts/2` no longer prepends the identity line to
+  `system_prompt`. The agent's `build_system_prompt/1` now injects it at
+  runtime before each LLM call, generating `"You are a <type>."` or
+  `"You are <name>, a <type>."` depending on whether name and type differ.
+
+### Tool description rewrites
+
+- `ask_agent`, `delegate_task`, `send_response`, `destroy_agent`,
+  `interrupt_agent`, `checkpoint_agent` descriptions rewritten to be more
+  concise and action-oriented ("Use when…" format).
+
 ## v0.1.1
 
 ### `checkpoint_agent` tool + `Planck.Agent.checkpoint/2`
