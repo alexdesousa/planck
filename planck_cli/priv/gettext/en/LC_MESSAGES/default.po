@@ -51,19 +51,19 @@ msgctxt "button label"
 msgid "Resend"
 msgstr "Resend"
 
-#: lib/planck/web/live/prompt_input.html.heex:48
+#: lib/planck/web/live/prompt_input.html.heex:46
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Send"
 msgstr "Send"
 
-#: lib/planck/web/live/prompt_input.html.heex:25
+#: lib/planck/web/live/prompt_input.html.heex:24
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Stop"
 msgstr "Stop"
 
-#: lib/planck/web/live/prompt_input.html.heex:37
+#: lib/planck/web/live/prompt_input.html.heex:36
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Stop All"
@@ -280,13 +280,13 @@ msgctxt "tool status"
 msgid "running…"
 msgstr "running…"
 
-#: lib/planck/web/live/prompt_input.html.heex:23
+#: lib/planck/web/live/prompt_input.html.heex:22
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
 msgid "Stop"
 msgstr "Stop"
 
-#: lib/planck/web/live/prompt_input.html.heex:35
+#: lib/planck/web/live/prompt_input.html.heex:34
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
 msgid "Stop All"

@@ -19,6 +19,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:orchestrator_id, nil)
       |> assign(:streaming, false)
       |> assign(:waiting, false)
+      |> assign(:prompt_queue, [])
       |> assign(:overlay, nil)
       |> assign(:left_open, false)
       |> assign(:right_open, false)
@@ -346,11 +347,26 @@ defmodule Planck.Web.SessionLive do
   defp do_turn_end(agent_id, event, socket) do
     send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
-    socket |> assign(:streaming, false) |> assign(:waiting, false)
+
+    socket = socket |> assign(:streaming, false) |> assign(:waiting, false)
+
+    case socket.assigns.prompt_queue do
+      [next | rest] -> socket |> assign(:prompt_queue, rest) |> do_send_prompt(next)
+      [] -> socket
+    end
   end
 
   @spec do_prompt_submit(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp do_prompt_submit(text, socket) do
+    if socket.assigns.waiting or socket.assigns.streaming do
+      assign(socket, :prompt_queue, socket.assigns.prompt_queue ++ [text])
+    else
+      do_send_prompt(socket, text)
+    end
+  end
+
+  @spec do_send_prompt(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
+  defp do_send_prompt(socket, text) do
     session_id = socket.assigns.active_session
 
     send_update(ChatComponent,
@@ -374,7 +390,7 @@ defmodule Planck.Web.SessionLive do
       event: {:agent_event, :aborted, %{}}
     )
 
-    assign(socket, streaming: false, waiting: false)
+    assign(socket, streaming: false, waiting: false, prompt_queue: [])
   end
 
   @spec do_abort_all(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -387,7 +403,7 @@ defmodule Planck.Web.SessionLive do
       event: {:agent_event, :aborted, %{}}
     )
 
-    assign(socket, streaming: false, waiting: false)
+    assign(socket, streaming: false, waiting: false, prompt_queue: [])
   end
 
   @spec do_delete_session(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -578,6 +594,7 @@ defmodule Planck.Web.SessionLive do
     |> assign(:orchestrator_id, orchestrator_id)
     |> assign(:streaming, false)
     |> assign(:waiting, false)
+    |> assign(:prompt_queue, [])
   end
 
   @spec load_agents(String.t()) :: {%{String.t() => map()}, [String.t()], String.t() | nil}

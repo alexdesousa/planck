@@ -9,7 +9,6 @@
       placeholder={pgettext("placeholder", "Message planck…")}
       id={"prompt-input-#{@id}"}
       phx-hook="PromptInput"
-      disabled={@waiting}
     ></textarea>
     <%= if @streaming or @waiting do %>
       <button
@@ -37,16 +36,14 @@
         <%= pgettext("button label", "Stop All") %>
       </button>
     <% end %>
-    <%= unless @waiting do %>
-      <button
-        type="submit"
-        class="border-2 border-black px-4 font-bold font-mono text-sm
-               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-               bg-primary text-primary-foreground"
-      >
-        <%= pgettext("button label", "Send") %>
-      </button>
-    <% end %>
+    <button
+      type="submit"
+      class="border-2 border-black px-4 font-bold font-mono text-sm
+             shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+             hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+             bg-primary text-primary-foreground"
+    >
+      <%= pgettext("button label", "Send") %>
+    </button>
   </form>
 </div>

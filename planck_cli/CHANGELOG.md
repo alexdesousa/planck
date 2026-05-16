@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.2
+
+### Prompt input — always-on send + message queue
+
+- The Send button and textarea are now always enabled, even during the `waiting`
+  state (between submit and the first `turn_start` event). Previously both
+  disappeared/disabled in that window.
+- Messages submitted while the agent is busy (`:waiting` or `:streaming`) are
+  enqueued in `SessionLive` and sent automatically once the current turn ends.
+- The queue is cleared on Stop / Stop All so aborting does not trigger queued
+  follow-ups.
+
 ## v0.1.1
 
 ### Proxy config hot-reload
