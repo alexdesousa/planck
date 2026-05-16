@@ -289,7 +289,7 @@ fly.
 ### In-flight detection
 
 A worker is considered unfinished when their most recent `:user` message (the
-task that was last assigned to them) has no `send_response` tool call in any
+task that was last assigned to them) has no `respond_agent` tool call in any
 `:assistant` message that follows it in the worker's history. The full session
 history is scanned — not just in-memory context — so compacted history is still
 checked correctly.
@@ -297,9 +297,9 @@ checked correctly.
 `resume_session/1` builds the in-flight list by:
 1. Identifying all non-orchestrator agents in the session rows.
 2. For each, calling `worker_unfinished?/1`: find the last `:user` message;
-   if any subsequent `:assistant` message calls `send_response`, the worker is
+   if any subsequent `:assistant` message calls `respond_agent`, the worker is
    done; otherwise it is unfinished.
-3. Cross-referencing the orchestrator's `delegate_task` calls (matched by task
+3. Cross-referencing the orchestrator's `send_agent` calls (matched by task
    text) to surface the target name and task in the recovery message.
 
 ### Recovery context injection
@@ -330,7 +330,7 @@ history; it is included in the next LLM call as part of the conversation.
 
 - Clean resume: session with complete history resumes without a recovery message;
   orchestrator's first call sees the same history.
-- Interrupted resume: last orchestrator turn contained a `delegate_task` with no
+- Interrupted resume: last orchestrator turn contained a `send_agent` with no
   matching `agent_response`; recovery message lists the dangling delegation.
 - Multiple in-flight delegations: all are listed in the recovery message.
 - Dynamic worker reconstruction: completed `spawn_agent` calls (those with a

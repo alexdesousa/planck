@@ -147,16 +147,20 @@ and `Planck.Agent.WorkerTools` for the `Tool` structs to include.
 
 | Tool | Behaviour |
 |---|---|
-| `ask_agent` | Blocking — sends a prompt to a team member and waits for `:turn_end` |
-| `delegate_task` | Non-blocking — sends a task and returns immediately |
-| `send_response` | Non-blocking — routes a result back to the delegator |
-| `list_team` | Returns all agents in the team with type, name, status, and turn index |
+| `call_agent` | Sync/blocking — sends a message and blocks until the target responds |
+| `send_agent` | Async/fire-and-forget — sends a task and returns immediately |
+| `respond_agent` | Non-blocking — routes a result back to the caller |
+| `list_team` | Returns all agents with `id`, type, name, and status |
+
+Both `call_agent` and `send_agent` accept `agent_id` (from `list_team`) and an
+optional `reset_previous_context: true` to archive the target's prior history
+before sending.
 
 **Orchestrator only:**
 
 | Tool | Behaviour |
 |---|---|
-| `spawn_agent` | Spawns a new worker under the same `team_id` and `session_id` |
+| `spawn_agent` | Spawns a new worker; returns its `agent_id` — save it for subsequent calls |
 | `destroy_agent` | Terminates a worker permanently |
 | `interrupt_agent` | Aborts a worker's current turn; worker stays alive |
 | `list_models` | Returns the `available_models` list passed at start time |
@@ -199,8 +203,8 @@ subset of those tools to workers it spawns by including a `"tools"` key in the
 }
 ```
 
-Workers always receive the standard worker tools (`ask_agent`, `delegate_task`,
-`send_response`, `list_team`). Granted tools are added on top. Names not in the
+Workers always receive the standard worker tools (`call_agent`, `send_agent`,
+`respond_agent`, `list_team`). Granted tools are added on top. Names not in the
 orchestrator's `grantable_tools` list are silently ignored — workers cannot
 escalate beyond what the orchestrator was given.
 
@@ -402,8 +406,8 @@ alias Planck.Agent.{Agent, AgentSpec, Compactor, Team}
 {:ok, team} = Team.load(".planck/teams/my-team")
 
 tools_by_type = %{
-  "planner" => [list_team_tool, delegate_task_tool, spawn_agent_tool],
-  "coder"   => [read_file_tool, write_file_tool, bash_tool, send_response_tool]
+  "planner" => [list_team_tool, send_agent_tool, spawn_agent_tool],
+  "coder"   => [read_file_tool, write_file_tool, bash_tool, respond_agent_tool]
 }
 
 team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)

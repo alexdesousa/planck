@@ -23,7 +23,7 @@ defmodule Planck.Web.Live.ChatEntries do
   Use `author_label/1` to get the display string.
   """
 
-  @inter_agent_tools ~w(ask_agent delegate_task send_response interrupt_agent)
+  @inter_agent_tools ~w(call_agent send_agent respond_agent interrupt_agent)
 
   @typedoc "Who produced a message — either the human user or a named agent."
   @type author :: :user | {:agent, id :: String.t(), name :: String.t()}
@@ -268,17 +268,17 @@ defmodule Planck.Web.Live.ChatEntries do
   def tool_subtitle("write", %{"path" => path}), do: path
   def tool_subtitle("edit", %{"path" => path}), do: path
 
-  def tool_subtitle("ask_agent", args) do
-    agent_subtitle(args["identifier"], args["question"])
+  def tool_subtitle("call_agent", args) do
+    agent_subtitle(args["agent_id"], args["question"])
   end
 
-  def tool_subtitle("delegate_task", args) do
-    agent_subtitle(args["identifier"], args["task"])
+  def tool_subtitle("send_agent", args) do
+    agent_subtitle(args["agent_id"], args["task"])
   end
 
   def tool_subtitle("load_skill", %{"name" => name}), do: name
   def tool_subtitle("list_skills", _), do: nil
-  def tool_subtitle("send_response", %{"response" => r}), do: truncate(r, 80)
+  def tool_subtitle("respond_agent", %{"response" => r}), do: truncate(r, 80)
 
   def tool_subtitle("spawn_agent", args) do
     args["name"] || args["type"]
@@ -408,7 +408,8 @@ defmodule Planck.Web.Live.ChatEntries do
          _is_orch
        ) do
     sender_author = agent_author(sender_id, agents)
-    worker_info = Map.get(agents, perspective_id, %{})
+    # Ensure :id is always present — the map key IS the agent's ID
+    worker_info = agents |> Map.get(perspective_id, %{}) |> Map.put_new(:id, perspective_id)
     inter_agent_entries(msg.content, sender_author, worker_info, msg.timestamp)
   end
 
@@ -538,12 +539,7 @@ defmodule Planck.Web.Live.ChatEntries do
 
   @spec targets_agent?(map(), agent_info()) :: boolean()
   defp targets_agent?(args, worker_info) do
-    case {args["identifier"], args["identifier_type"]} do
-      {val, "id"} -> worker_info[:id] == val
-      {val, "type"} -> worker_info[:type] == val
-      {val, "name"} -> worker_info[:name] == val
-      _ -> false
-    end
+    args["agent_id"] == worker_info[:id]
   end
 
   @spec extract_text([tuple()]) :: String.t()

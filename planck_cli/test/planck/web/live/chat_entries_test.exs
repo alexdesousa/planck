@@ -73,14 +73,14 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "ask_agent", %{"question" => "build this"}}
+              {:tool_call, "t1", "call_agent", %{"question" => "build this"}}
             ])
           ],
           "orch",
           @orch_agents
         )
 
-      assert [%{type: :tool, side: :left, tool_name: "ask_agent"}] = entries
+      assert [%{type: :tool, side: :left, tool_name: "call_agent"}] = entries
     end
 
     test "tool_result is paired with its tool_call" do
@@ -241,8 +241,7 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "delegate_task",
-               %{"identifier" => "worker", "identifier_type" => "type", "task" => "build it"}}
+              {:tool_call, "t1", "send_agent", %{"agent_id" => "builder", "task" => "build it"}}
             ]),
             row("builder", :user, [{:text, "build it"}]),
             row("builder", :assistant, [{:text, "done"}])
@@ -289,8 +288,8 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "delegate_task",
-               %{"identifier" => "Bob", "identifier_type" => "name", "task" => "implement it"}}
+              {:tool_call, "t1", "send_agent",
+               %{"agent_id" => "builder", "task" => "implement it"}}
             ])
           ],
           "builder",
@@ -333,15 +332,14 @@ defmodule Planck.Web.Live.ChatEntriesTest do
       assert [%{type: :text, side: :left, author: {:agent, "builder", "builder"}}] = entries
     end
 
-    test "orchestrator delegate_task targeting worker by type → right-side :inter_agent_in" do
+    test "orchestrator send_agent targeting worker by agent_id → right-side :inter_agent_in" do
       entries =
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "delegate_task",
+              {:tool_call, "t1", "send_agent",
                %{
-                 "identifier" => "worker",
-                 "identifier_type" => "type",
+                 "agent_id" => "builder",
                  "task" => "write the module"
                }}
             ])
@@ -356,7 +354,7 @@ defmodule Planck.Web.Live.ChatEntriesTest do
                  side: :right,
                  author: {:agent, "orch", "orchestrator"},
                  text: "write the module",
-                 tool_name: "delegate_task"
+                 tool_name: "send_agent"
                }
              ] = entries
     end
@@ -366,10 +364,9 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "ask_agent",
+              {:tool_call, "t1", "call_agent",
                %{
-                 "identifier" => "builder",
-                 "identifier_type" => "name",
+                 "agent_id" => "builder",
                  "question" => "review this"
                }}
             ])
@@ -391,10 +388,9 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "ask_agent",
+              {:tool_call, "t1", "call_agent",
                %{
-                 "identifier" => "builder-uuid",
-                 "identifier_type" => "id",
+                 "agent_id" => "builder-uuid",
                  "question" => "review this"
                }}
             ])
@@ -416,10 +412,9 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "delegate_task",
+              {:tool_call, "t1", "send_agent",
                %{
-                 "identifier" => "builder-uuid",
-                 "identifier_type" => "id",
+                 "agent_id" => "builder-uuid",
                  "task" => "implement feature"
                }}
             ])
@@ -442,10 +437,9 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "ask_agent",
+              {:tool_call, "t1", "call_agent",
                %{
-                 "identifier" => "reviewer-uuid",
-                 "identifier_type" => "id",
+                 "agent_id" => "reviewer-uuid",
                  "question" => "not for Bob"
                }}
             ])
@@ -462,10 +456,9 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "delegate_task",
+              {:tool_call, "t1", "send_agent",
                %{
-                 "identifier" => "reviewer",
-                 "identifier_type" => "type",
+                 "agent_id" => "reviewer",
                  "task" => "not for builder"
                }}
             ])
@@ -482,8 +475,7 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "delegate_task",
-               %{"identifier" => "worker", "identifier_type" => "type", "task" => "build it"}}
+              {:tool_call, "t1", "send_agent", %{"agent_id" => "builder", "task" => "build it"}}
             ]),
             row("builder", :user, [{:text, "build it"}]),
             row("builder", :assistant, [{:text, "built!"}])
@@ -577,7 +569,7 @@ defmodule Planck.Web.Live.ChatEntriesTest do
         build(
           [
             row("orch", :assistant, [
-              {:tool_call, "t1", "ask_agent", %{"question" => "help"}}
+              {:tool_call, "t1", "call_agent", %{"question" => "help"}}
             ])
           ],
           nil,
@@ -619,9 +611,8 @@ defmodule Planck.Web.Live.ChatEntriesTest do
 
     test "ask_agent with identifier and question → identifier · question" do
       subtitle =
-        ChatEntries.tool_subtitle("ask_agent", %{
-          "identifier" => "Bob",
-          "identifier_type" => "name",
+        ChatEntries.tool_subtitle("call_agent", %{
+          "agent_id" => "Bob",
           "question" => "what's the status?"
         })
 
@@ -630,9 +621,8 @@ defmodule Planck.Web.Live.ChatEntriesTest do
 
     test "ask_agent with type identifier → type · question" do
       subtitle =
-        ChatEntries.tool_subtitle("ask_agent", %{
-          "identifier" => "reviewer",
-          "identifier_type" => "type",
+        ChatEntries.tool_subtitle("call_agent", %{
+          "agent_id" => "reviewer",
           "question" => "LGTM?"
         })
 
@@ -641,9 +631,8 @@ defmodule Planck.Web.Live.ChatEntriesTest do
 
     test "ask_agent with id identifier → id · question" do
       subtitle =
-        ChatEntries.tool_subtitle("ask_agent", %{
-          "identifier" => "abc123",
-          "identifier_type" => "id",
+        ChatEntries.tool_subtitle("call_agent", %{
+          "agent_id" => "abc123",
           "question" => "done?"
         })
 
@@ -651,7 +640,7 @@ defmodule Planck.Web.Live.ChatEntriesTest do
     end
 
     test "ask_agent with no identifier → just the question" do
-      subtitle = ChatEntries.tool_subtitle("ask_agent", %{"question" => "what next?"})
+      subtitle = ChatEntries.tool_subtitle("call_agent", %{"question" => "what next?"})
       assert subtitle == "what next?"
     end
 
@@ -659,9 +648,8 @@ defmodule Planck.Web.Live.ChatEntriesTest do
       question = String.duplicate("x", 100)
 
       subtitle =
-        ChatEntries.tool_subtitle("ask_agent", %{
-          "identifier" => "Bob",
-          "identifier_type" => "name",
+        ChatEntries.tool_subtitle("call_agent", %{
+          "agent_id" => "Bob",
           "question" => question
         })
 
@@ -671,33 +659,31 @@ defmodule Planck.Web.Live.ChatEntriesTest do
 
     test "delegate_task with identifier and task → identifier · task" do
       subtitle =
-        ChatEntries.tool_subtitle("delegate_task", %{
-          "identifier" => "Bob",
-          "identifier_type" => "name",
+        ChatEntries.tool_subtitle("send_agent", %{
+          "agent_id" => "Bob",
           "task" => "build auth"
         })
 
       assert subtitle == "Bob · build auth"
     end
 
-    test "delegate_task with type identifier → type · task" do
+    test "send_agent with agent_id → agent_id · task" do
       subtitle =
-        ChatEntries.tool_subtitle("delegate_task", %{
-          "identifier" => "worker",
-          "identifier_type" => "type",
+        ChatEntries.tool_subtitle("send_agent", %{
+          "agent_id" => "builder",
           "task" => "build it"
         })
 
-      assert subtitle == "worker · build it"
+      assert subtitle == "builder · build it"
     end
 
     test "delegate_task with no identifier → just the task" do
-      subtitle = ChatEntries.tool_subtitle("delegate_task", %{"task" => "do something"})
+      subtitle = ChatEntries.tool_subtitle("send_agent", %{"task" => "do something"})
       assert subtitle == "do something"
     end
 
     test "send_response shows truncated response (no explicit target)" do
-      subtitle = ChatEntries.tool_subtitle("send_response", %{"response" => "all done"})
+      subtitle = ChatEntries.tool_subtitle("respond_agent", %{"response" => "all done"})
       assert subtitle == "all done"
     end
 

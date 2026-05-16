@@ -41,7 +41,7 @@ has in its list.
 - Token usage tracking across all LLM calls in a turn; broadcast in real-time and
   included in `:turn_end`
 - `rewind_to_message/2` — truncates both session and in-memory history to before a given message id; used by the edit-message feature
-- Built-in inter-agent tools: `ask_agent`, `delegate_task`, `send_response`, `list_team`
+- Built-in inter-agent tools: `call_agent`, `send_agent`, `respond_agent`, `list_team`
 - Built-in orchestrator-only tools: `spawn_agent`, `destroy_agent`, `interrupt_agent`,
   `list_models`
 - `Planck.Agent.BuiltinTools` — `read`, `write`, `edit`, `bash` tool factories; `bash`
@@ -263,7 +263,7 @@ used internally for context management.
     │◄──────────────────────────────────────────────────
     │       (unless pending input*)
     │
-    │   send_response / ask_agent / delegate_task arrives while busy
+    │   respond_agent / call_agent / send_agent arrives while busy
     │       message appended to history; re-triggers after current turn *
     │
     └◄── (*) maybe_turn_start/1 fires when pending input detected:
@@ -275,23 +275,23 @@ used internally for context management.
 
 ### Available to all agents
 
-**`ask_agent`** — blocking. Sends a prompt to an existing agent in the same team and
+**`call_agent`** — blocking. Sends a prompt to an existing agent in the same team and
 waits for its `:turn_end` before returning. The tool runs in a `Task`, not the
 GenServer itself, so blocking is safe and the caller's GenServer loop stays free.
 Blocks indefinitely — there is no `timeout_ms`; callers should abort the agent
 to break a stuck wait. The target process is monitored; if it crashes, the tool
 returns `{:error, "Agent terminated: ..."}`.
 
-**Deadlock detection** — before blocking, `ask_agent` checks whether the target
+**Deadlock detection** — before blocking, `call_agent` checks whether the target
 is (transitively) waiting for the caller by walking the `{:waiting, agent_id}`
 entries in `Planck.Agent.Registry`. If a cycle is found it returns
 `{:error, "Deadlock detected: ..."}` immediately instead of blocking. The waiting
 entry is automatically removed from the registry when the task exits.
 
-**`delegate_task`** — non-blocking. Sends a task and returns immediately. The delegatee
-calls `send_response` when done.
+**`send_agent`** — non-blocking. Sends a task and returns immediately. The delegatee
+calls `respond_agent` when done.
 
-**`send_response`** — non-blocking. Routes a result back to `delegator_id`. Re-triggers
+**`respond_agent`** — non-blocking. Routes a result back to `delegator_id`. Re-triggers
 the delegator if idle; injects a `{:custom, :agent_response}` message if active.
 Carries sender attribution (`%{id, name}` captured at worker start time) so the
 delegator's `agent_response` message is tagged with `:sender_id` and `:sender_name`
@@ -552,8 +552,8 @@ application config. Tests assert broadcast sequences and final `get_state/1` out
 
 ### Multi-agent tests
 
-- `ask_agent` — blocks until target responds; returns response text as tool result
-- `delegate_task` + `send_response` — worker re-triggers orchestrator on completion
+- `call_agent` — blocks until target responds; returns response text as tool result
+- `send_agent` + `respond_agent` — worker re-triggers orchestrator on completion
 - Team teardown — orchestrator exit terminates all workers in same team
 - `destroy_agent` — worker process goes down; registry entry removed
 - `interrupt_agent` — worker returns to `:idle`; stays alive

@@ -134,12 +134,16 @@ response/communication subset.
 
 | Tool | Description |
 |---|---|
-| `ask_agent` | Send a prompt to another agent and block until it responds. Requires `identifier` (value) and `identifier_type` (`"type"`, `"name"`, or `"id"`) |
-| `delegate_task` | Send a task without waiting (non-blocking). Same `identifier`/`identifier_type` targeting |
-| `send_response` | Send a response back to the delegating agent |
-| `list_team` | List all agents with type, name, status, and optionally tools and model |
+| `call_agent` | Sync/blocking — send a message and wait for the response. Pass `agent_id` (from `list_team`) and `question`. |
+| `send_agent` | Async/fire-and-forget — hand off a task and end your turn. Pass `agent_id` and `task`. Worker calls `respond_agent` when done. |
+| `respond_agent` | Report results back to the caller. Always call this before ending your turn when a task was delegated to you. |
+| `list_team` | List all agents — returns `id`, type, name, and status. Use the `id` field when targeting. Pass `verbose: true` for tools and model. |
 | `load_skill` | Load a skill by name and return its content (auto-injected when skills exist) |
 | `list_skills` | List available skill names and descriptions (opt-in — see Skills below) |
+
+Both `call_agent` and `send_agent` accept an optional `reset_previous_context: true`
+parameter that archives the target's prior history before sending, giving the worker
+a clean slate for a new task.
 
 ### `spawn_agent` parameters
 

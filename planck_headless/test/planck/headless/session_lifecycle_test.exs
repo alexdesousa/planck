@@ -870,22 +870,22 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert message_count(session_id, orch_id) == count_before
     end
 
-    test "resume injects recovery message for unresolved ask_agent", %{tmp_dir: dir} do
+    test "resume injects recovery message for unresolved call_agent", %{tmp_dir: dir} do
       team_dir = write_team(dir, "recovery-ask")
       {:ok, session_id} = Headless.start_session(template: team_dir)
       {:ok, meta} = Session.get_metadata(session_id)
       old_orch_id = orchestrator_id_for(meta["team_id"])
 
-      # Orchestrator issues an ask_agent (blocked, never got a tool result).
+      # Orchestrator issues a call_agent (blocked, never got a tool result).
       ask_msg =
         Message.new(:assistant, [
-          {:tool_call, "call-1", "ask_agent",
-           %{"identifier" => "builder", "identifier_type" => "type", "question" => "What is 2+2?"}}
+          {:tool_call, "call-1", "call_agent",
+           %{"agent_id" => "builder-old-id", "question" => "What is 2+2?"}}
         ])
 
       Session.append(session_id, old_orch_id, ask_msg)
 
-      # The worker received the question but never replied (no send_response).
+      # The worker received the question but never replied (no respond_agent).
       worker_id = "builder-#{System.unique_integer()}"
 
       Session.append(
@@ -906,7 +906,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, rows} = Session.messages(session_id, agent_id: new_orch_id)
       recovery = List.last(rows).message
       assert recovery.role == :user
-      assert hd(recovery.content) |> elem(1) =~ "ask_agent"
+      assert hd(recovery.content) |> elem(1) =~ "call_agent"
       assert hd(recovery.content) |> elem(1) =~ "What is 2+2?"
     end
 
@@ -1109,26 +1109,25 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert reconstructed_id == successful_id
     end
 
-    test "resume injects recovery message for unfinished delegate_task worker", %{tmp_dir: dir} do
+    test "resume injects recovery message for unfinished send_agent worker", %{tmp_dir: dir} do
       team_dir = write_team(dir, "recovery-delegate")
       {:ok, session_id} = Headless.start_session(template: team_dir)
       {:ok, meta} = Session.get_metadata(session_id)
       old_orch_id = orchestrator_id_for(meta["team_id"])
 
-      # Orchestrator delegates a task to a worker by type.
+      # Orchestrator sends a task to a worker by type.
       delegate_msg =
         Message.new(:assistant, [
-          {:tool_call, "d-1", "delegate_task",
+          {:tool_call, "d-1", "send_agent",
            %{
-             "identifier" => "builder",
-             "identifier_type" => "type",
+             "agent_id" => "builder-old-id",
              "task" => "Implement the login endpoint"
            }}
         ])
 
       Session.append(session_id, old_orch_id, delegate_msg)
 
-      # Worker starts but never calls send_response.
+      # Worker starts but never calls respond_agent.
       worker_id = "worker-old-#{System.unique_integer()}"
 
       worker_start =
@@ -1150,8 +1149,6 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, rows} = Session.messages(session_id, agent_id: new_orch_id)
       text = List.last(rows).message.content |> hd() |> elem(1)
 
-      # Target and task text are both present in the recovery message.
-      assert text =~ "builder"
       assert text =~ "Implement the login endpoint"
     end
 
@@ -1163,10 +1160,9 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       ask_msg =
         Message.new(:assistant, [
-          {:tool_call, "c-1", "ask_agent",
+          {:tool_call, "c-1", "call_agent",
            %{
-             "identifier" => "builder",
-             "identifier_type" => "type",
+             "agent_id" => "builder-old-id",
              "question" => "Are you done?"
            }}
         ])

@@ -1463,82 +1463,107 @@ defmodule Planck.Agent.AgentTest do
       assert String.starts_with?(system, "You are Marvin, a builder.")
     end
 
-    test "no team section for standalone agent with no inter-agent tools" do
+    test "no tool sections for standalone agent with no inter-agent tools" do
       capture_system(self())
       agent = start_agent(system_prompt: "Base.")
       system = get_system(agent)
-      refute system =~ "Team communication"
-      refute system =~ "Team management"
+      refute system =~ "## Inter-agent tools"
+      refute system =~ "### respond_agent"
+      refute system =~ "### spawn_agent"
     end
 
-    test "injects worker team communication section when send_response tool is present" do
+    test "injects inter-agent intro for any agent with inter-agent tools" do
       capture_system(self())
-      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      agent = start_agent(tools: [fake_tool("respond_agent")], system_prompt: "Base.")
       system = get_system(agent)
-      assert system =~ "Team communication"
-      assert system =~ "send_response"
-      assert system =~ "Never send a response to yourself"
+      assert system =~ "## Inter-agent tools"
+      assert system =~ "Always target a **different** agent"
     end
 
-    test "includes ask_agent bullet only when ask_agent tool is present" do
-      capture_system(self())
-
-      agent =
-        start_agent(
-          tools: [fake_tool("send_response"), fake_tool("ask_agent")],
-          system_prompt: "Base."
-        )
-
-      system = get_system(agent)
-      assert system =~ "ask_agent"
-      assert system =~ "Never ask yourself"
-    end
-
-    test "omits ask_agent bullet when ask_agent tool is absent" do
-      capture_system(self())
-      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
-      system = get_system(agent)
-      refute system =~ "ask_agent"
-    end
-
-    test "includes delegate_task bullet only when delegate_task tool is present" do
+    test "injects call vs send rule only when agent has both call_agent and send_agent" do
       capture_system(self())
 
       agent =
         start_agent(
-          tools: [fake_tool("send_response"), fake_tool("delegate_task")],
+          tools: [fake_tool("call_agent"), fake_tool("send_agent")],
           system_prompt: "Base."
         )
 
       system = get_system(agent)
-      assert system =~ "delegate_task"
-      assert system =~ "Never delegate to yourself"
+      assert system =~ "call_agent` (blocks"
+      assert system =~ "send_agent` (async"
     end
 
-    test "omits delegate_task bullet when delegate_task tool is absent" do
+    test "omits respond_agent reference in intro when agent has only call_agent" do
       capture_system(self())
-      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      agent = start_agent(tools: [fake_tool("call_agent")], system_prompt: "Base.")
       system = get_system(agent)
-      refute system =~ "delegate_task"
+      assert system =~ "call_agent` blocks"
+      refute system =~ "respond_agent"
     end
 
-    test "injects orchestrator team management section when spawn_agent tool is present" do
+    test "injects call_agent section only when call_agent tool is present" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("call_agent")], system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "### call_agent"
+      assert system =~ "Never target yourself"
+    end
+
+    test "omits call_agent section when call_agent tool is absent" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("respond_agent")], system_prompt: "Base.")
+      system = get_system(agent)
+      refute system =~ "### call_agent"
+    end
+
+    test "injects send_agent section only when send_agent tool is present" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("send_agent")], system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "### send_agent"
+      assert system =~ "Never send to yourself"
+    end
+
+    test "omits send_agent section when send_agent tool is absent" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("respond_agent")], system_prompt: "Base.")
+      system = get_system(agent)
+      refute system =~ "### send_agent"
+    end
+
+    test "injects spawn_agent section with prerequisites when spawn_agent tool is present" do
       capture_system(self())
       agent = start_agent(tools: [fake_tool("spawn_agent")], system_prompt: "Base.")
       system = get_system(agent)
-      assert system =~ "Team management"
-      assert system =~ "orchestrator"
-      assert system =~ "Never delegate to yourself"
-      assert system =~ "Never ask yourself"
+      assert system =~ "### spawn_agent"
+      assert system =~ "list_team"
+      assert system =~ "list_models"
     end
 
-    test "team section appears after the user system_prompt" do
+    test "tool sections appear after the user system_prompt" do
       capture_system(self())
-      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      agent = start_agent(tools: [fake_tool("respond_agent")], system_prompt: "Base.")
       system = get_system(agent)
       base_pos = :binary.match(system, "Base.") |> elem(0)
-      team_pos = :binary.match(system, "Team communication") |> elem(0)
-      assert base_pos < team_pos
+      intro_pos = :binary.match(system, "## Inter-agent tools") |> elem(0)
+      assert base_pos < intro_pos
+    end
+
+    test "sections appear only for tools that are present" do
+      capture_system(self())
+
+      agent =
+        start_agent(
+          tools: [fake_tool("respond_agent"), fake_tool("call_agent")],
+          system_prompt: "Base."
+        )
+
+      system = get_system(agent)
+      assert system =~ "### respond_agent"
+      assert system =~ "### call_agent"
+      refute system =~ "### send_agent"
+      refute system =~ "### spawn_agent"
     end
   end
 

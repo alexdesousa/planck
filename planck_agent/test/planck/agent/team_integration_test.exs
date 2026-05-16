@@ -85,38 +85,37 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   # ---------------------------------------------------------------------------
-  # ask_agent
+  # call_agent
   # ---------------------------------------------------------------------------
 
-  describe "ask_agent" do
+  describe "call_agent" do
     test "orchestrator blocks until worker answers and gets the reply as tool result" do
       team_id = unique_id()
       {orch_id, orch_pid} = start_orchestrator(team_id)
-      _builder_id = start_worker(team_id, "builder", orch_id)
+      builder_id = start_worker(team_id, "builder", orch_id)
 
       stub(MockAI, :stream, fn _model, %Context{system: system, messages: msgs}, _opts ->
         has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
 
         cond do
-          system =~ "orchestrator" and has_tool_result ->
+          system =~ "You are the orchestrator." and has_tool_result ->
             [{:text_delta, "Builder said: I am building."}, {:done, %{}}]
 
-          system =~ "orchestrator" ->
+          system =~ "You are the orchestrator." ->
             [
               {:tool_call_complete,
                %{
                  id: "tc1",
-                 name: "ask_agent",
+                 name: "call_agent",
                  args: %{
-                   "identifier" => "builder",
-                   "identifier_type" => "type",
+                   "agent_id" => builder_id,
                    "question" => "What are you doing?"
                  }
                }},
               {:done, %{}}
             ]
 
-          system =~ "builder" ->
+          system =~ "You are the builder." ->
             [{:text_delta, "I am building."}, {:done, %{}}]
         end
       end)
@@ -141,10 +140,9 @@ defmodule Planck.Agent.TeamIntegrationTest do
             {:tool_call_complete,
              %{
                id: "tc2",
-               name: "ask_agent",
+               name: "call_agent",
                args: %{
-                 "identifier" => "nonexistent",
-                 "identifier_type" => "type",
+                 "agent_id" => "nonexistent-id",
                  "question" => "hello?"
                }
              }},
@@ -165,56 +163,53 @@ defmodule Planck.Agent.TeamIntegrationTest do
       assert value =~ "Agent not found"
     end
 
-    test "returns a deadlock error when ask_agent would create a circular wait" do
+    test "returns a deadlock error when call_agent would create a circular wait" do
       team_id = unique_id()
       {orch_id, orch_pid} = start_orchestrator(team_id)
-      builder_id = unique_id()
-
-      _builder_pid =
-        start_worker(team_id, "builder", orch_id, [], %{id: builder_id, name: "builder"})
+      # start_worker returns the actual agent ID; pass a separate sender map for attribution
+      actual_builder_id =
+        start_worker(team_id, "builder", orch_id, [], %{id: unique_id(), name: "builder"})
 
       # The orchestrator asks the builder; before the builder responds it asks
-      # the orchestrator back. The second ask_agent must detect the cycle and
+      # the orchestrator back. The second call_agent must detect the cycle and
       # return an error instead of deadlocking.
       stub(MockAI, :stream, fn _model, %Context{system: system, messages: msgs}, _opts ->
         has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
 
         cond do
-          system =~ "orchestrator" and has_tool_result ->
+          system =~ "You are the orchestrator." and has_tool_result ->
             [{:text_delta, "Got result."}, {:done, %{}}]
 
-          system =~ "orchestrator" ->
+          system =~ "You are the orchestrator." ->
             [
               {:tool_call_complete,
                %{
                  id: "tc-orch",
-                 name: "ask_agent",
+                 name: "call_agent",
                  args: %{
-                   "identifier" => "builder",
-                   "identifier_type" => "type",
+                   "agent_id" => actual_builder_id,
                    "question" => "ping"
                  }
                }},
               {:done, %{}}
             ]
 
-          # Builder tries to ask the orchestrator back (circular)
-          system =~ "builder" and not has_tool_result ->
+          # Builder tries to call the orchestrator back (circular)
+          system =~ "You are the builder." and not has_tool_result ->
             [
               {:tool_call_complete,
                %{
                  id: "tc-builder",
-                 name: "ask_agent",
+                 name: "call_agent",
                  args: %{
-                   "identifier" => "orchestrator",
-                   "identifier_type" => "type",
+                   "agent_id" => orch_id,
                    "question" => "pong"
                  }
                }},
               {:done, %{}}
             ]
 
-          system =~ "builder" and has_tool_result ->
+          system =~ "You are the builder." and has_tool_result ->
             [{:text_delta, "ok"}, {:done, %{}}]
         end
       end)
@@ -222,12 +217,12 @@ defmodule Planck.Agent.TeamIntegrationTest do
       Agent.subscribe(orch_pid)
       Agent.prompt(orch_pid, "Ask the builder.")
 
-      # The orchestrator should complete its turn — the circular ask returns
+      # The orchestrator should complete its turn — the circular call returns
       # an error to the builder, not a deadlock.
       assert_receive {:agent_event, :turn_end, _}, 3_000
 
       # Verify the builder received a deadlock error, not a hung response
-      builder_pid = elem(Registry.lookup(Planck.Agent.Registry, {team_id, "builder"}) |> hd(), 0)
+      {:ok, builder_pid} = Agent.whereis(actual_builder_id)
       messages = Agent.get_state(builder_pid).messages
       tool_result = Enum.find(messages, &(&1.role == :tool_result))
       assert tool_result != nil
@@ -237,50 +232,49 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   # ---------------------------------------------------------------------------
-  # delegate_task / send_response
+  # send_agent / respond_agent
   # ---------------------------------------------------------------------------
 
-  describe "delegate_task + send_response" do
+  describe "send_agent + respond_agent" do
     test "worker sends response back to orchestrator which re-triggers" do
       team_id = unique_id()
       {orch_id, orch_pid} = start_orchestrator(team_id)
-      _builder_id = start_worker(team_id, "builder", orch_id)
+      builder_id = start_worker(team_id, "builder", orch_id)
 
       stub(MockAI, :stream, fn _model, %Context{system: system, messages: msgs}, _opts ->
         has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
         has_agent_response = length(msgs) > 2 and Enum.any?(msgs, &match?(%{role: :user}, &1))
 
         cond do
-          system =~ "orchestrator" and has_agent_response ->
+          system =~ "You are the orchestrator." and has_agent_response ->
             [{:text_delta, "Great work, builder!"}, {:done, %{}}]
 
-          system =~ "orchestrator" and has_tool_result ->
+          system =~ "You are the orchestrator." and has_tool_result ->
             [{:text_delta, "Task delegated, waiting..."}, {:done, %{}}]
 
-          system =~ "orchestrator" ->
+          system =~ "You are the orchestrator." ->
             [
               {:tool_call_complete,
                %{
                  id: "tc3",
-                 name: "delegate_task",
+                 name: "send_agent",
                  args: %{
-                   "identifier" => "builder",
-                   "identifier_type" => "type",
+                   "agent_id" => builder_id,
                    "task" => "Build the feature."
                  }
                }},
               {:done, %{}}
             ]
 
-          system =~ "builder" and has_tool_result ->
+          system =~ "You are the builder." and has_tool_result ->
             [{:text_delta, "Done."}, {:done, %{}}]
 
-          system =~ "builder" ->
+          system =~ "You are the builder." ->
             [
               {:tool_call_complete,
                %{
                  id: "tc4",
-                 name: "send_response",
+                 name: "respond_agent",
                  args: %{"response" => "Feature built successfully."}
                }},
               {:done, %{}}
@@ -328,42 +322,41 @@ defmodule Planck.Agent.TeamIntegrationTest do
           end)
 
         cond do
-          system =~ "orchestrator" and has_sender_response ->
+          system =~ "You are the orchestrator." and has_sender_response ->
             [
               {:text_delta, "Got sender attribution."},
               {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
             ]
 
-          system =~ "orchestrator" and has_tool_result ->
+          system =~ "You are the orchestrator." and has_tool_result ->
             [
               {:text_delta, "Task delegated."},
               {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
             ]
 
-          system =~ "orchestrator" ->
+          system =~ "You are the orchestrator." ->
             [
               {:tool_call_complete,
                %{
                  id: "tc_d",
-                 name: "delegate_task",
+                 name: "send_agent",
                  args: %{
-                   "identifier" => "builder",
-                   "identifier_type" => "type",
+                   "agent_id" => builder_id,
                    "task" => "Do the work."
                  }
                }},
               {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
             ]
 
-          system =~ "builder" and has_tool_result ->
+          system =~ "You are the builder." and has_tool_result ->
             [{:text_delta, "Done."}, {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}]
 
-          system =~ "builder" ->
+          system =~ "You are the builder." ->
             [
               {:tool_call_complete,
                %{
                  id: "tc_s",
-                 name: "send_response",
+                 name: "respond_agent",
                  args: %{"response" => "Work complete."}
                }},
               {:done, %{usage: %{input_tokens: 0, output_tokens: 0}}}
@@ -378,8 +371,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
       Agent.prompt(orch_pid, "Delegate work to the builder.")
 
       # Wait for orchestrator to be re-triggered by the sender-attributed response.
-      # The orchestrator fires two turns: one after delegating and one after the
-      # builder's send_response arrives with sender metadata.
+      # The orchestrator fires two turns: one after sending and one after the
+      # builder's respond_agent arrives with sender metadata.
       assert_receive {:agent_event, :turn_end,
                       %{message: %{content: [{:text, "Task delegated."}]}}},
                      5_000
@@ -478,7 +471,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
              %{
                id: "tc5",
                name: "destroy_agent",
-               args: %{"identifier" => "builder", "identifier_type" => "type"}
+               args: %{"agent_id" => builder_id}
              }},
             {:done, %{}}
           ]
@@ -490,107 +483,6 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
       assert_receive {:DOWN, ^ref, :process, ^builder_pid, _}, 2_000
       assert_receive {:agent_event, :turn_end, _}, 2_000
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # checkpoint_agent
-  # ---------------------------------------------------------------------------
-
-  describe "checkpoint_agent" do
-    test "inserts a summary checkpoint into a worker's message history" do
-      team_id = unique_id()
-      {_orch_id, orch_pid} = start_orchestrator(team_id)
-      builder_id = start_worker(team_id, "builder", nil)
-      {:ok, builder_pid} = Agent.whereis(builder_id)
-
-      # Add some messages to the worker
-      :sys.replace_state(builder_pid, fn s ->
-        msgs = [
-          %Planck.Agent.Message{
-            id: "m1",
-            role: :user,
-            content: [{:text, "do something"}],
-            timestamp: DateTime.utc_now(),
-            metadata: %{}
-          }
-        ]
-
-        %{s | messages: msgs}
-      end)
-
-      # Orchestrator checkpoints the builder
-      checkpoint_tool =
-        orch_pid
-        |> Agent.get_state()
-        |> Map.get(:tools)
-        |> Map.get("checkpoint_agent")
-
-      assert {:ok, "Checkpoint inserted."} =
-               checkpoint_tool.execute_fn.(
-                 unique_id(),
-                 "tc1",
-                 %{
-                   "identifier" => "builder",
-                   "identifier_type" => "type",
-                   "summary" => "Builder completed task X."
-                 }
-               )
-
-      state = Agent.get_state(builder_pid)
-      last_msg = List.last(state.messages)
-      assert last_msg.role == {:custom, :summary}
-      assert [{:text, "Builder completed task X."}] = last_msg.content
-    end
-
-    test "returns error when targeting self" do
-      team_id = unique_id()
-      {orch_id, orch_pid} = start_orchestrator(team_id)
-
-      checkpoint_tool =
-        orch_pid |> Agent.get_state() |> Map.get(:tools) |> Map.get("checkpoint_agent")
-
-      assert {:error, "Cannot checkpoint yourself."} =
-               checkpoint_tool.execute_fn.(
-                 orch_id,
-                 "tc1",
-                 %{
-                   "identifier" => "orchestrator",
-                   "identifier_type" => "type",
-                   "summary" => "summary"
-                 }
-               )
-    end
-
-    test "summary is the last message and sits after prior history" do
-      team_id = unique_id()
-      {_orch_id, orch_pid} = start_orchestrator(team_id)
-      builder_id = start_worker(team_id, "builder", nil)
-      {:ok, builder_pid} = Agent.whereis(builder_id)
-
-      old_msg = %Planck.Agent.Message{
-        id: "old",
-        role: :user,
-        content: [{:text, "old message"}],
-        timestamp: DateTime.utc_now(),
-        metadata: %{}
-      }
-
-      :sys.replace_state(builder_pid, fn s -> %{s | messages: [old_msg]} end)
-
-      checkpoint_tool =
-        orch_pid |> Agent.get_state() |> Map.get(:tools) |> Map.get("checkpoint_agent")
-
-      checkpoint_tool.execute_fn.(unique_id(), "tc1", %{
-        "identifier" => "builder",
-        "identifier_type" => "type",
-        "summary" => "Clean slate."
-      })
-
-      state = Agent.get_state(builder_pid)
-      assert length(state.messages) == 2
-      assert hd(state.messages).role == :user
-      assert List.last(state.messages).role == {:custom, :summary}
     end
   end
 
@@ -634,9 +526,9 @@ defmodule Planck.Agent.TeamIntegrationTest do
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [])
       tools = call_spawn(spawn_tool, orch_id)
 
-      assert Map.has_key?(tools, "ask_agent")
-      assert Map.has_key?(tools, "delegate_task")
-      assert Map.has_key?(tools, "send_response")
+      assert Map.has_key?(tools, "call_agent")
+      assert Map.has_key?(tools, "send_agent")
+      assert Map.has_key?(tools, "respond_agent")
       assert Map.has_key?(tools, "list_team")
     end
 
@@ -663,7 +555,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
       refute Map.has_key?(tools, "bash")
       refute Map.has_key?(tools, "write")
-      assert Map.has_key?(tools, "ask_agent")
+      assert Map.has_key?(tools, "call_agent")
     end
 
     test "spawned agent with no tools key gets only worker inter-agent tools" do
@@ -682,7 +574,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
       refute Map.has_key?(tools, "read")
       refute Map.has_key?(tools, "bash")
-      assert Map.has_key?(tools, "ask_agent")
+      assert Map.has_key?(tools, "call_agent")
     end
   end
 
@@ -926,11 +818,11 @@ defmodule Planck.Agent.TeamIntegrationTest do
         has_tool_result = Enum.any?(msgs, &match?(%{role: :tool_result}, &1))
 
         cond do
-          system =~ "builder" ->
+          system =~ "You are the builder." ->
             Process.sleep(300)
             [{:text_delta, "slow response"}, {:done, %{}}]
 
-          system =~ "orchestrator" and has_tool_result ->
+          system =~ "You are the orchestrator." and has_tool_result ->
             [{:text_delta, "Interrupted."}, {:done, %{}}]
 
           true ->
@@ -939,7 +831,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
                %{
                  id: "tc6",
                  name: "interrupt_agent",
-                 args: %{"identifier" => "builder", "identifier_type" => "type"}
+                 args: %{"agent_id" => builder_id}
                }},
               {:done, %{}}
             ]

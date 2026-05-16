@@ -76,7 +76,7 @@ Orchestrator prompt tips:
 Worker prompt tips:
 - Be specific about the task domain
 - List any conventions to follow (coding style, test requirements)
-- Instruct it to use `send_response` when the task is complete
+- Instruct it to use `respond_agent` when the task is complete
 
 ## 5. Register and start the team
 

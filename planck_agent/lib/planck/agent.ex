@@ -1083,101 +1083,14 @@ defmodule Planck.Agent do
          name: name,
          type: type
        }) do
-    base
-    |> prepend_identity_line(name, type)
-    |> append_section(identity_section(tools))
-    |> append_skills(names, refresh_fn)
-  end
-
-  @spec prepend_identity_line(String.t(), String.t() | nil, String.t() | nil) :: String.t()
-  defp prepend_identity_line(prompt, nil, nil), do: prompt
-
-  defp prepend_identity_line(prompt, name, type) do
-    line =
-      cond do
-        is_binary(name) and is_binary(type) and name != type -> "You are #{name}, a #{type}."
-        is_binary(type) -> "You are a #{type}."
-        true -> "You are #{name}."
-      end
-
-    "#{line}\n\n" <> prompt
-  end
-
-  @spec append_skills(String.t(), [String.t()], function() | nil) :: String.t()
-  defp append_skills(prompt, [], _), do: prompt
-  defp append_skills(prompt, _, nil), do: prompt
-
-  defp append_skills(prompt, names, refresh_fn) do
-    pool = refresh_fn.()
-    pool_map = Map.new(pool, &{&1.name, &1})
-    resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
-
-    case Planck.Agent.Skill.system_prompt_section(resolved) do
-      nil -> prompt
-      section -> append_section(prompt, section)
-    end
-  end
-
-  @spec append_section(String.t(), String.t() | nil) :: String.t()
-  defp append_section(prompt, nil), do: prompt
-  defp append_section("", section), do: section
-  defp append_section(prompt, section), do: prompt <> "\n\n" <> section
-
-  @spec identity_section(%{String.t() => Tool.t()}) :: String.t() | nil
-  defp identity_section(tools) do
-    cond do
-      Map.has_key?(tools, "spawn_agent") -> orchestrator_identity()
-      Map.has_key?(tools, "send_response") -> worker_identity(tools)
-      true -> nil
-    end
-  end
-
-  @spec worker_identity(%{String.t() => Tool.t()}) :: String.t()
-  defp worker_identity(tools) do
-    ask_bullet =
-      if Map.has_key?(tools, "ask_agent") do
-        "\n- **Need another agent's answer before continuing**: use `ask_agent`. " <>
-          "It blocks until they respond. Never ask yourself."
-      end
-
-    delegate_bullet =
-      if Map.has_key?(tools, "delegate_task") do
-        "\n- **Assigning background work to another agent**: use `delegate_task`. " <>
-          "It returns immediately — the result arrives in a future turn. Never delegate to yourself."
-      end
-
-    """
-    ## Team communication
-
-    You are a worker in a multi-agent team. Follow these rules exactly:
-
-    - **Finishing a task**: always call `send_response` with your result before ending your turn. Do not just stop — the delegator is waiting for that call. Never send a response to yourself.#{ask_bullet}#{delegate_bullet}
-    """
-    |> String.trim_trailing()
-  end
-
-  @spec orchestrator_identity() :: String.t()
-  defp orchestrator_identity do
-    """
-    ## Team management
-
-    You are an orchestrator. You direct a team of worker agents.
-
-    **Delegation**
-    - `delegate_task` is fire-and-forget. End your turn after delegating unless you have more parallel delegations to fire immediately. The worker will call `send_response` when done, re-triggering your next turn. Never delegate to yourself.
-    - `ask_agent` is synchronous. Use it only when you need the answer before you can continue; it blocks until the worker responds. Never ask yourself.
-
-    **Spawning**
-    - Before spawning, call `list_team` to check who already exists — never spawn a worker type that is already in the team.
-    - Call `list_models` to see what models are available, then `spawn_agent`.
-    - Workers persist across tasks — spawn once, reuse.
-
-    **Context management**
-    - Use `checkpoint_agent` before reassigning a worker to a meaningfully different task: a different area of the codebase, a different problem domain, or a shift in the kind of reasoning required. Prior context does not just add noise — in MoE models it can steer expert routing toward the wrong specialization. A clean summary gives the worker a better starting point than a long irrelevant history.
-    - Use `interrupt_agent` to abort a worker's current turn without removing it.
-    - Use `destroy_agent` only when the worker is no longer needed at all.
-    """
-    |> String.trim_trailing()
+    Planck.Agent.SystemPrompt.build(%{
+      system_prompt: base,
+      name: name,
+      type: type,
+      tools: tools,
+      skill_names: names,
+      skill_refresh_fn: refresh_fn
+    })
   end
 
   @spec presence(String.t()) :: String.t() | nil

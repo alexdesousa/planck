@@ -23,14 +23,13 @@ defmodule Planck.Agent.Tools do
 
   | Tool | Role | Blocking |
   |---|---|---|
-  | `ask_agent` | all | yes (blocks task, not GenServer) |
-  | `delegate_task` | all | no |
-  | `send_response` | all | no |
+  | `call_agent` | all | yes (blocks task, not GenServer) |
+  | `send_agent` | all | no |
+  | `respond_agent` | all | no |
   | `list_team` | all | no |
   | `spawn_agent` | orchestrator only | no |
   | `destroy_agent` | orchestrator only | no |
   | `interrupt_agent` | orchestrator only | no |
-  | `checkpoint_agent` | orchestrator only | no |
   | `list_models` | orchestrator only | no |
   """
 
@@ -39,20 +38,20 @@ defmodule Planck.Agent.Tools do
 
   @doc """
   Returns the inter-agent tools available to all agents in a team:
-  `ask_agent`, `delegate_task`, `send_response`, `list_team`.
+  `call_agent`, `send_agent`, `respond_agent`, `list_team`.
 
   `delegator_id` is the agent the worker should respond to (`nil` for orchestrators).
 
   Pass `delegator_id: nil` for orchestrators (they have no delegator to
-  respond to). The optional `sender` map is captured in `send_response` so
+  respond to). The optional `sender` map is captured in `respond_agent` so
   the orchestrator knows which worker replied.
   """
   @spec worker_tools(String.t(), String.t() | nil, map() | nil) :: [Tool.t()]
   def worker_tools(team_id, delegator_id, sender \\ nil) do
     [
-      ask_agent(team_id),
-      delegate_task(team_id),
-      send_response(delegator_id, sender),
+      call_agent(team_id),
+      send_agent(team_id),
+      respond_agent(delegator_id, sender),
       list_team(team_id)
     ]
   end
@@ -89,7 +88,6 @@ defmodule Planck.Agent.Tools do
       spawn_agent(session_id, team_id, grantable_tools, grantable_skills, cwd),
       destroy_agent(team_id),
       interrupt_agent(team_id),
-      checkpoint_agent(team_id),
       list_models(available_models)
     ]
   end
@@ -98,30 +96,30 @@ defmodule Planck.Agent.Tools do
   # All-agent tools
   # ---------------------------------------------------------------------------
 
-  @doc "Build the `ask_agent` tool for a given team."
-  @spec ask_agent(String.t()) :: Tool.t()
-  def ask_agent(team_id) do
+  @doc "Build the `call_agent` tool for a given team."
+  @spec call_agent(String.t()) :: Tool.t()
+  def call_agent(team_id) do
     Tool.new(
-      name: "ask_agent",
+      name: "call_agent",
       description:
         "Use when you need another agent's answer before you can continue. " <>
-          "Sends the question and blocks until the target responds.",
+          "Sends the question and blocks until the target responds (sync, blocking). " <>
+          "Pass reset_previous_context: true to archive the target's prior history and give it a clean slate.",
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "identifier" => %{
+          "agent_id" => %{
             "type" => "string",
-            "description" => "The value that identifies the target agent"
+            "description" => "The agent's ID (from list_team)"
           },
-          "identifier_type" => %{
-            "type" => "string",
-            "enum" => ["type", "name", "id"],
+          "question" => %{"type" => "string", "description" => "The question to ask"},
+          "reset_previous_context" => %{
+            "type" => "boolean",
             "description" =>
-              "How to resolve the identifier: by role type, display name, or agent id"
-          },
-          "question" => %{"type" => "string", "description" => "The question to ask"}
+              "When true, archives the target agent's prior history before sending the question (default: false)"
+          }
         },
-        "required" => ["identifier", "identifier_type", "question"]
+        "required" => ["agent_id", "question"]
       },
       execute_fn: fn agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
@@ -134,10 +132,14 @@ defmodule Planck.Agent.Tools do
             circular_wait?(agent_id, target_id) ->
               {:error,
                "Deadlock detected: #{agent_id} cannot ask #{target_id} — " <>
-                 "a circular wait chain already exists. Use send_response or " <>
-                 "delegate_task to communicate without blocking."}
+                 "a circular wait chain already exists. Use respond_agent or " <>
+                 "send_agent to communicate without blocking."}
 
             true ->
+              if Map.get(args, "reset_previous_context", false) do
+                Agent.checkpoint(pid, "Starting new task.")
+              end
+
               # Register this wait so others can detect a cycle back to us.
               # The Registry entry is automatically removed when this task exits.
               Registry.register(Planck.Agent.Registry, {:waiting, agent_id}, target_id)
@@ -151,40 +153,44 @@ defmodule Planck.Agent.Tools do
     )
   end
 
-  @doc "Build the `delegate_task` tool for a given team."
-  @spec delegate_task(String.t()) :: Tool.t()
-  def delegate_task(team_id) do
+  @doc "Build the `send_agent` tool for a given team."
+  @spec send_agent(String.t()) :: Tool.t()
+  def send_agent(team_id) do
     Tool.new(
-      name: "delegate_task",
+      name: "send_agent",
       description:
-        "Use when another agent should handle work in the background. " <>
-          "Returns immediately; result arrives in a future turn via send_response.",
+        "Use when another agent should handle work in the background (async, fire-and-forget). " <>
+          "Returns immediately; result arrives in a future turn via respond_agent. " <>
+          "Pass reset_previous_context: true to archive the target's prior history and give it a clean slate.",
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "identifier" => %{
+          "agent_id" => %{
             "type" => "string",
-            "description" => "The value that identifies the target agent"
+            "description" => "The agent's ID (from list_team)"
           },
-          "identifier_type" => %{
-            "type" => "string",
-            "enum" => ["type", "name", "id"],
+          "task" => %{"type" => "string", "description" => "The task to delegate"},
+          "reset_previous_context" => %{
+            "type" => "boolean",
             "description" =>
-              "How to resolve the identifier: by role type, display name, or agent id"
-          },
-          "task" => %{"type" => "string", "description" => "The task to delegate"}
+              "When true, archives the target agent's prior history before sending the task (default: false)"
+          }
         },
-        "required" => ["identifier", "identifier_type", "task"]
+        "required" => ["agent_id", "task"]
       },
       execute_fn: fn agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
           if Agent.get_info(pid).id == agent_id do
-            {:error, "Cannot delegate a task to yourself. Use a different agent."}
+            {:error, "Cannot send a task to yourself. Use a different agent."}
           else
+            if Map.get(args, "reset_previous_context", false) do
+              Agent.checkpoint(pid, "Starting new task.")
+            end
+
             Agent.prompt(pid, args["task"])
 
             {:ok,
-             "Task delegated. End your turn now unless you can delegate something else in parallel that won't be blocked by this delegation. The result will arrive in a future turn."}
+             "Task sent. End your turn now unless you can send something else in parallel that won't be blocked by this. The result will arrive in a future turn."}
           end
         end
       end
@@ -192,16 +198,16 @@ defmodule Planck.Agent.Tools do
   end
 
   @doc """
-  Build the `send_response` tool for a given delegator.
+  Build the `respond_agent` tool for a given delegator.
 
   The optional `sender` map (`%{id: String.t(), name: String.t()}`) is included
   in the message delivered to the delegator so it knows which worker replied.
   """
-  @spec send_response(String.t() | nil) :: Tool.t()
-  @spec send_response(String.t() | nil, map() | nil) :: Tool.t()
-  def send_response(delegator_id, sender \\ nil) do
+  @spec respond_agent(String.t() | nil) :: Tool.t()
+  @spec respond_agent(String.t() | nil, map() | nil) :: Tool.t()
+  def respond_agent(delegator_id, sender \\ nil) do
     Tool.new(
-      name: "send_response",
+      name: "respond_agent",
       description:
         "Use when you have finished a delegated task and must return your result. " <>
           "Non-blocking; re-triggers the delegator automatically.",
@@ -239,7 +245,7 @@ defmodule Planck.Agent.Tools do
   `grantable_skills` is the set of skills the orchestrator may attach to spawned
   workers — their descriptions are appended to the spawned agent's system prompt.
   Spawned agents always receive the full worker inter-agent tools
-  (`ask_agent`, `delegate_task`, `send_response`, `list_team`) plus whichever
+  (`call_agent`, `send_agent`, `respond_agent`, `list_team`) plus whichever
   built-in tools the orchestrator selects via the `"tools"` argument.
   """
   @spec spawn_agent(
@@ -274,9 +280,9 @@ defmodule Planck.Agent.Tools do
     Tool.new(
       name: "spawn_agent",
       description: """
-      Create a new worker agent in the team. The worker is registered in the
-      team and can be addressed by type or name. Fails if an agent of the same
-      type already exists. #{tools_description} #{skills_description}
+      Create a new worker agent in the team. Returns the new agent's ID — save
+      it to use with call_agent, send_agent, interrupt_agent, or destroy_agent.
+      Fails if an agent of the same type already exists. #{tools_description} #{skills_description}
       """,
       parameters: %{
         "type" => "object",
@@ -296,7 +302,7 @@ defmodule Planck.Agent.Tools do
           "base_url" => %{
             "type" => "string",
             "description" =>
-              "Server URL for the model. For local providers (ollama, llama_cpp) use the server address (e.g. \"http://localhost:11434\"). For cloud providers (anthropic, openai, google) this field is ignored — pass any placeholder value."
+              "Server URL for the model. Required for local providers: ollama (e.g. \"http://localhost:11434\") and llama_cpp (e.g. \"http://localhost:8080\"). For cloud providers (anthropic, openai, google) this field is ignored — pass any placeholder value."
           },
           "tools" => %{
             "type" => "array",
@@ -335,7 +341,8 @@ defmodule Planck.Agent.Tools do
             cwd: cwd
           }
 
-          with {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url),
+          with :ok <- validate_local_base_url(provider, base_url),
+               {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url),
                :ok <- ensure_type_available(team_id, args["type"]) do
             agent_id = generate_id()
 
@@ -426,50 +433,6 @@ defmodule Planck.Agent.Tools do
     )
   end
 
-  @doc "Build the `checkpoint_agent` tool for a given team."
-  @spec checkpoint_agent(String.t()) :: Tool.t()
-  def checkpoint_agent(team_id) do
-    Tool.new(
-      name: "checkpoint_agent",
-      description:
-        "Use when a worker's prior context would bias its next task — moving to an unrelated " <>
-          "area or different expertise domain. Archives old history; worker continues with only a curated summary.",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "identifier" => %{
-            "type" => "string",
-            "description" => "The value that identifies the target agent"
-          },
-          "identifier_type" => %{
-            "type" => "string",
-            "enum" => ["type", "name", "id"],
-            "description" =>
-              "How to resolve the identifier: by role type, display name, or agent id"
-          },
-          "summary" => %{
-            "type" => "string",
-            "description" =>
-              "Summary of completed work and current state. The worker will use this as its only context for prior history."
-          }
-        },
-        "required" => ["identifier", "identifier_type", "summary"]
-      },
-      execute_fn: fn agent_id, _id, args ->
-        with {:ok, pid} <- resolve_target(team_id, args) do
-          target_id = Agent.get_info(pid).id
-
-          if target_id == agent_id do
-            {:error, "Cannot checkpoint yourself."}
-          else
-            Agent.checkpoint(pid, args["summary"])
-            {:ok, "Checkpoint inserted."}
-          end
-        end
-      end
-    )
-  end
-
   @doc "Build the `list_models` tool from a pre-filtered list of available models."
   @spec list_models([Planck.AI.Model.t()]) :: Tool.t()
   def list_models(available_models) do
@@ -517,7 +480,9 @@ defmodule Planck.Agent.Tools do
     Tool.new(
       name: "list_team",
       description:
-        "List all agents in the team. Pass verbose: true to include each agent's tools and model.",
+        "List all agents in the team. Returns each agent's id, type, name, and status. " <>
+          "Use the id field when calling call_agent, send_agent, interrupt_agent, or destroy_agent. " <>
+          "Pass verbose: true to also include each agent's tools and model.",
       parameters: %{
         "type" => "object",
         "properties" => %{
@@ -577,38 +542,14 @@ defmodule Planck.Agent.Tools do
   # ---------------------------------------------------------------------------
 
   @spec resolve_target(String.t(), map()) :: {:ok, pid()} | {:error, String.t()}
-  defp resolve_target(_team_id, %{"identifier" => id, "identifier_type" => "id"})
-       when is_binary(id) and id != "" do
+  defp resolve_target(_team_id, %{"agent_id" => id}) when is_binary(id) and id != "" do
     with {:error, :not_found} <- Agent.whereis(id) do
-      {:error, "Agent not found."}
+      {:error, "Agent not found. Call list_team to get the current agent IDs."}
     end
-  end
-
-  defp resolve_target(team_id, %{"identifier" => name, "identifier_type" => "name"})
-       when is_binary(name) and name != "" do
-    lookup_team(team_id, name)
-  end
-
-  defp resolve_target(team_id, %{"identifier" => type, "identifier_type" => "type"})
-       when is_binary(type) and type != "" do
-    lookup_team(team_id, type)
   end
 
   defp resolve_target(_team_id, _args) do
-    {:error,
-     "Could not resolve target: provide identifier and identifier_type (\"type\", \"name\", or \"id\")."}
-  end
-
-  @spec lookup_team(String.t(), String.t()) ::
-          {:ok, pid()}
-          | {:error, String.t()}
-  defp lookup_team(team_id, key)
-
-  defp lookup_team(team_id, key) do
-    case Registry.lookup(Planck.Agent.Registry, {team_id, key}) do
-      [{pid, _} | _] -> {:ok, pid}
-      _ -> {:error, "Agent not found."}
-    end
+    {:error, "Missing required parameter: agent_id. Call list_team to get agent IDs."}
   end
 
   @spec filter_granted([String.t()], %{String.t() => term()}) :: [term()]
@@ -617,6 +558,21 @@ defmodule Planck.Agent.Tools do
   end
 
   @local_providers [:ollama, :llama_cpp]
+
+  @spec validate_local_base_url(atom(), String.t() | nil) :: :ok | {:error, String.t()}
+  defp validate_local_base_url(provider, base_url) when provider in @local_providers do
+    if is_binary(base_url) and base_url != "" do
+      :ok
+    else
+      {:error,
+       "base_url is required for #{provider} — " <>
+         "it is the address of the local model server " <>
+         "(e.g. \"http://localhost:11434\" for ollama, \"http://localhost:8080\" for llama_cpp). " <>
+         "Call list_models to see available #{provider} models and their base_url."}
+    end
+  end
+
+  defp validate_local_base_url(_provider, _base_url), do: :ok
 
   @spec resolve_spawn_model(atom(), String.t(), String.t() | nil) ::
           {:ok, Planck.AI.Model.t()} | {:error, String.t()}
@@ -629,9 +585,19 @@ defmodule Planck.Agent.Tools do
       end
 
     case result do
-      {:ok, model} -> {:ok, model}
-      {:error, :not_found} -> {:error, "Model not found."}
-      {:error, reason} when is_binary(reason) -> {:error, reason}
+      {:ok, model} ->
+        {:ok, model}
+
+      {:error, :not_found} when provider in @local_providers ->
+        {:error,
+         "Model \"#{model_id}\" not found at #{base_url}. " <>
+           "Call list_models to see available #{provider} models and verify the base_url."}
+
+      {:error, :not_found} ->
+        {:error, "Model not found. Call list_models to see available models and their IDs."}
+
+      {:error, reason} when is_binary(reason) ->
+        {:error, reason}
     end
   end
 
@@ -673,8 +639,12 @@ defmodule Planck.Agent.Tools do
 
   defp ensure_type_available(team_id, type) do
     case Registry.lookup(Planck.Agent.Registry, {team_id, type}) do
-      [] -> :ok
-      _ -> {:error, "An agent of this type already exists in the team."}
+      [] ->
+        :ok
+
+      _ ->
+        {:error,
+         "An agent of this type already exists in the team. Call list_team to see current members."}
     end
   end
 
@@ -683,18 +653,12 @@ defmodule Planck.Agent.Tools do
     %{
       "type" => "object",
       "properties" => %{
-        "identifier" => %{
+        "agent_id" => %{
           "type" => "string",
-          "description" => "The value that identifies the target agent"
-        },
-        "identifier_type" => %{
-          "type" => "string",
-          "enum" => ["type", "name", "id"],
-          "description" =>
-            "How to resolve the identifier: by role type, display name, or agent id"
+          "description" => "The agent's ID (from list_team)"
         }
       },
-      "required" => ["identifier", "identifier_type"]
+      "required" => ["agent_id"]
     }
   end
 

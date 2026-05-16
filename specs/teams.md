@@ -1,8 +1,8 @@
 # Teams
 
 A **team** is a named, runtime collection of agents that share a `team_id` and
-can address each other via the inter-agent tools (`ask_agent`, `delegate_task`,
-`send_response`, `list_team`). Every team has exactly one orchestrator; other
+can address each other via the inter-agent tools (`call_agent`, `send_agent`,
+`respond_agent`, `list_team`). Every team has exactly one orchestrator; other
 members are workers.
 
 Teams can be created two ways:

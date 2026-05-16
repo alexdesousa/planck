@@ -648,7 +648,7 @@ defmodule Planck.Web.SessionLive do
   defp map_sidecar_status(:failed), do: :failed
   defp map_sidecar_status(_), do: :idle
 
-  @inter_agent_tools ~w(ask_agent delegate_task send_response interrupt_agent)
+  @inter_agent_tools ~w(call_agent send_agent respond_agent interrupt_agent)
 
   @spec abort_agent(String.t() | nil) :: :ok
   defp abort_agent(nil), do: :ok

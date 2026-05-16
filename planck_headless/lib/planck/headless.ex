@@ -859,7 +859,7 @@ defmodule Planck.Headless do
     end
   end
 
-  @orchestrator_tools ~w(ask_agent delegate_task spawn_agent)
+  @orchestrator_tools ~w(call_agent send_agent spawn_agent)
 
   @spec has_orchestrator_tool_calls?([Planck.Agent.Message.t()]) :: boolean()
   defp has_orchestrator_tool_calls?(messages) do
@@ -890,8 +890,8 @@ defmodule Planck.Headless do
   end
 
   # Find workers (non-orchestrator agent_ids) whose last received task has no
-  # send_response after it. For each, find the LAST orchestrator tool call
-  # (ask_agent or delegate_task) that matches the worker's pending task text —
+  # respond_agent after it. For each, find the LAST orchestrator tool call
+  # (call_agent or send_agent) that matches the worker's pending task text —
   # that determines both the tool type and the target label in the report.
   @spec unfinished_workers(
           %{String.t() => [Planck.Agent.Message.t()]},
@@ -921,21 +921,21 @@ defmodule Planck.Headless do
         ) :: [{String.t(), String.t()}]
   defp pending_interaction_entry(nil, _msgs), do: []
 
-  defp pending_interaction_entry({"ask_agent", target, task}, msgs) do
+  defp pending_interaction_entry({"call_agent", target, task}, msgs) do
     if worker_answered_ask?(msgs) do
       []
     else
-      [{"ask_agent", "#{target}: #{truncate(task, 80)}"}]
+      [{"call_agent", "#{target}: #{truncate(task, 80)}"}]
     end
   end
 
-  defp pending_interaction_entry({"delegate_task", target, task}, msgs) do
+  defp pending_interaction_entry({"send_agent", target, task}, msgs) do
     if worker_sent_response?(msgs),
       do: [],
-      else: [{"delegate_task", "#{target} did not complete: #{truncate(task, 80)}"}]
+      else: [{"send_agent", "#{target} did not complete: #{truncate(task, 80)}"}]
   end
 
-  # Find the LAST ask_agent or delegate_task call from the orchestrator whose
+  # Find the LAST call_agent or send_agent call from the orchestrator whose
   # question/task text matches the worker's current pending task text.
   @spec last_orchestrator_interaction(String.t(), [Planck.Agent.Message.t()]) ::
           {String.t(), String.t(), String.t()} | nil
@@ -949,7 +949,7 @@ defmodule Planck.Headless do
   @spec match_interactions([term()], String.t()) :: [{String.t(), String.t(), String.t()}]
   defp match_interactions(content, task_text) do
     Enum.flat_map(content, fn
-      {:tool_call, _, tool, args} when tool in ["ask_agent", "delegate_task"] ->
+      {:tool_call, _, tool, args} when tool in ["call_agent", "send_agent"] ->
         content_text = args["question"] || args["task"] || ""
 
         if content_text == task_text do
@@ -987,20 +987,20 @@ defmodule Planck.Headless do
       else: text
   end
 
-  # delegate_task: done when the worker has called send_response after the last task.
+  # send_agent: done when the worker has called respond_agent after the last task.
   @spec worker_sent_response?([Planck.Agent.Message.t()]) :: boolean()
   defp worker_sent_response?(msgs) do
     msgs_after_last_user(msgs)
     |> Enum.any?(fn msg ->
       msg.role == :assistant &&
         Enum.any?(msg.content, fn
-          {:tool_call, _, "send_response", _} -> true
+          {:tool_call, _, "respond_agent", _} -> true
           _ -> false
         end)
     end)
   end
 
-  # ask_agent: done when the worker has produced any assistant turn after the question.
+  # call_agent: done when the worker has produced any assistant turn after the question.
   @spec worker_answered_ask?([Planck.Agent.Message.t()]) :: boolean()
   defp worker_answered_ask?(msgs) do
     msgs_after_last_user(msgs)

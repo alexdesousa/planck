@@ -27,11 +27,37 @@
   runtime before each LLM call, generating `"You are a <type>."` or
   `"You are <name>, a <type>."` depending on whether name and type differ.
 
-### Tool description rewrites
+### Inter-agent tool overhaul
 
-- `ask_agent`, `delegate_task`, `send_response`, `destroy_agent`,
-  `interrupt_agent`, `checkpoint_agent` descriptions rewritten to be more
-  concise and action-oriented ("Use when…" format).
+- **Renames** — tools renamed to make the sync/async distinction explicit:
+  - `ask_agent` → `call_agent` (sync, blocks until the target responds)
+  - `delegate_task` → `send_agent` (async, fire-and-forget)
+  - `send_response` → `respond_agent`
+- **`checkpoint_agent` removed** — replaced by `reset_previous_context: true`
+  parameter on `call_agent` and `send_agent`. When true, archives the target's
+  prior history before sending the message, giving it a clean slate. Workers
+  have automatic compaction for in-task context growth; `reset_previous_context`
+  is for deliberate redirection across tasks.
+- **ID-only targeting** — `identifier` + `identifier_type` parameters removed
+  from all targeting tools. All tools now accept a single `agent_id` (from
+  `list_team`). Name/type-based resolution is gone; agents must call `list_team`
+  to discover IDs before targeting. `list_team` description updated to highlight
+  the `id` field. Error messages guide recovery: "Agent not found. Call list_team
+  to get current agent IDs."
+- **`spawn_agent` guidance** — returns the new agent's ID; the caller must save
+  it for subsequent `call_agent`/`send_agent`/`interrupt_agent`/`destroy_agent` calls.
+
+### `Planck.Agent.SystemPrompt` module
+
+- All system prompt assembly extracted from `agent.ex` into a dedicated
+  `Planck.Agent.SystemPrompt` module with `build/1` as the public entry point.
+- Per-tool guidance sections injected only when the relevant tool is present.
+  Grouped as: discovery → spawn → interaction → management.
+- Role-aware intro: shows the ask/delegate decision rule when the agent has both
+  `call_agent` and `send_agent`; simplified variant for agents with only one.
+- Each section uses "Use when…" framing consistent with the skill description convention.
+- `Planck.Agent.Tools` error messages updated with recovery hints ("Call list_team",
+  "Call list_models") that fire at exactly the moment the agent needs them.
 
 ## v0.1.1
 
