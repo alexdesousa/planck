@@ -189,11 +189,10 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:opts] == [temperature: 0.5]
     end
 
-    test "system_prompt includes identity prefix and original prompt when skills is empty" do
+    test "system_prompt passes through unchanged (identity line is injected at runtime by the agent)" do
       expect(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
-      assert opts[:system_prompt] =~ "You are builder."
-      assert opts[:system_prompt] =~ "You are a builder."
+      assert opts[:system_prompt] == "You are a builder."
     end
 
     test "skill names are passed as skill_names opt (not baked into system_prompt)" do

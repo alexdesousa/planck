@@ -176,10 +176,15 @@ defmodule Planck.Agent.BuiltinTools do
         "required" => ["command"]
       },
       execute_fn: fn _agent_id, _id, args ->
-        cmd = args["command"]
-        cwd = Map.get(args, "cwd", File.cwd!())
-        timeout = Map.get(args, "timeout", @default_bash_timeout)
-        run_bash(cmd, timeout, cwd)
+        case args["command"] do
+          nil ->
+            {:error, "missing required argument: command"}
+
+          cmd ->
+            cwd = Map.get(args, "cwd", File.cwd!())
+            timeout = Map.get(args, "timeout", @default_bash_timeout)
+            run_bash(cmd, timeout, cwd)
+        end
       end
     )
   end

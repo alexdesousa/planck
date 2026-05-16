@@ -193,5 +193,11 @@ defmodule Planck.Agent.BuiltinToolsTest do
       assert {:error, reason} = call(bash, %{"command" => "sleep 60", "timeout" => 100})
       assert reason =~ "timed out"
     end
+
+    test "returns error when command argument is missing" do
+      bash = BuiltinTools.bash()
+      assert {:error, reason} = call(bash, %{})
+      assert reason =~ "missing required argument"
+    end
   end
 end

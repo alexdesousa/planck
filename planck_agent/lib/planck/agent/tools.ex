@@ -103,11 +103,9 @@ defmodule Planck.Agent.Tools do
   def ask_agent(team_id) do
     Tool.new(
       name: "ask_agent",
-      description: """
-      Ask a question to another agent in the team and wait for its answer.
-      Blocks until the target agent finishes its turn. Use for questions that
-      require an answer before continuing.
-      """,
+      description:
+        "Use when you need another agent's answer before you can continue. " <>
+          "Sends the question and blocks until the target responds.",
       parameters: %{
         "type" => "object",
         "properties" => %{
@@ -158,15 +156,9 @@ defmodule Planck.Agent.Tools do
   def delegate_task(team_id) do
     Tool.new(
       name: "delegate_task",
-      description: """
-      Delegate a task to another agent in the team. Returns immediately — the
-      target agent runs the task asynchronously and calls send_response when done,
-      which will re-trigger your next turn with the result as context.
-
-      After delegating, end your turn unless you can delegate something else in
-      parallel that won't be blocked by previous delegations. Do not attempt to
-      read or use the result in this turn — it will arrive later.
-      """,
+      description:
+        "Use when another agent should handle work in the background. " <>
+          "Returns immediately; result arrives in a future turn via send_response.",
       parameters: %{
         "type" => "object",
         "properties" => %{
@@ -210,11 +202,9 @@ defmodule Planck.Agent.Tools do
   def send_response(delegator_id, sender \\ nil) do
     Tool.new(
       name: "send_response",
-      description: """
-      Send a result back to the agent that delegated the current task.
-      Non-blocking. Re-triggers the delegator if it is idle, or injects the
-      response as context if it is currently active.
-      """,
+      description:
+        "Use when you have finished a delegated task and must return your result. " <>
+          "Non-blocking; re-triggers the delegator automatically.",
       parameters: %{
         "type" => "object",
         "properties" => %{
@@ -407,7 +397,7 @@ defmodule Planck.Agent.Tools do
   def destroy_agent(team_id) do
     Tool.new(
       name: "destroy_agent",
-      description: "Permanently terminate a worker in the team.",
+      description: "Use when a worker is no longer needed. Permanently removes it from the team.",
       parameters: target_parameters(),
       execute_fn: fn _agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
@@ -423,10 +413,9 @@ defmodule Planck.Agent.Tools do
   def interrupt_agent(team_id) do
     Tool.new(
       name: "interrupt_agent",
-      description: """
-      Abort a worker's current turn and return it to idle. The worker stays
-      alive — use destroy_agent to terminate permanently.
-      """,
+      description:
+        "Use when a worker should stop what it is doing but remain alive. " <>
+          "Aborts the current turn and returns the worker to idle.",
       parameters: target_parameters(),
       execute_fn: fn _agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
@@ -442,12 +431,9 @@ defmodule Planck.Agent.Tools do
   def checkpoint_agent(team_id) do
     Tool.new(
       name: "checkpoint_agent",
-      description: """
-      Insert a context checkpoint into a worker's conversation. Messages
-      before the checkpoint are archived — the worker's next LLM call will
-      only see the checkpoint summary and any messages after it. Use this
-      to give a worker a clean slate with a curated summary of prior work.
-      """,
+      description:
+        "Use when a worker's prior context would bias its next task — moving to an unrelated " <>
+          "area or different expertise domain. Archives old history; worker continues with only a curated summary.",
       parameters: %{
         "type" => "object",
         "properties" => %{

@@ -1392,6 +1392,156 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  # --- system prompt assembly ---
+
+  describe "system prompt assembly" do
+    defp capture_system(parent) do
+      stub(MockAI, :stream, fn _model, %{system: system}, _opts ->
+        send(parent, {:system_prompt, system})
+        [{:done, %{}}]
+      end)
+    end
+
+    defp fake_tool(name) do
+      Tool.new(
+        name: name,
+        description: "d",
+        parameters: %{},
+        execute_fn: fn _, _, _ -> {:ok, "ok"} end
+      )
+    end
+
+    defp get_system(agent) do
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:system_prompt, system}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      system
+    end
+
+    test "prepends 'You are a X.' when name equals type" do
+      capture_system(self())
+      agent = start_agent(name: "builder", type: "builder", system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "You are a builder."
+      assert system =~ "Base."
+    end
+
+    test "prepends 'You are X, a Y.' when name differs from type" do
+      capture_system(self())
+      agent = start_agent(name: "Marvin", type: "builder", system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "You are Marvin, a builder."
+    end
+
+    test "prepends 'You are X.' when only name is set" do
+      capture_system(self())
+      agent = start_agent(name: "Marvin", system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "You are Marvin."
+    end
+
+    test "prepends 'You are a X.' when only type is set" do
+      capture_system(self())
+      agent = start_agent(type: "builder", system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "You are a builder."
+    end
+
+    test "no identity line when name and type are both nil" do
+      capture_system(self())
+      agent = start_agent(system_prompt: "Base.")
+      system = get_system(agent)
+      refute system =~ "You are"
+      assert system =~ "Base."
+    end
+
+    test "identity line appears before the user system_prompt" do
+      capture_system(self())
+      agent = start_agent(name: "Marvin", type: "builder", system_prompt: "Base.")
+      system = get_system(agent)
+      assert String.starts_with?(system, "You are Marvin, a builder.")
+    end
+
+    test "no team section for standalone agent with no inter-agent tools" do
+      capture_system(self())
+      agent = start_agent(system_prompt: "Base.")
+      system = get_system(agent)
+      refute system =~ "Team communication"
+      refute system =~ "Team management"
+    end
+
+    test "injects worker team communication section when send_response tool is present" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "Team communication"
+      assert system =~ "send_response"
+      assert system =~ "Never send a response to yourself"
+    end
+
+    test "includes ask_agent bullet only when ask_agent tool is present" do
+      capture_system(self())
+
+      agent =
+        start_agent(
+          tools: [fake_tool("send_response"), fake_tool("ask_agent")],
+          system_prompt: "Base."
+        )
+
+      system = get_system(agent)
+      assert system =~ "ask_agent"
+      assert system =~ "Never ask yourself"
+    end
+
+    test "omits ask_agent bullet when ask_agent tool is absent" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      system = get_system(agent)
+      refute system =~ "ask_agent"
+    end
+
+    test "includes delegate_task bullet only when delegate_task tool is present" do
+      capture_system(self())
+
+      agent =
+        start_agent(
+          tools: [fake_tool("send_response"), fake_tool("delegate_task")],
+          system_prompt: "Base."
+        )
+
+      system = get_system(agent)
+      assert system =~ "delegate_task"
+      assert system =~ "Never delegate to yourself"
+    end
+
+    test "omits delegate_task bullet when delegate_task tool is absent" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      system = get_system(agent)
+      refute system =~ "delegate_task"
+    end
+
+    test "injects orchestrator team management section when spawn_agent tool is present" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("spawn_agent")], system_prompt: "Base.")
+      system = get_system(agent)
+      assert system =~ "Team management"
+      assert system =~ "orchestrator"
+      assert system =~ "Never delegate to yourself"
+      assert system =~ "Never ask yourself"
+    end
+
+    test "team section appears after the user system_prompt" do
+      capture_system(self())
+      agent = start_agent(tools: [fake_tool("send_response")], system_prompt: "Base.")
+      system = get_system(agent)
+      base_pos = :binary.match(system, "Base.") |> elem(0)
+      team_pos = :binary.match(system, "Team communication") |> elem(0)
+      assert base_pos < team_pos
+    end
+  end
+
   describe "whereis/1" do
     test "returns {:ok, pid} for a running agent" do
       id = unique_id()
@@ -1401,6 +1551,209 @@ defmodule Planck.Agent.AgentTest do
 
     test "returns {:error, :not_found} for unknown id" do
       assert {:error, :not_found} = Agent.whereis("no-such-agent")
+    end
+  end
+
+  # --- resilience: tool task crash ---
+
+  describe "tool task crash resilience" do
+    test "crashing execute_fn returns error result and completes the turn" do
+      tool =
+        Tool.new(
+          name: "boom",
+          description: "raises",
+          parameters: %{},
+          execute_fn: fn _agent_id, _id, _args -> raise "intentional crash" end
+        )
+
+      call = %{id: "c-crash", name: "boom", args: %{}}
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:done, %{}}]
+        else
+          [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "crash please")
+
+      assert_receive {:agent_event, :tool_end, %{name: "boom", error: true}}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert Agent.get_state(agent).status == :idle
+    end
+
+    test "queued message is not lost when a tool task crashes" do
+      tool =
+        Tool.new(
+          name: "boom",
+          description: "raises",
+          parameters: %{},
+          execute_fn: fn _agent_id, _id, _args -> raise "crash" end
+        )
+
+      call = %{id: "c-queue", name: "boom", args: %{}}
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:done, %{}}]
+        else
+          [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      {agent, session_id} = start_agent_with_session(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "crash please")
+
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      Agent.prompt(agent, "follow-up")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, rows} = Session.messages(session_id, agent_id: Agent.get_state(agent).id)
+
+      texts =
+        Enum.flat_map(rows, fn r ->
+          Enum.flat_map(r.message.content, fn
+            {:text, t} -> [t]
+            _ -> []
+          end)
+        end)
+
+      assert Enum.any?(texts, &(&1 == "follow-up"))
+    end
+  end
+
+  # --- resilience: stream task crash ---
+
+  describe "stream task crash resilience" do
+    test "stream raising an exception returns agent to idle" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        raise "stream exploded"
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+
+      assert_receive {:agent_event, :error, %{reason: reason}}, 1_000
+      assert reason =~ "stream exploded"
+      Process.sleep(50)
+      assert Agent.get_state(agent).status == :idle
+    end
+
+    test "stream throwing exits the stream cleanly" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        throw(:oops)
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "hello")
+
+      assert_receive {:agent_event, :error, _}, 1_000
+      Process.sleep(50)
+      assert Agent.get_state(agent).status == :idle
+    end
+  end
+
+  # --- resilience: orphaned tool-call on restart ---
+
+  describe "orphaned tool-call stripping on session load" do
+    # Stripping fires in flush_unpersisted_messages just before the first LLM call.
+    # We stub MockAI to return immediately so we can inspect state after the turn.
+
+    defp session_with_orphan do
+      session_id = unique_id()
+      agent_id = unique_id()
+      dir = Path.join(System.tmp_dir!(), "planck_orphan_#{session_id}")
+      {:ok, _} = Session.start(session_id, name: "test", dir: dir)
+
+      on_exit(fn ->
+        Session.stop(session_id)
+        File.rm_rf!(dir)
+      end)
+
+      Session.append(session_id, agent_id, Message.new(:user, [{:text, "run a tool"}]))
+
+      Session.append(
+        session_id,
+        agent_id,
+        Message.new(:assistant, [{:tool_call, "tc1", "broken_tool", %{}}])
+      )
+
+      {session_id, agent_id}
+    end
+
+    test "strips orphaned tool-call turn from agent state on init" do
+      {session_id, agent_id} = session_with_orphan()
+
+      agent =
+        start_supervised!(
+          {Agent, id: agent_id, model: @model, system_prompt: "helpful.", session_id: session_id}
+        )
+
+      # get_state is a synchronous call — queues behind handle_continue(:load_session_history)
+      refute Enum.any?(Agent.get_state(agent).messages, fn m ->
+               m.role == :assistant and Enum.any?(m.content, &match?({:tool_call, _, _, _}, &1))
+             end)
+    end
+
+    test "strips orphaned tool-call turn from the session DB on init" do
+      {session_id, agent_id} = session_with_orphan()
+
+      agent =
+        start_supervised!(
+          {Agent, id: agent_id, model: @model, system_prompt: "helpful.", session_id: session_id}
+        )
+
+      # Force the continue to complete before querying the DB
+      Agent.get_state(agent)
+
+      {:ok, rows} = Session.messages(session_id, agent_id: agent_id)
+
+      refute Enum.any?(rows, fn r ->
+               r.message.role == :assistant and
+                 Enum.any?(r.message.content, &match?({:tool_call, _, _, _}, &1))
+             end)
+    end
+
+    test "preserves a complete turn where a tool result follows the tool call" do
+      session_id = unique_id()
+      agent_id = unique_id()
+      dir = Path.join(System.tmp_dir!(), "planck_complete_#{session_id}")
+      {:ok, _} = Session.start(session_id, name: "test", dir: dir)
+
+      on_exit(fn ->
+        Session.stop(session_id)
+        File.rm_rf!(dir)
+      end)
+
+      Session.append(session_id, agent_id, Message.new(:user, [{:text, "use tool"}]))
+
+      Session.append(
+        session_id,
+        agent_id,
+        Message.new(:assistant, [{:tool_call, "tc2", "a_tool", %{}}])
+      )
+
+      Session.append(
+        session_id,
+        agent_id,
+        Message.new(:tool_result, [{:tool_result, "tc2", "ok"}])
+      )
+
+      agent =
+        start_supervised!(
+          {Agent, id: agent_id, model: @model, system_prompt: "helpful.", session_id: session_id}
+        )
+
+      assert Enum.any?(Agent.get_state(agent).messages, fn m ->
+               m.role == :assistant and Enum.any?(m.content, &match?({:tool_call, _, _, _}, &1))
+             end)
     end
   end
 end

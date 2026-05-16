@@ -230,7 +230,7 @@ defmodule Planck.Agent.AgentSpec do
     available_models = Keyword.get(overrides, :available_models, [])
     model = resolve_model!(spec.provider, spec.model_id, spec.base_url, available_models)
     tools = resolve_tools(spec, overrides)
-    system_prompt = assemble_system_prompt(spec)
+    system_prompt = spec.system_prompt
 
     [
       id: generate_id(),
@@ -274,19 +274,6 @@ defmodule Planck.Agent.AgentSpec do
       [] -> declared
       pool -> declared ++ [Skill.load_skill_tool(pool, skill_refresh_fn)]
     end
-  end
-
-  @spec assemble_system_prompt(t()) :: String.t()
-  defp assemble_system_prompt(spec) do
-    identity_line(spec) <> spec.system_prompt
-  end
-
-  @spec identity_line(t()) :: String.t()
-  defp identity_line(spec)
-
-  defp identity_line(%__MODULE__{name: name, type: type}) do
-    label = if name != type, do: "#{name} (#{type})", else: type
-    "You are #{label}.\n\n"
   end
 
   # ---------------------------------------------------------------------------
