@@ -71,7 +71,19 @@ defmodule Planck.Headless.Config do
   end
 
   defmodule PathList do
-    @moduledoc "Skogsra type for colon-separated path lists (e.g. `~/.planck/skills:./planck/skills`)."
+    @moduledoc """
+    Skogsra type for path lists set via environment variables.
+
+    Uses `:` as separator on Unix and `;` on Windows, matching each platform's
+    `PATH` convention. Both separators are accepted on all platforms so that
+    cross-platform config files stay portable. Drive-letter colons (e.g. `C:`)
+    are never mistaken for separators because they are immediately followed by
+    `\\` or `/`.
+
+    Examples:
+      Unix:    `~/.planck/skills:.planck/skills`
+      Windows: `~/.planck/skills;.planck/skills`
+    """
 
     use Skogsra.Type
 
@@ -80,7 +92,7 @@ defmodule Planck.Headless.Config do
     def cast(value) when is_binary(value) do
       paths =
         value
-        |> String.split(":")
+        |> String.split(~r/;|:(?![\/\\])/)
         |> Enum.map(&String.trim/1)
         |> Enum.reject(&(&1 == ""))
 
@@ -96,7 +108,7 @@ defmodule Planck.Headless.Config do
     end
 
     def cast(value) do
-      {:error, "expected a colon-separated string or list of strings, got: #{inspect(value)}"}
+      {:error, "expected a path list string or list of strings, got: #{inspect(value)}"}
     end
   end
 
