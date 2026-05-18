@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.3
+
+### `planck_docker` release target
+
+- Added `planck_docker: [steps: [:assemble]]` release to `mix.exs` — a standard
+  OTP release (no Burrito wrapper) for use inside the planck_docker Docker image.
+  Allows the container to run planck without a self-extracting binary while still
+  using the same codebase as the CLI release.
+
 ## v0.1.2
 
 ### Prompt input — always-on send + message queue

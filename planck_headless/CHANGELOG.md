@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.3
+
+### `SidecarManager` — `mix setup` fallback
+
+- `SidecarManager` now calls `mix setup` before `mix compile` if the sidecar
+  defines a `setup` alias, falling back to `mix deps.get` otherwise. Enables
+  sidecars that require extra setup steps (e.g. `npm install` for Node.js tools)
+  to declare them in `mix.exs` without any changes to `planck_headless`.
+
+### `PathList` Windows fix
+
+- `PathList.cast/1` now splits on `~r/;|:(?![\/\\])/` instead of `":"`,
+  preserving Windows drive-letter colons (`C:\...`, `C:/...`) while still
+  splitting Unix colon-separated paths. Semicolons are accepted as an
+  alternative separator on all platforms.
+
 ## v0.1.2
 
 - Version bump to stay in sync with the monorepo release; no functional changes.
