@@ -1,0 +1,84 @@
+name: planck_docker Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "planck_docker/**"
+  pull_request:
+    paths:
+      - "planck_docker/**"
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  sidecar:
+    runs-on: ubuntu-latest
+    name: "Sidecar OTP ${{ matrix.otp }} / Elixir ${{ matrix.elixir }}"
+    defaults:
+      run:
+        working-directory: planck_docker/sidecar
+    strategy:
+      matrix:
+        otp: ["28.5"]
+        elixir: ["1.19.5"]
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v5
+        name: Checkout repository
+      - uses: erlef/setup-beam@v1
+        name: Setup Elixir
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - uses: actions/setup-node@v4
+        name: Setup Node.js
+        with:
+          node-version: "20"
+      - name: Setup (deps.get + npm install --prefix assets)
+        run: mix do local.rebar --force + local.hex --force + setup
+      - name: Compile dependencies
+        run: mix deps.compile
+      - name: Check formatting
+        run: mix format --dry-run --check-formatted
+      - name: Compile project
+        run: mix compile --warnings-as-errors
+      - name: Run Credo
+        run: mix credo
+      - name: Run tests
+        run: mix test --exclude integration
+
+  dialyzer:
+    runs-on: ubuntu-latest
+    name: "Sidecar Dialyzer OTP ${{ matrix.otp }} / Elixir ${{ matrix.elixir }}"
+    defaults:
+      run:
+        working-directory: planck_docker/sidecar
+    strategy:
+      matrix:
+        otp: ["28.5"]
+        elixir: ["1.19.5"]
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v5
+        name: Checkout repository
+      - uses: erlef/setup-beam@v1
+        name: Setup Elixir
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - uses: actions/cache@v4
+        name: Retrieve cached PLT
+        id: plt-cache
+        with:
+          path: planck_docker/sidecar/priv/plts
+          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-sidecar-plts-${{ hashFiles('planck_docker/sidecar/mix.lock') }}
+      - name: Get dependencies
+        run: mix do local.rebar --force + local.hex --force + deps.get
+      - name: Compile dependencies
+        run: mix deps.compile
+      - name: Run Dialyzer
+        run: mix dialyzer

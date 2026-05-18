@@ -131,6 +131,11 @@ Built from this repository. Includes:
 
 Runs as UID/GID 1000.
 
+The sidecar defines a `setup` alias in `mix.exs` that runs `mix deps.get` and
+`npm install --prefix priv`. Planck's `SidecarManager` calls `mix setup` on
+startup if the alias exists, falling back to `mix deps.get` otherwise. Sidecars
+that don't need extra steps don't need to define the alias.
+
 ## Bundled sidecar
 
 A Mix project pre-installed in the planck image. Written to

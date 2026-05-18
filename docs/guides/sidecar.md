@@ -224,5 +224,28 @@ Enable the sidecar in `.planck/config.json`:
 
 Or via env var: `PLANCK_SIDECAR=.planck/sidecar`.
 
-Planck will run `mix deps.get` and `mix compile` automatically on startup,
-then spawn the sidecar process. Tools appear in all new sessions automatically.
+Planck calls `mix setup` before `mix compile` if the alias exists in the
+sidecar's `mix.exs`, and falls back to `mix deps.get` otherwise. Tools appear
+in all new sessions automatically.
+
+## Setup alias
+
+If your sidecar requires extra setup steps (e.g. installing Node.js packages
+for JS-based tools), define a `setup` alias in `mix.exs`:
+
+```elixir
+defp aliases do
+  [
+    setup: ["deps.get", "cmd npm install --prefix priv"]
+  ]
+end
+```
+
+Run it manually after cloning or updating the sidecar:
+
+```sh
+mix setup
+```
+
+Sidecars that only use Elixir deps don't need to define the alias — Planck
+falls back to `mix deps.get` automatically.

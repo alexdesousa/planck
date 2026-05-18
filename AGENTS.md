@@ -47,6 +47,18 @@ All modules use the `Planck.X` namespace — never the flat `PlanckX` form.
 | `planck_headless` | `Planck.Headless` |
 | `planck_cli` | `Planck.CLI` |
 
+## Versioning
+
+All four Mix packages (`planck_ai`, `planck_agent`, `planck_headless`, `planck_cli`)
+share the same version number and are bumped together on every release.
+
+`planck_docker/sidecar/mix.exs` is kept in sync with the same version so users
+can correlate the bundled sidecar with the Planck release it shipped with. When
+bumping package versions for a release, also bump `planck_docker/sidecar/mix.exs`.
+
+Users who fork the sidecar are expected to diverge from that version onwards —
+the sync only applies to the bundled default.
+
 ## Commit format
 
 Commit messages use an emoji prefix:

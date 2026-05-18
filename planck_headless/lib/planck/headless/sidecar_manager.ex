@@ -111,7 +111,7 @@ defmodule Planck.Headless.SidecarManager do
     broadcast({:building, state.sidecar_dir})
     state = %{state | status: :building}
 
-    with :ok <- run_step("deps.get", state.sidecar_dir),
+    with :ok <- run_setup(state.sidecar_dir),
          :ok <- run_step("compile", state.sidecar_dir) do
       {:noreply, state, {:continue, :spawn}}
     else
@@ -186,6 +186,23 @@ defmodule Planck.Headless.SidecarManager do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  # Run `mix setup` if the alias exists, otherwise fall back to `mix deps.get`.
+  # Sidecars that need extra steps (e.g. npm install) define a `setup` alias.
+  @spec run_setup(Path.t()) :: :ok | {:error, String.t(), String.t()}
+  defp run_setup(dir) do
+    case run_step("setup", dir) do
+      :ok ->
+        :ok
+
+      {:error, "setup", output} ->
+        if output =~ "The task \"setup\" could not be found" do
+          run_step("deps.get", dir)
+        else
+          {:error, "setup", output}
+        end
+    end
+  end
 
   @spec run_step(String.t(), Path.t()) :: :ok | {:error, String.t(), String.t()}
   defp run_step(task, dir) do

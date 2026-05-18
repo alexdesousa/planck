@@ -6,7 +6,7 @@
 # Usage: ./check [package...]   — run for specific packages only
 #        ./check                — run for all packages
 
-PACKAGES=(planck_ai planck_agent planck_headless planck_cli)
+PACKAGES=(planck_ai planck_agent planck_headless planck_cli planck_docker/sidecar)
 ROOT=$(cd "$(dirname "$0")" && pwd)
 export PLANCK_LOCAL=true
 

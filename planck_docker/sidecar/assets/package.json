@@ -1,0 +1,11 @@
+{
+  "name": "planck-sidecar-scripts",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Node.js scripts for the planck_docker bundled sidecar.",
+  "dependencies": {
+    "@mozilla/readability": "0.6.0",
+    "jsdom": "29.1.1",
+    "turndown": "7.2.4"
+  }
+}
