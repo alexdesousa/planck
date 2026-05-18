@@ -39,6 +39,7 @@ EXPOSE 11434
 
 ENV LLAMA_THREADS=8
 ENV LLAMA_CTX_SIZE=32768
+ENV LLAMA_PORT=11434
 
 # exec replaces the shell so llama-server is PID 1 and receives signals correctly
 CMD exec llama-server \
