@@ -18,6 +18,13 @@ if [ ! -f "$PLANCK_DIR/config.json" ]; then
   envsubst < /app/default_config.json.template > "$PLANCK_DIR/config.json"
 fi
 
+# Write default Searxng settings on first run (preserve user customisations)
+mkdir -p "$PLANCK_DIR/searxng"
+if [ ! -f "$PLANCK_DIR/searxng/settings.yml" ]; then
+  echo "[planck] Writing default Searxng settings..."
+  envsubst < /app/searxng_settings.yml.template > "$PLANCK_DIR/searxng/settings.yml"
+fi
+
 # Run planck from the workspace directory so it picks up .planck/config.json
 cd /workspace
 exec /app/release/bin/planck_docker start

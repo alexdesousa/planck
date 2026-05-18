@@ -1,0 +1,57 @@
+# Searxng configuration for planck_docker.
+# Edit this file and restart planck_docker for changes to take effect.
+# Tip: use the configure-searxng skill to have an agent do this for you.
+
+use_default_settings: true
+
+general:
+  instance_name: "Planck Search"
+  debug: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: ${SEARXNG_LANGUAGE:-en}
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "${SEARXNG_SECRET}"
+  bind_address: "0.0.0.0:8080"
+  limiter: false
+
+ui:
+  default_locale: ${SEARXNG_LANGUAGE:-en}
+  query_in_title: true
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: so
+    disabled: false

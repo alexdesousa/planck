@@ -47,6 +47,7 @@ COPY --from=builder /build/planck_cli/_build/prod/rel/planck_docker /app/release
 COPY --from=builder /build/planck_docker/sidecar /app/sidecar
 
 COPY planck_docker/planck/default_config.json.template /app/default_config.json.template
+COPY planck_docker/searxng/settings.yml.template /app/searxng_settings.yml.template
 COPY planck_docker/planck/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
