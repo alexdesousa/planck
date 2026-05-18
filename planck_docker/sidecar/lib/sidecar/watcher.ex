@@ -153,7 +153,7 @@ defmodule Sidecar.Watcher do
 
     with {:ok, bytes} <- File.read(path),
          options = Keyword.put(options, :body, bytes),
-         {:ok, %{status: 200, body: text}} <- Req.post("#{tika_url}/tika", options),
+         {:ok, %{status: 200, body: text}} <- Req.put("#{tika_url}/tika", options),
          true <- is_binary(text) and text != "" do
       {:ok, text}
     else

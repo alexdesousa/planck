@@ -5,8 +5,8 @@
     {
       "id": "Bonsai-8B-Q1_0",
       "provider": "llama_cpp",
-      "base_url": "http://llama-cpp:${LLAMA_PORT:-11434}",
-      "context_window": ${LLAMA_CTX_SIZE:-32768}
+      "base_url": "http://llama-cpp:$LLAMA_PORT",
+      "context_window": $LLAMA_CTX_SIZE
     }
   ]
 }

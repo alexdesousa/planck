@@ -115,7 +115,13 @@ defmodule Planck.CLI.MixProject do
       # Default: host platform only. Set PLANCK_BUILD_ALL=true for all targets.
       planck: burrito_release(build_targets()),
       # Standard OTP release for the planck_docker Docker image (no Burrito wrapper).
-      planck_docker: [steps: [:assemble]]
+      planck_docker: [
+        version: @version,
+        include_executable_for: [:unix],
+        applications: [
+          planck_cli: :permanent
+        ]
+      ]
     ]
   end
 

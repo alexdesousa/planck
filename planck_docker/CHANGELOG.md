@@ -23,7 +23,8 @@ copied to the workspace on first run. Four tools:
 
 - **`read`** — shadows the built-in `read` tool. Plain text and code files are
   read directly; binary formats (PDF, DOCX, XLSX, ODS, PPTX, etc.) are sent to
-  Apache Tika for text extraction. Results cached to `doc_cache/` with mtime
+  Apache Tika via `PUT /tika` (Tika 3.x requires PUT, not POST) for text
+  extraction. Results cached to `doc_cache/` with mtime
   invalidation. Format header prepended so agents know the file cannot be edited
   with `edit`.
 - **`search_workspace`** — full-text search over indexed workspace files via
@@ -42,10 +43,13 @@ rather than extension lists — works for extensionless files and any future for
 
 #### Planck container
 
-- Built on `hexpm/elixir:1.19.5-erlang-28.5-ubuntu-24.04`; uses the
+- Built on `hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410`; uses the
   `planck_docker` OTP release target (standard Mix release, no Burrito).
+- `inotify-tools` installed for `file_system` live-reload support.
 - Entrypoint copies the bundled sidecar and renders `default_config.json.template`
   via `envsubst` on first run. Template variables (`LLAMA_CTX_SIZE`, `LLAMA_PORT`)
   keep the config in sync with the llama-cpp container's env vars automatically.
 - Binds to `0.0.0.0:4000` inside the container; host binding controlled by
   `PLANCK_BIND_ADDRESS` (default `127.0.0.1` — local only, no open ports).
+- `setup` service uses `entrypoint: ["/setup.sh"]` to bypass the planck
+  release entrypoint and exit cleanly, unblocking dependent services.

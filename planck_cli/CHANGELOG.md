@@ -2,12 +2,29 @@
 
 ## v0.1.3
 
+### Sidecar tools auto-sync for dynamic orchestrators
+
+- When the sidecar connects (`{:connected, node}` PubSub event), `SessionLive`
+  now calls `Planck.Agent.add_tool/2` for each sidecar tool on the active
+  session's orchestrator — but only for dynamic sessions (no custom team).
+  On disconnect, the tools are removed symmetrically.
+- `load_session/2` now also syncs sidecar tools immediately if the sidecar is
+  already connected when the session loads, covering the case where the sidecar
+  connected before the session was opened or resumed.
+
+### Infinite LLM stream timeout in production
+
+- `config/runtime.exs` now sets `config :req_llm, receive_timeout: :timer.hours(1)`
+  in prod. The previous 30-second default caused spurious timeouts with local
+  CPU inference (e.g. llama.cpp), which can take tens of seconds to process a
+  large prompt before emitting the first token. Cloud providers use server-side
+  keep-alives and are unaffected.
+
 ### `planck_docker` release target
 
-- Added `planck_docker: [steps: [:assemble]]` release to `mix.exs` — a standard
-  OTP release (no Burrito wrapper) for use inside the planck_docker Docker image.
-  Allows the container to run planck without a self-extracting binary while still
-  using the same codebase as the CLI release.
+- Changed `planck_docker` release from `[steps: [:assemble]]` to a plain OTP
+  release config with `include_executable_for: [:unix]` — removes the Burrito
+  dependency from the Docker build path.
 
 ## v0.1.2
 

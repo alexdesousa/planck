@@ -11,7 +11,7 @@ general:
 search:
   safe_search: 0
   autocomplete: ""
-  default_lang: ${SEARXNG_LANGUAGE:-en}
+  default_lang: $SEARXNG_LANGUAGE
   formats:
     - html
     - json
@@ -22,7 +22,7 @@ server:
   limiter: false
 
 ui:
-  default_locale: ${SEARXNG_LANGUAGE:-en}
+  default_locale: $SEARXNG_LANGUAGE
   query_in_title: true
 
 engines:

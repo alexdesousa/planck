@@ -1,5 +1,22 @@
 services:
 
+  # ── First-run workspace setup ──────────────────────────────────────────────
+  # Renders config templates and copies the sidecar before any other service
+  # starts. Runs to completion and exits; other services depend on it.
+  setup:
+    build:
+      context: ..
+      dockerfile: planck_docker/planck/Dockerfile
+    image: ghcr.io/alexdesousa/planck:0.1.3
+    entrypoint: ["/setup.sh"]
+    volumes:
+      - ${HOME}/planck/workspace:/workspace
+    environment:
+      LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
+      LLAMA_PORT: ${LLAMA_PORT:-11434}
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
+
   # ── Planck web UI + agent runtime + sidecar ────────────────────────────────
   planck:
     build:
@@ -23,10 +40,16 @@ services:
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
     depends_on:
-      - typesense
-      - searxng
-      - tika
-      - llama-cpp
+      setup:
+        condition: service_completed_successfully
+      typesense:
+        condition: service_started
+      searxng:
+        condition: service_started
+      tika:
+        condition: service_started
+      llama-cpp:
+        condition: service_started
     restart: unless-stopped
 
   # ── Bonsai 1-bit LLM (CPU) ─────────────────────────────────────────────────
@@ -41,6 +64,7 @@ services:
       LLAMA_THREADS: ${LLAMA_THREADS:-8}
       LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
       LLAMA_PORT: ${LLAMA_PORT:-11434}
+      LLAMA_SLEEP_IDLE_SECONDS: ${LLAMA_SLEEP_IDLE_SECONDS:-600}
     restart: unless-stopped
 
   # ── Privacy-respecting web search ──────────────────────────────────────────
@@ -51,6 +75,9 @@ services:
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ── Workspace file indexing ────────────────────────────────────────────────

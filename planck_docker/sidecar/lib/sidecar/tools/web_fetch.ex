@@ -95,7 +95,8 @@ defmodule Sidecar.Tools.WebFetch do
   defp do_fetch(url, cache_path)
        when is_binary(url) and is_binary(cache_path) do
     script = Path.expand("assets/readability.js", File.cwd!())
-    cmd = Enum.map(["node", script, url], &String.to_charlist/1)
+    node = System.find_executable("node") || System.find_executable("nodejs")
+    cmd = Enum.map([node, script, url], &String.to_charlist/1)
     task = Task.async(fn -> :exec.run(cmd, [:sync, :stdout, :stderr]) end)
 
     case Task.yield(task, @timeout) || Task.shutdown(task) do

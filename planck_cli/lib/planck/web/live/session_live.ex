@@ -125,8 +125,20 @@ defmodule Planck.Web.SessionLive do
   # PubSub events — sidecar
   # ---------------------------------------------------------------------------
 
+  def handle_info({:connected, _node} = event, socket) do
+    send_to_sidebar(event)
+    send_to_status_bar(event)
+    {:noreply, maybe_sync_sidecar_tools(socket)}
+  end
+
+  def handle_info({:disconnected, _node} = event, socket) do
+    send_to_sidebar(event)
+    send_to_status_bar(event)
+    {:noreply, maybe_clear_sidecar_tools(socket)}
+  end
+
   def handle_info({sidecar_event, _} = event, socket)
-      when sidecar_event in [:building, :starting, :connected, :disconnected, :exited] do
+      when sidecar_event in [:building, :starting, :exited] do
     send_to_sidebar(event)
     send_to_status_bar(event)
     {:noreply, socket}
@@ -586,15 +598,18 @@ defmodule Planck.Web.SessionLive do
       welcome: welcome
     )
 
-    socket
-    |> assign(:active_session, session_id)
-    |> assign(:session_name, session_name)
-    |> assign(:agents, agents)
-    |> assign(:agent_order, agent_order)
-    |> assign(:orchestrator_id, orchestrator_id)
-    |> assign(:streaming, false)
-    |> assign(:waiting, false)
-    |> assign(:prompt_queue, [])
+    socket =
+      socket
+      |> assign(:active_session, session_id)
+      |> assign(:session_name, session_name)
+      |> assign(:agents, agents)
+      |> assign(:agent_order, agent_order)
+      |> assign(:orchestrator_id, orchestrator_id)
+      |> assign(:streaming, false)
+      |> assign(:waiting, false)
+      |> assign(:prompt_queue, [])
+
+    if sidecar_status == :connected, do: maybe_sync_sidecar_tools(socket), else: socket
   end
 
   @spec load_agents(String.t()) :: {%{String.t() => map()}, [String.t()], String.t() | nil}
@@ -639,6 +654,34 @@ defmodule Planck.Web.SessionLive do
       _ ->
         {nil, false}
     end
+  end
+
+  @spec maybe_sync_sidecar_tools(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp maybe_sync_sidecar_tools(%{assigns: %{orchestrator_id: nil}} = socket), do: socket
+
+  defp maybe_sync_sidecar_tools(%{assigns: %{active_session: sid, orchestrator_id: oid}} = socket) do
+    with {_desc, true} <- session_description(sid),
+         {:ok, pid} <- Agent.whereis(oid) do
+      Planck.Headless.ResourceStore.get().tools
+      |> Enum.each(&Planck.Agent.add_tool(pid, &1))
+    end
+
+    socket
+  end
+
+  @spec maybe_clear_sidecar_tools(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp maybe_clear_sidecar_tools(%{assigns: %{orchestrator_id: nil}} = socket), do: socket
+
+  defp maybe_clear_sidecar_tools(
+         %{assigns: %{active_session: sid, orchestrator_id: oid}} = socket
+       ) do
+    with {_desc, true} <- session_description(sid),
+         {:ok, pid} <- Agent.whereis(oid) do
+      Planck.Headless.ResourceStore.get().tools
+      |> Enum.each(&Planck.Agent.remove_tool(pid, &1.name))
+    end
+
+    socket
   end
 
   @spec map_sidecar_status(atom()) :: :idle | :building | :starting | :connected | :failed

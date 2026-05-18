@@ -168,7 +168,7 @@ defmodule Sidecar.Tools.Read do
       headers: [{"Accept", "text/plain"}, {"Content-Type", "application/octet-stream"}]
     ]
 
-    case Req.post("#{tika_url}/tika", options) do
+    case Req.put("#{tika_url}/tika", options) do
       {:ok, %{status: 200, body: text}} when is_binary(text) ->
         File.mkdir_p!(Path.dirname(cache))
         File.write!(cache, text)

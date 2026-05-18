@@ -40,6 +40,7 @@ EXPOSE 11434
 ENV LLAMA_THREADS=8
 ENV LLAMA_CTX_SIZE=32768
 ENV LLAMA_PORT=11434
+ENV LLAMA_SLEEP_IDLE_SECONDS=600
 
 # exec replaces the shell so llama-server is PID 1 and receives signals correctly
 CMD exec llama-server \
@@ -49,4 +50,8 @@ CMD exec llama-server \
     --threads $LLAMA_THREADS \
     --ctx-size $LLAMA_CTX_SIZE \
     --cache-type-k q8_0 \
-    --cache-type-v q8_0
+    --cache-type-v q8_0 \
+    --sleep-idle-seconds $LLAMA_SLEEP_IDLE_SECONDS \
+    --temp 0.5 \
+    --top-p 0.85 \
+    --top-k 20

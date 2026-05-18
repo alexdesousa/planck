@@ -246,13 +246,31 @@ defmodule Planck.Headless.SidecarManager do
 
   @spec env([{charlist(), charlist()}]) :: [{charlist(), charlist()}]
   defp env(extra) do
-    ["PATH", "MIX_ENV", "PLANCK_LOCAL"]
-    |> Stream.map(&{&1, System.get_env(&1)})
-    |> Stream.reject(fn {_, v} -> is_nil(v) end)
-    |> Stream.map(fn {k, v} -> {to_charlist(k), to_charlist(v)} end)
-    |> Map.new()
-    |> Map.merge(Map.new(extra))
-    |> Map.to_list()
+    # Strip release-specific dirs from PATH so child processes resolve `elixir`
+    # and `erl` to the system binaries, not the release's wrapper scripts (which
+    # hard-code -boot ${RELEASE_BOOT_SCRIPT} and cause boot failures).
+    clean_path =
+      System.get_env("PATH", "/usr/local/bin:/usr/bin:/bin")
+      |> String.split(":")
+      |> Enum.reject(&String.starts_with?(&1, "/app/release"))
+      |> Enum.join(":")
+
+    release_unsets =
+      System.get_env()
+      |> Map.keys()
+      |> Enum.filter(&String.starts_with?(&1, "RELEASE_"))
+      |> Enum.map(&{to_charlist(&1), false})
+
+    passthrough =
+      ["MIX_ENV", "PLANCK_LOCAL", "HOME"]
+      |> Enum.flat_map(fn key ->
+        case System.get_env(key) do
+          nil -> []
+          val -> [{to_charlist(key), to_charlist(val)}]
+        end
+      end)
+
+    [{~c"PATH", to_charlist(clean_path)}] ++ passthrough ++ release_unsets ++ extra
   end
 
   @spec sidecar_node?(atom()) :: boolean()

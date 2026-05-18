@@ -46,13 +46,21 @@ defmodule Planck.Headless.Watcher do
   def init(_opts) do
     dirs = watched_dirs()
 
-    if dirs == [] do
-      {:ok, %{watcher: nil, timer: nil}}
-    else
-      {:ok, watcher} = FileSystem.start_link(dirs: dirs)
+    with [_ | _] <- dirs,
+         {:ok, watcher} <- FileSystem.start_link(dirs: dirs) do
       FileSystem.subscribe(watcher)
       Logger.debug("[Planck.Headless.Watcher] watching #{length(dirs)} director(ies)")
       {:ok, %{watcher: watcher, timer: nil}}
+    else
+      [] ->
+        {:ok, %{watcher: nil, timer: nil}}
+
+      :ignore ->
+        Logger.warning(
+          "[Watcher] file_system backend unavailable (inotify-tools missing?), running without file watching"
+        )
+
+        {:ok, %{watcher: nil, timer: nil}}
     end
   end
 

@@ -2,6 +2,28 @@
 
 ## v0.1.3
 
+### `ResourceStore` — preserve sidecar tools across reloads
+
+- `ResourceStore.reload/0` now preserves `state.tools` (sidecar tools) alongside
+  `registered_tools` and `on_reload` callbacks. Previously, any config file change
+  that triggered a reload (e.g. editing `config.json`) silently wiped the sidecar
+  tool list, leaving the orchestrator without sidecar tools until restart.
+
+### `SidecarManager` — clear `RELEASE_*` env vars
+
+- Sidecar processes no longer inherit the OTP release environment. The release
+  start script adds `erts-<vsn>/bin` and `releases/<vsn>/` to `PATH`, causing
+  child `elixir` invocations to resolve to the release's wrapper script, which
+  hard-codes `-boot ${RELEASE_BOOT_SCRIPT}` and fails with `cannot get bootfile`.
+  `env/1` now strips all `/app/release` entries from `PATH` and unsets all
+  `RELEASE_*` vars so sidecar processes use the system `elixir` and `erl`.
+
+### `Watcher` — graceful degradation without inotify
+
+- `Watcher.init/1` now handles `:ignore` from `FileSystem.start_link/1`
+  (returned when `inotify-tools` is absent on Linux) instead of crashing with a
+  `MatchError`. The watcher starts in no-op mode and logs a warning.
+
 ### `SidecarManager` — `mix setup` fallback
 
 - `SidecarManager` now calls `mix setup` before `mix compile` if the sidecar

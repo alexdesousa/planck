@@ -1,9 +1,10 @@
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
 # Compiles planck_cli and pre-installs sidecar dependencies so the runtime
 # container starts quickly without downloading packages.
-FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-24.04 AS builder
+FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     curl \
     ca-certificates \
     git \
@@ -27,12 +28,13 @@ RUN cd planck_docker/sidecar \
     && mix do local.hex --force + local.rebar --force + setup + compile
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-24.04
+FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gettext-base \
+    inotify-tools \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -48,13 +50,15 @@ COPY --from=builder /build/planck_docker/sidecar /app/sidecar
 
 COPY planck_docker/planck/default_config.json.template /app/default_config.json.template
 COPY planck_docker/searxng/settings.yml.template /app/searxng_settings.yml.template
+COPY planck_docker/planck/setup.sh /setup.sh
 COPY planck_docker/planck/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Ubuntu 24.04 already has uid/gid 1000 as the 'ubuntu' user.
+RUN chmod +x /setup.sh /entrypoint.sh \
+    && chown -R ubuntu:ubuntu /app
 USER ubuntu
 
 # Bind to all interfaces so the container port is reachable from the host.
+ENV SHELL=/bin/sh
+ENV MIX_ENV=prod
 ENV IP_ADDRESS=0.0.0.0
 ENV PORT=4000
 
