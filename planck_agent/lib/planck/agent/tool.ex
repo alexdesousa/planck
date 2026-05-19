@@ -86,9 +86,9 @@ defmodule Planck.Agent.Tool do
   defp format_schema_errors(errors, params) do
     properties = get_in(params, ["properties"]) || %{}
 
-    errors
-    |> Enum.map(fn {message, path} -> format_schema_error(message, path, properties) end)
-    |> Enum.join(" ")
+    Enum.map_join(errors, " ", fn {message, path} ->
+      format_schema_error(message, path, properties)
+    end)
   end
 
   @spec format_schema_error(String.t(), String.t(), map()) :: String.t()
