@@ -138,78 +138,223 @@ jobs:
             mix hex.publish --yes
           fi
 
-# ── Binary release ────────────────────────────────────────────────────────────
-# Runs after all Hex packages are published so deps.get resolves from Hex.
+# ── Binary builds ─────────────────────────────────────────────────────────────
+# Each platform builds natively so erlexec's exec-port has the correct arch.
+# Assets (CSS/JS) are compiled per runner — the tooling (esbuild/tailwind) is
+# platform-specific even though the output is not.
 
-  build:
-    name: Build binaries
+  build-linux:
+    name: Build Linux x86_64
     runs-on: ubuntu-latest
     needs: publish-headless
-
-    permissions:
-      contents: write
-
-    env:
-      PLANCK_BUILD_ALL: true
-
     defaults:
       run:
         working-directory: planck_cli
-
     steps:
       - uses: actions/checkout@v5
-
-      - name: Set up Elixir
-        uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.5"
           otp-version: "28.5"
-
-      - name: Install Zig (required for Burrito cross-compilation)
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.15.2"
-
-      - name: Install system dependencies
-        run: sudo apt-get install -y xz-utils p7zip-full
-
-      - name: Set up Node.js (required for highlight.js asset bundling)
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "25.9.0"
-
-      - name: Install dependencies
-        run: mix do local.rebar --force + local.hex --force + deps.get
+      - run: sudo apt-get install -y xz-utils p7zip-full
+      - run: mix do local.rebar --force + local.hex --force + deps.get
         env:
           MIX_ENV: prod
-
-      - name: Install and compile dev dependencies (esbuild/tailwind)
-        run: mix deps.compile
+      - run: mix deps.compile
         env:
           MIX_ENV: dev
-
-      - name: Build and digest assets
-        run: mix do assets.setup + assets.deploy
+      - run: mix do assets.setup + assets.deploy
         env:
           MIX_ENV: dev
-
-      - name: Build release binaries
-        run: mix release planck
+      - run: mix release planck
         env:
           MIX_ENV: prod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planck-linux
+          path: planck_cli/burrito_out/planck_linux
+
+  build-linux-arm:
+    name: Build Linux arm64
+    runs-on: ubuntu-24.04-arm
+    needs: publish-headless
+    defaults:
+      run:
+        working-directory: planck_cli
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: "0.15.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.9.0"
+      - run: sudo apt-get install -y xz-utils p7zip-full
+      - run: mix do local.rebar --force + local.hex --force + deps.get
+        env:
+          MIX_ENV: prod
+      - run: mix deps.compile
+        env:
+          MIX_ENV: dev
+      - run: mix do assets.setup + assets.deploy
+        env:
+          MIX_ENV: dev
+      - run: mix release planck
+        env:
+          MIX_ENV: prod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planck-linux-arm
+          path: planck_cli/burrito_out/planck_linux_arm
+
+  build-macos:
+    name: Build macOS x86_64
+    runs-on: macos-13
+    needs: publish-headless
+    defaults:
+      run:
+        working-directory: planck_cli
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: "0.15.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.9.0"
+      - run: brew install xz p7zip
+      - run: mix do local.rebar --force + local.hex --force + deps.get
+        env:
+          MIX_ENV: prod
+      - run: mix deps.compile
+        env:
+          MIX_ENV: dev
+      - run: mix do assets.setup + assets.deploy
+        env:
+          MIX_ENV: dev
+      - run: mix release planck
+        env:
+          MIX_ENV: prod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planck-macos
+          path: planck_cli/burrito_out/planck_macos
+
+  build-macos-arm:
+    name: Build macOS arm64
+    runs-on: macos-14
+    needs: publish-headless
+    defaults:
+      run:
+        working-directory: planck_cli
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: "0.15.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.9.0"
+      - run: brew install xz p7zip
+      - run: mix do local.rebar --force + local.hex --force + deps.get
+        env:
+          MIX_ENV: prod
+      - run: mix deps.compile
+        env:
+          MIX_ENV: dev
+      - run: mix do assets.setup + assets.deploy
+        env:
+          MIX_ENV: dev
+      - run: mix release planck
+        env:
+          MIX_ENV: prod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planck-macos-arm
+          path: planck_cli/burrito_out/planck_macos_arm
+
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    needs: publish-headless
+    defaults:
+      run:
+        working-directory: planck_cli
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.5"
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: "0.15.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.9.0"
+      - run: choco install 7zip xz -y
+      - run: mix do local.rebar --force + local.hex --force + deps.get
+        env:
+          MIX_ENV: prod
+      - run: mix deps.compile
+        env:
+          MIX_ENV: dev
+      - run: mix do assets.setup + assets.deploy
+        env:
+          MIX_ENV: dev
+      - run: mix release planck
+        env:
+          MIX_ENV: prod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planck-windows
+          path: planck_cli/burrito_out/planck_windows.exe
+
+# ── GitHub Release ─────────────────────────────────────────────────────────────
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-linux-arm, build-macos, build-macos-arm, build-windows]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Verify tag matches mix.exs version
         run: |
           TAG="${{ github.ref_name }}"
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep '@version' planck_cli/mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
           if [ "v$VERSION" != "$TAG" ]; then
             echo "Tag $TAG does not match mix.exs version $VERSION"
             exit 1
           fi
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/download-artifact@v4
         with:
-          files: planck_cli/burrito_out/planck_*
+          path: binaries
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: binaries/planck_*
           draft: false
           prerelease: false
