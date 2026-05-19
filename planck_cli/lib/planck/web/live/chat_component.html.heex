@@ -169,7 +169,7 @@
               </button>
               <%= if entry.expanded do %>
                 <div class="border-t-2 border-border divide-y-2 divide-border">
-                  <%= if entry.tool_args && map_size(entry.tool_args) > 0 do %>
+                  <%= if (entry.tool_args && map_size(entry.tool_args) > 0) || entry.tool_error do %>
                     <div class="px-3 py-2">
                       <p class="font-mono text-xs text-muted-foreground mb-1"><%= pgettext("tool label", "input") %></p>
                       <pre class="font-mono text-xs whitespace-pre-wrap overflow-x-auto text-foreground break-all"><%= format_args(entry.tool_name, entry.tool_args) %></pre>

@@ -54,8 +54,8 @@ defmodule Planck.Web.Live.ChatComponent do
      |> assign(:description, assigns[:description])
      |> assign(:welcome, assigns[:welcome] || false)
      |> assign(:waiting, false)
-     |> assign(:streaming, false)
-     |> assign(:streaming_agent_id, nil)
+     |> assign(:streaming, assigns[:streaming] || false)
+     |> assign(:streaming_agent_id, assigns[:streaming_agent_id])
      |> assign(:compacting, false)
      |> load_entries(assigns.session_id)}
   end

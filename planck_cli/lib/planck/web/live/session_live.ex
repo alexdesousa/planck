@@ -587,6 +587,7 @@ defmodule Planck.Web.SessionLive do
     )
 
     {description, welcome} = session_description(session_id)
+    streaming = orchestrator_active?(agents, orchestrator_id)
 
     send_update(ChatComponent,
       id: "chat-main",
@@ -595,7 +596,9 @@ defmodule Planck.Web.SessionLive do
       perspective_agent_id: nil,
       agents: agents,
       description: description,
-      welcome: welcome
+      welcome: welcome,
+      streaming: streaming,
+      streaming_agent_id: if(streaming, do: orchestrator_id)
     )
 
     socket =
@@ -605,9 +608,10 @@ defmodule Planck.Web.SessionLive do
       |> assign(:agents, agents)
       |> assign(:agent_order, agent_order)
       |> assign(:orchestrator_id, orchestrator_id)
-      |> assign(:streaming, false)
+      |> assign(:streaming, streaming)
       |> assign(:waiting, false)
       |> assign(:prompt_queue, [])
+      |> assign(:overlay, nil)
 
     if sidecar_status == :connected, do: maybe_sync_sidecar_tools(socket), else: socket
   end
@@ -653,6 +657,16 @@ defmodule Planck.Web.SessionLive do
 
       _ ->
         {nil, false}
+    end
+  end
+
+  @spec orchestrator_active?(%{String.t() => map()}, String.t() | nil) :: boolean()
+  defp orchestrator_active?(_agents, nil), do: false
+
+  defp orchestrator_active?(agents, orchestrator_id) do
+    case Map.get(agents, orchestrator_id) do
+      %{status: status} -> status in [:streaming, :executing_tools]
+      _ -> false
     end
   end
 

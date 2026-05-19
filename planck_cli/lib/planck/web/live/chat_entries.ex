@@ -256,7 +256,7 @@ defmodule Planck.Web.Live.ChatEntries do
     Enum.map(rest, fn entry ->
       case Map.get(results_by_id, entry[:tool_id]) do
         nil -> entry
-        result -> %{entry | tool_result: format_tool_result(result)}
+        result -> %{entry | tool_result: format_tool_result(result), tool_error: error?(result)}
       end
     end)
   end
@@ -541,6 +541,11 @@ defmodule Planck.Web.Live.ChatEntries do
   defp targets_agent?(args, worker_info) do
     args["agent_id"] == worker_info[:id]
   end
+
+  @spec error?(term()) :: boolean()
+  defp error?({:error, _}), do: true
+  defp error?(result) when is_binary(result), do: String.starts_with?(result, "Error: ")
+  defp error?(_), do: false
 
   @spec extract_text([tuple()]) :: String.t()
   defp extract_text(content) do
