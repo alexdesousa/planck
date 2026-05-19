@@ -122,7 +122,12 @@ defmodule Planck.Headless.ResourceStore do
     new_state = load_resources()
 
     {:reply, :ok,
-     %{new_state | on_reload: state.on_reload, registered_tools: state.registered_tools, tools: state.tools}}
+     %{
+       new_state
+       | on_reload: state.on_reload,
+         registered_tools: state.registered_tools,
+         tools: state.tools
+     }}
   end
 
   @impl true
