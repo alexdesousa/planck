@@ -96,12 +96,14 @@ defmodule Planck.AI.Config do
   @spec from_map(map()) :: {:ok, Model.t()} | {:error, String.t()}
   def from_map(%{"id" => id, "provider" => raw_provider} = entry)
       when is_binary(id) and id != "" do
-    with {:ok, provider} <- parse_provider(raw_provider) do
+    with {:ok, provider} <- parse_provider(raw_provider),
+         {:ok, identifier} <- parse_identifier(provider, entry["identifier"]) do
       {:ok,
        %Model{
          id: id,
          name: entry["name"] || id,
          provider: provider,
+         identifier: identifier,
          base_url: entry["base_url"],
          context_window: entry["context_window"] || 4_096,
          max_tokens: entry["max_tokens"] || 2_048,
@@ -115,6 +117,24 @@ defmodule Planck.AI.Config do
   def from_map(%{"id" => ""}), do: {:error, "id must not be empty"}
   def from_map(%{"id" => _}), do: {:error, "missing required field: provider"}
   def from_map(_), do: {:error, "missing required field: id"}
+
+  @spec parse_identifier(atom(), term()) :: {:ok, String.t() | nil} | {:error, String.t()}
+  defp parse_identifier(:custom_openai, nil), do: {:ok, nil}
+
+  defp parse_identifier(:custom_openai, raw) when is_binary(raw) do
+    upcased = String.upcase(raw)
+
+    if Regex.match?(~r/^[A-Z][A-Z0-9]*$/, upcased) do
+      {:ok, upcased}
+    else
+      {:error, "identifier must match [A-Z][A-Z0-9]*: #{inspect(raw)}"}
+    end
+  end
+
+  defp parse_identifier(:custom_openai, other),
+    do: {:error, "identifier must be a string, got: #{inspect(other)}"}
+
+  defp parse_identifier(_provider, raw), do: {:ok, raw}
 
   @spec parse_provider(String.t()) :: {:ok, atom()} | {:error, String.t()}
   defp parse_provider(p) when p in @valid_providers do

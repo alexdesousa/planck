@@ -1,7 +1,7 @@
 defmodule Planck.AI.MixProject do
   use Mix.Project
 
-  @version "0.1.4"
+  @version "0.1.5"
   @app :planck_ai
   @description "Typed LLM provider abstraction built on top of req_llm"
   @repo "https://github.com/alexdesousa/planck"

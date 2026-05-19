@@ -42,10 +42,56 @@ defmodule Planck.AI.ConfigTest do
       assert model.default_opts == []
     end
 
-    test "accepts all five providers" do
-      for provider <- ~w(anthropic openai google ollama llama_cpp) do
+    test "accepts all six providers" do
+      for provider <- ~w(anthropic openai google ollama llama_cpp custom_openai) do
         assert {:ok, model} = Config.from_map(%{"id" => "m", "provider" => provider})
         assert model.provider == String.to_existing_atom(provider)
+      end
+    end
+
+    test "parses and upcases identifier for custom_openai" do
+      entry = %{
+        "id" => "meta/llama-3.1-8b-instruct",
+        "provider" => "custom_openai",
+        "identifier" => "nvidia",
+        "base_url" => "https://integrate.api.nvidia.com/v1",
+        "context_window" => 128_000
+      }
+
+      assert {:ok, model} = Config.from_map(entry)
+      assert model.identifier == "NVIDIA"
+      assert model.base_url == "https://integrate.api.nvidia.com/v1"
+    end
+
+    test "accepts already-uppercase identifier for custom_openai" do
+      entry = %{"id" => "m", "provider" => "custom_openai", "identifier" => "TOGETHER2"}
+      assert {:ok, model} = Config.from_map(entry)
+      assert model.identifier == "TOGETHER2"
+    end
+
+    test "accepts nil identifier for custom_openai" do
+      entry = %{"id" => "m", "provider" => "custom_openai", "base_url" => "http://localhost:1234"}
+      assert {:ok, model} = Config.from_map(entry)
+      assert model.identifier == nil
+    end
+
+    test "returns {:error, _} for identifier with invalid characters" do
+      entry = %{"id" => "m", "provider" => "custom_openai", "identifier" => "nvidia-api"}
+      assert {:error, reason} = Config.from_map(entry)
+      assert reason =~ "identifier"
+    end
+
+    test "returns {:error, _} for identifier starting with a digit" do
+      entry = %{"id" => "m", "provider" => "custom_openai", "identifier" => "1nvidia"}
+      assert {:error, reason} = Config.from_map(entry)
+      assert reason =~ "identifier"
+    end
+
+    test "api_key is nil for all providers (resolved lazily at request time)" do
+      for provider <- ~w(anthropic openai google ollama llama_cpp custom_openai) do
+        entry = %{"id" => "m", "provider" => provider}
+        assert {:ok, model} = Config.from_map(entry)
+        assert model.api_key == nil
       end
     end
 

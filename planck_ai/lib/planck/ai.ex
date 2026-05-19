@@ -39,9 +39,9 @@ defmodule Planck.AI do
   """
 
   alias Planck.AI.{Adapter, Context, Message, Model, Stream}
-  alias Planck.AI.Models.{Anthropic, Google, LlamaCpp, Ollama, OpenAI}
+  alias Planck.AI.Models.{Anthropic, CustomOpenAI, Google, LlamaCpp, Ollama, OpenAI}
 
-  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp]
+  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
 
   @doc """
   Streams a request to the LLM, returning a lazy stream of `StreamEvent` tuples.
@@ -126,6 +126,7 @@ defmodule Planck.AI do
   def list_models(:google, opts), do: Google.all(opts)
   def list_models(:ollama, opts), do: Ollama.all(opts)
   def list_models(:llama_cpp, opts), do: LlamaCpp.all(opts)
+  def list_models(:custom_openai, opts), do: CustomOpenAI.all(opts)
   def list_models(_, _), do: []
 
   @doc """

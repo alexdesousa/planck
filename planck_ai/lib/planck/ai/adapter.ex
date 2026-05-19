@@ -46,6 +46,9 @@ defmodule Planck.AI.Adapter do
   defp build_model_spec(%Model{provider: :ollama, id: id}), do: %{provider: :ollama, id: id}
   defp build_model_spec(%Model{provider: :llama_cpp, id: id}), do: %{provider: :openai, id: id}
 
+  defp build_model_spec(%Model{provider: :custom_openai, id: id}),
+    do: %{provider: :openai, id: id}
+
   @spec build_context(Context.t()) :: ReqLLM.Context.t()
   defp build_context(%Context{system: system, messages: messages}) do
     parts = Enum.flat_map(messages, &message_to_req_llm/1)
@@ -56,14 +59,20 @@ defmodule Planck.AI.Adapter do
   @spec add_base_url(keyword(), Model.t()) :: keyword()
   defp add_base_url(opts, %Model{base_url: nil}), do: opts
 
-  defp add_base_url(opts, %Model{provider: p, base_url: url, api_key: key})
-       when p in [:ollama, :llama_cpp] do
+  defp add_base_url(opts, %Model{provider: p, base_url: url, api_key: key, identifier: id})
+       when p in [:ollama, :llama_cpp, :custom_openai] do
+    resolved = key || resolve_custom_openai_key(id) || "not-needed"
+
     opts
     |> Keyword.put_new(:base_url, url)
-    |> Keyword.put_new(:api_key, key || "not-needed")
+    |> Keyword.put_new(:api_key, resolved)
   end
 
   defp add_base_url(opts, %Model{base_url: url}), do: Keyword.put_new(opts, :base_url, url)
+
+  @spec resolve_custom_openai_key(String.t() | nil) :: String.t() | nil
+  defp resolve_custom_openai_key(nil), do: nil
+  defp resolve_custom_openai_key(id), do: System.get_env("#{id}_API_KEY")
 
   @spec add_tools(keyword(), [Tool.t()]) :: keyword()
   defp add_tools(opts, []), do: opts

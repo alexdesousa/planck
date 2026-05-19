@@ -19,9 +19,9 @@ defmodule Planck.AI.Model do
 
   """
 
-  @type provider :: :anthropic | :openai | :google | :ollama | :llama_cpp
+  @type provider :: :anthropic | :openai | :google | :ollama | :llama_cpp | :custom_openai
 
-  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp]
+  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
 
   @doc "Returns the list of supported provider atoms."
   @spec providers() :: [provider()]
@@ -44,6 +44,7 @@ defmodule Planck.AI.Model do
           input_types: [:text | :image | :image_url | :file | :video_url],
           base_url: String.t() | nil,
           api_key: String.t() | nil,
+          identifier: String.t() | nil,
           cost: cost(),
           default_opts: keyword()
         }
@@ -56,6 +57,7 @@ defmodule Planck.AI.Model do
     :max_tokens,
     :base_url,
     :api_key,
+    :identifier,
     supports_thinking: false,
     input_types: [:text],
     cost: %{input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0},

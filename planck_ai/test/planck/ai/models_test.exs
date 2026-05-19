@@ -7,7 +7,7 @@ defmodule Planck.AI.ModelsTest do
 
   alias Planck.AI
   alias Planck.AI.Model
-  alias Planck.AI.Models.{Anthropic, Google, LlamaCpp, Ollama, OpenAI}
+  alias Planck.AI.Models.{Anthropic, CustomOpenAI, Google, LlamaCpp, Ollama, OpenAI}
 
   describe "Anthropic.all/1" do
     test "returns models with :anthropic provider" do
@@ -205,14 +205,102 @@ defmodule Planck.AI.ModelsTest do
     end
   end
 
+  describe "CustomOpenAI.model/2" do
+    test "builds a model with required fields" do
+      model =
+        CustomOpenAI.model("meta/llama-3.1-8b-instruct",
+          identifier: "nvidia",
+          base_url: "https://integrate.api.nvidia.com/v1",
+          context_window: 128_000
+        )
+
+      assert %Model{} = model
+      assert model.id == "meta/llama-3.1-8b-instruct"
+      assert model.provider == :custom_openai
+      assert model.identifier == "nvidia"
+      assert model.base_url == "https://integrate.api.nvidia.com/v1"
+      assert model.context_window == 128_000
+      assert model.max_tokens == 2_048
+      refute model.supports_thinking
+    end
+
+    test "defaults name to id" do
+      model = CustomOpenAI.model("llama-3.1-8b", identifier: "together")
+      assert model.name == "llama-3.1-8b"
+    end
+
+    test "accepts api_key" do
+      model = CustomOpenAI.model("llama-3.1-8b", identifier: "nvidia", api_key: "secret")
+      assert model.api_key == "secret"
+    end
+  end
+
+  describe "CustomOpenAI.all/1" do
+    test "returns models parsed from /models response" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, _opts ->
+        body = %{
+          "data" => [
+            %{"id" => "meta/llama-3.1-8b-instruct", "object" => "model"},
+            %{"id" => "mistralai/mixtral-8x7b", "object" => "model"}
+          ]
+        }
+
+        {:ok, %{status: 200, body: body}}
+      end)
+
+      models =
+        CustomOpenAI.all(base_url: "https://integrate.api.nvidia.com/v1", identifier: "nvidia")
+
+      assert length(models) == 2
+      assert Enum.all?(models, &(&1.provider == :custom_openai))
+      assert Enum.all?(models, &(&1.identifier == "nvidia"))
+      assert Enum.any?(models, &(&1.id == "meta/llama-3.1-8b-instruct"))
+    end
+
+    test "passes api_key as bearer token" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, opts ->
+        assert opts[:auth] == {:bearer, "my-key"}
+        {:ok, %{status: 200, body: %{"data" => []}}}
+      end)
+
+      CustomOpenAI.all(base_url: "https://api.example.com/v1", api_key: "my-key")
+    end
+
+    test "returns [] on HTTP error" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert CustomOpenAI.all(base_url: "http://localhost:9999") == []
+    end
+
+    test "returns [] on non-200 status" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, _opts ->
+        {:ok, %{status: 401, body: "unauthorized"}}
+      end)
+
+      assert CustomOpenAI.all(base_url: "http://localhost:9999") == []
+    end
+
+    test "hits the /models path on the base_url" do
+      expect(Planck.AI.MockHTTPClient, :get, fn url, _opts ->
+        assert url == "https://integrate.api.nvidia.com/v1/models"
+        {:ok, %{status: 200, body: %{"data" => []}}}
+      end)
+
+      CustomOpenAI.all(base_url: "https://integrate.api.nvidia.com/v1")
+    end
+  end
+
   describe "Planck.AI.list_providers/0" do
-    test "returns all five providers" do
+    test "returns all six providers" do
       providers = AI.list_providers()
       assert :anthropic in providers
       assert :openai in providers
       assert :google in providers
       assert :ollama in providers
       assert :llama_cpp in providers
+      assert :custom_openai in providers
     end
   end
 

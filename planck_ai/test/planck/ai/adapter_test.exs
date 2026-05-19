@@ -11,7 +11,8 @@ defmodule Planck.AI.AdapterTest do
       context_window: 4_096,
       max_tokens: 1_024,
       base_url: Keyword.get(opts, :base_url),
-      api_key: Keyword.get(opts, :api_key)
+      api_key: Keyword.get(opts, :api_key),
+      identifier: Keyword.get(opts, :identifier)
     }
   end
 
@@ -54,6 +55,11 @@ defmodule Planck.AI.AdapterTest do
       {spec, _, _} = to_req_llm(model(:llama_cpp, id: "mistral-7b"))
       assert spec == %{provider: :openai, id: "mistral-7b"}
     end
+
+    test "custom_openai produces an openai-provider map to bypass LLMDB lookup" do
+      {spec, _, _} = to_req_llm(model(:custom_openai, id: "meta/llama-3.1-8b-instruct"))
+      assert spec == %{provider: :openai, id: "meta/llama-3.1-8b-instruct"}
+    end
   end
 
   # --- base url / api key ---
@@ -84,6 +90,44 @@ defmodule Planck.AI.AdapterTest do
 
     test "falls back to not-needed api_key for llama_cpp without api_key" do
       {_, _, opts} = to_req_llm(model(:llama_cpp, base_url: "http://localhost:8080"))
+      assert opts[:api_key] == "not-needed"
+    end
+
+    test "custom_openai resolves api_key from env via identifier" do
+      System.put_env("NVIDIA_API_KEY", "test-nvidia-key")
+      on_exit(fn -> System.delete_env("NVIDIA_API_KEY") end)
+
+      {_, _, opts} =
+        to_req_llm(
+          model(:custom_openai,
+            base_url: "https://integrate.api.nvidia.com/v1",
+            identifier: "NVIDIA"
+          )
+        )
+
+      assert opts[:api_key] == "test-nvidia-key"
+    end
+
+    test "custom_openai uses explicit api_key over env var" do
+      System.put_env("NVIDIA_API_KEY", "env-key")
+      on_exit(fn -> System.delete_env("NVIDIA_API_KEY") end)
+
+      {_, _, opts} =
+        to_req_llm(
+          model(:custom_openai,
+            base_url: "https://integrate.api.nvidia.com/v1",
+            identifier: "NVIDIA",
+            api_key: "explicit-key"
+          )
+        )
+
+      assert opts[:api_key] == "explicit-key"
+    end
+
+    test "custom_openai falls back to not-needed when identifier and api_key are both nil" do
+      {_, _, opts} =
+        to_req_llm(model(:custom_openai, base_url: "http://localhost:1234"))
+
       assert opts[:api_key] == "not-needed"
     end
   end
