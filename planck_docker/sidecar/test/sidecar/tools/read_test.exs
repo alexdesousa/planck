@@ -56,7 +56,7 @@ defmodule Sidecar.Tools.ReadTest do
 
     File.write!(Path.join(workspace, "report.pdf"), <<0x25, 0x50, 0x44, 0x46, 0xFF, 0xFE>>)
 
-    Bypass.expect_once(bypass, "POST", "/tika", fn conn ->
+    Bypass.expect_once(bypass, "PUT", "/tika", fn conn ->
       Plug.Conn.resp(conn, 200, "Extracted PDF content.")
     end)
 
@@ -80,7 +80,7 @@ defmodule Sidecar.Tools.ReadTest do
     path = Path.join(workspace, "doc.docx")
     File.write!(path, <<0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE>>)
 
-    Bypass.expect_once(bypass, "POST", "/tika", fn conn ->
+    Bypass.expect_once(bypass, "PUT", "/tika", fn conn ->
       Plug.Conn.resp(conn, 200, "Extracted text.")
     end)
 
@@ -88,7 +88,7 @@ defmodule Sidecar.Tools.ReadTest do
     assert {:ok, _} = Read.read("doc.docx")
 
     # Second call — cache is used, Bypass would fail if Tika is called again
-    Bypass.stub(bypass, "POST", "/tika", fn _conn ->
+    Bypass.stub(bypass, "PUT", "/tika", fn _conn ->
       flunk("Tika should not be called again — result is cached")
     end)
 
@@ -107,7 +107,7 @@ defmodule Sidecar.Tools.ReadTest do
     path = Path.join(workspace, "sheet.xlsx")
     File.write!(path, <<0x25, 0x50, 0x44, 0x46, 0xFF, 0xFE>>)
 
-    Bypass.stub(bypass, "POST", "/tika", fn conn ->
+    Bypass.stub(bypass, "PUT", "/tika", fn conn ->
       Plug.Conn.resp(conn, 200, "New content.")
     end)
 
