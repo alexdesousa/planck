@@ -640,14 +640,19 @@ defmodule Planck.Agent do
           (-> {:ok, String.t()} | {:error, term()})
   defp resolve_tool_fn(tools, agent_id, name, id, args) do
     case Map.get(tools, name) do
-      nil -> fn -> {:error, "unknown tool: #{name}"} end
+      nil ->
+        fn -> {:error, "unknown tool: #{name}"} end
 
-      %Tool{execute_fn: fun} = tool ->
-        fn ->
-          with :ok <- Tool.validate_args(tool, args) do
-            safe_execute(fun, agent_id, id, args)
-          end
-        end
+      %Tool{} = tool ->
+        fn -> run_tool(tool, agent_id, id, args) end
+    end
+  end
+
+  @spec run_tool(Tool.t(), String.t(), String.t(), map()) ::
+          {:ok, String.t()} | {:error, term()}
+  defp run_tool(%Tool{execute_fn: fun} = tool, agent_id, id, args) do
+    with :ok <- Tool.validate_args(tool, args) do
+      safe_execute(fun, agent_id, id, args)
     end
   end
 
