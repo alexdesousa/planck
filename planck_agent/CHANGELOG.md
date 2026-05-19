@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.5
+
+- `"custom_openai"` added to the `spawn_agent` provider enum; the LLM can now
+  spawn workers backed by any OpenAI-compatible endpoint (NVIDIA, Together, vLLM, etc.)
+- `base_url` description in `spawn_agent` updated to mention `custom_openai` as a local provider that requires it
+- `@local_providers` extended to include `:custom_openai` — `validate_local_base_url` and `resolve_spawn_model` now enforce and use `base_url` for `custom_openai` the same way they do for `ollama` and `llama_cpp`
+
 ## v0.1.4
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

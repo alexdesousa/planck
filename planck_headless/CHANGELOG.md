@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.5
+
+- `configure_model/1` gains an `:identifier` option for `:custom_openai` — the
+  uppercase tag (e.g. `"NVIDIA"`) stored in the config entry and used to derive
+  the env var name (`NVIDIA_API_KEY`) when writing the API key to `.env`
+- `build_config_update` writes `identifier` and `base_url` into the `models`
+  config entry for `:custom_openai`, mirroring the existing behaviour for
+  `:ollama` and `:llama_cpp`
+- `maybe_write_api_key` / `api_key_env_var` extended to handle `:custom_openai`:
+  writes `<IDENTIFIER>_API_KEY` to `.env`; silently skips when no identifier is
+  provided
+
 ## v0.1.4
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

@@ -299,7 +299,7 @@ defmodule Planck.Agent.Tools do
           "provider" => %{
             "type" => "string",
             "description" => "LLM provider",
-            "enum" => ["anthropic", "openai", "google", "ollama", "llama_cpp"]
+            "enum" => ["anthropic", "openai", "google", "ollama", "llama_cpp", "custom_openai"]
           },
           "model_id" => %{
             "type" => "string",
@@ -308,7 +308,7 @@ defmodule Planck.Agent.Tools do
           "base_url" => %{
             "type" => "string",
             "description" =>
-              "Server URL for the model. Required for local providers: ollama (e.g. \"http://localhost:11434\") and llama_cpp (e.g. \"http://localhost:8080\"). For cloud providers (anthropic, openai, google) this field is ignored — pass any placeholder value."
+              "Server URL for the model. Required for local providers: ollama (e.g. \"http://localhost:11434\"), llama_cpp (e.g. \"http://localhost:8080\"), and custom_openai. For cloud providers (anthropic, openai, google) this field is ignored — pass any placeholder value."
           },
           "tools" => %{
             "type" => "array",
@@ -558,7 +558,7 @@ defmodule Planck.Agent.Tools do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
   end
 
-  @local_providers [:ollama, :llama_cpp]
+  @local_providers [:ollama, :llama_cpp, :custom_openai]
 
   @spec validate_local_base_url(atom(), String.t() | nil) :: :ok | {:error, String.t()}
   defp validate_local_base_url(provider, base_url) when provider in @local_providers do

@@ -310,8 +310,8 @@ defmodule Planck.Agent.AgentSpecTest do
       assert spec.opts[:top_p] == 0.95
     end
 
-    test "accepts all five providers" do
-      for provider <- ~w(anthropic openai google ollama llama_cpp) do
+    test "accepts all six providers" do
+      for provider <- ~w(anthropic openai google ollama llama_cpp custom_openai) do
         assert {:ok, spec} = AgentSpec.from_map(valid_entry(%{"provider" => provider}))
         assert spec.provider == String.to_existing_atom(provider)
       end

@@ -704,6 +704,65 @@ defmodule Planck.Headless.SessionLifecycleTest do
       refute content =~ "old-key"
       assert content =~ "OTHER=value"
     end
+
+    test "writes custom_openai model entry with identifier and base_url", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      assert :ok =
+               Headless.configure_model(
+                 provider: :custom_openai,
+                 model_id: "meta/llama-3.1-8b-instruct",
+                 identifier: "NVIDIA",
+                 base_url: "https://integrate.api.nvidia.com/v1",
+                 context_window: 128_000,
+                 default: false,
+                 config_file: config_path,
+                 env_file: Path.join(dir, ".env")
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      [entry] = map["models"]
+      assert entry["id"] == "meta/llama-3.1-8b-instruct"
+      assert entry["provider"] == "custom_openai"
+      assert entry["identifier"] == "NVIDIA"
+      assert entry["base_url"] == "https://integrate.api.nvidia.com/v1"
+      assert entry["context_window"] == 128_000
+    end
+
+    test "writes <IDENTIFIER>_API_KEY to .env for custom_openai", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_model(
+        provider: :custom_openai,
+        model_id: "meta/llama-3.1-8b-instruct",
+        identifier: "NVIDIA",
+        base_url: "https://integrate.api.nvidia.com/v1",
+        api_key: "nvapi-secret",
+        default: false,
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "NVIDIA_API_KEY=nvapi-secret"
+    end
+
+    test "custom_openai without identifier does not write api_key to .env", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_model(
+        provider: :custom_openai,
+        model_id: "some-model",
+        base_url: "http://localhost:1234",
+        api_key: "a-key",
+        default: false,
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      refute File.exists?(env_path)
+    end
   end
 
   # --- close_session/1 ---

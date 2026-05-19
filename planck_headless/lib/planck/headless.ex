@@ -258,10 +258,14 @@ defmodule Planck.Headless do
   reload resources so the new model is immediately available.
 
   Options:
-  - `:provider` (required) — e.g. `:anthropic`, `:ollama`
+  - `:provider` (required) — e.g. `:anthropic`, `:ollama`, `:custom_openai`
   - `:model_id` (required) — model identifier string
   - `:scope` — `:local` (default, `.planck/`) or `:global` (`~/.planck/`)
-  - `:api_key` — written to `<scope>/.env` for cloud providers
+  - `:api_key` — written to `<scope>/.env`; for cloud providers uses the
+    provider-named env var (e.g. `ANTHROPIC_API_KEY`); for `:custom_openai`
+    uses `<IDENTIFIER>_API_KEY`
+  - `:identifier` — uppercase tag for `:custom_openai` (e.g. `"NVIDIA"`);
+    determines the env var name for `:api_key` and is stored in the config entry
   - `:base_url` — stored in `models` config entry for local providers
   - `:default` — set as `default_provider`/`default_model` (default: `true`)
   """
@@ -272,6 +276,7 @@ defmodule Planck.Headless do
     scope = Keyword.get(opts, :scope, :local)
     api_key = Keyword.get(opts, :api_key)
     base_url = Keyword.get(opts, :base_url)
+    identifier = Keyword.get(opts, :identifier)
     set_default = Keyword.get(opts, :default, true)
     model_name = Keyword.get(opts, :model_name)
     context_window = Keyword.get(opts, :context_window)
@@ -280,6 +285,7 @@ defmodule Planck.Headless do
 
     model_opts = %{
       base_url: base_url,
+      identifier: identifier,
       model_name: model_name,
       context_window: context_window,
       supports_thinking: supports_thinking,
@@ -292,7 +298,7 @@ defmodule Planck.Headless do
 
     with :ok <- ensure_config_dir(config_path),
          :ok <- update_json_config(config_path, config_update),
-         :ok <- maybe_write_api_key(env_path, provider, api_key) do
+         :ok <- maybe_write_api_key(env_path, provider, api_key, identifier) do
       reload_resources()
     end
   end
@@ -1052,7 +1058,7 @@ defmodule Planck.Headless do
         %{}
       end
 
-    if provider in [:ollama, :llama_cpp] and model_opts.base_url not in [nil, ""] do
+    if provider in [:ollama, :llama_cpp, :custom_openai] and model_opts.base_url not in [nil, ""] do
       entry =
         %{
           "id" => model_id,
@@ -1060,6 +1066,7 @@ defmodule Planck.Headless do
           "base_url" => model_opts.base_url,
           "context_window" => model_opts.context_window || default_context_window(provider)
         }
+        |> maybe_put("identifier", model_opts.identifier)
         |> maybe_put("name", model_opts.model_name)
         |> maybe_put_bool("supports_thinking", model_opts.supports_thinking)
         |> maybe_put("default_opts", model_opts.advanced_opts)
@@ -1081,6 +1088,7 @@ defmodule Planck.Headless do
   @spec default_context_window(atom()) :: non_neg_integer()
   defp default_context_window(:ollama), do: 128_000
   defp default_context_window(:llama_cpp), do: 32_768
+  defp default_context_window(:custom_openai), do: 128_000
   defp default_context_window(_), do: 128_000
 
   @spec ensure_config_dir(Path.t()) :: :ok | {:error, File.posix()}
@@ -1113,11 +1121,12 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec maybe_write_api_key(Path.t(), atom(), String.t() | nil) :: :ok | {:error, term()}
-  defp maybe_write_api_key(_path, _provider, key) when key in [nil, ""], do: :ok
+  @spec maybe_write_api_key(Path.t(), atom(), String.t() | nil, String.t() | nil) ::
+          :ok | {:error, term()}
+  defp maybe_write_api_key(_path, _provider, key, _identifier) when key in [nil, ""], do: :ok
 
-  defp maybe_write_api_key(path, provider, api_key) do
-    case api_key_env_var(provider) do
+  defp maybe_write_api_key(path, provider, api_key, identifier) do
+    case api_key_env_var(provider, identifier) do
       nil ->
         :ok
 
@@ -1151,9 +1160,10 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec api_key_env_var(atom()) :: String.t() | nil
-  defp api_key_env_var(:anthropic), do: "ANTHROPIC_API_KEY"
-  defp api_key_env_var(:openai), do: "OPENAI_API_KEY"
-  defp api_key_env_var(:google), do: "GOOGLE_API_KEY"
-  defp api_key_env_var(_), do: nil
+  @spec api_key_env_var(atom(), String.t() | nil) :: String.t() | nil
+  defp api_key_env_var(:anthropic, _), do: "ANTHROPIC_API_KEY"
+  defp api_key_env_var(:openai, _), do: "OPENAI_API_KEY"
+  defp api_key_env_var(:google, _), do: "GOOGLE_API_KEY"
+  defp api_key_env_var(:custom_openai, id) when is_binary(id) and id != "", do: "#{id}_API_KEY"
+  defp api_key_env_var(_, _), do: nil
 end

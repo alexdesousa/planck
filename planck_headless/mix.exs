@@ -1,7 +1,7 @@
 defmodule Planck.Headless.MixProject do
   use Mix.Project
 
-  @version "0.1.4"
+  @version "0.1.5"
   @app :planck_headless
   @description "Headless core for the Planck coding agent — config, resources, and session lifecycle"
   @repo "https://github.com/alexdesousa/planck"
