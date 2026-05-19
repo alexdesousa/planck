@@ -209,7 +209,7 @@ Written to `$HOME/planck/workspace/.planck/config.json` on first install only:
 `docs/install_docker.sh` — follows the same structure as `docs/install.sh`:
 
 ```sh
-curl -fsSL https://alexdesousa.github.io/planck/install_docker.sh | sh
+curl -fsSL https://thebroken.link/planck/install_docker.sh | sh
 ```
 
 Options:
@@ -239,7 +239,7 @@ The script:
 ## Updates
 
 ```sh
-curl -fsSL https://alexdesousa.github.io/planck/install_docker.sh | sh
+curl -fsSL https://thebroken.link/planck/install_docker.sh | sh
 ```
 
 Re-running the install script is safe — it skips steps already completed

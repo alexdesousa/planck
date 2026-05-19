@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.4
+
+### Binary target changes
+
+- Drop macOS x86_64 binary (`macos-13` runner is deprecated with no available capacity).
+- Fix Linux arm64 build (downgrade Zig to `0.13.0` to avoid musl triple incompatibility).
+- Fix Windows build (`xz` removed from Chocolatey; use Git for Windows xz instead).
+
 ## v0.1.3
 
 ### Session-switch UI fixes

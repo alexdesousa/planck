@@ -24,10 +24,9 @@ def releases do
       steps: [:assemble, &Burrito.wrap/1],
       burrito: [
         targets: [
-          macos_arm:  [os: :darwin,  cpu: :aarch64],
-          macos_x86:  [os: :darwin,  cpu: :x86_64],
-          linux_x86:  [os: :linux,   cpu: :x86_64],
+          linux:      [os: :linux,   cpu: :x86_64],
           linux_arm:  [os: :linux,   cpu: :aarch64],
+          macos_arm:  [os: :darwin,  cpu: :aarch64],
           windows:    [os: :windows, cpu: :x86_64]
         ],
         debug: Mix.env() != :prod

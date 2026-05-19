@@ -1,7 +1,7 @@
 defmodule Planck.CLI.MixProject do
   use Mix.Project
 
-  @version "0.1.3"
+  @version "0.1.4"
   @app :planck_cli
   @description "Planck coding agent CLI"
   def project do
@@ -143,11 +143,8 @@ defmodule Planck.CLI.MixProject do
 
   defp host_target do
     case {:os.type(), :erlang.system_info(:system_architecture)} do
-      {{:unix, :darwin}, arch} when arch in [~c"aarch64-apple-darwin", ~c"arm-apple-darwin"] ->
-        [macos_arm: macos(:aarch64)]
-
       {{:unix, :darwin}, _} ->
-        [macos: macos(:x86_64)]
+        [macos_arm: macos(:aarch64)]
 
       {{:unix, :linux}, arch}
       when arch in [~c"aarch64-unknown-linux-gnu", ~c"aarch64-linux-gnu"] ->
@@ -165,7 +162,6 @@ defmodule Planck.CLI.MixProject do
     [
       linux: linux(:x86_64),
       linux_arm: linux(:aarch64),
-      macos: macos(:x86_64),
       macos_arm: macos(:aarch64),
       windows: windows(:x86_64)
     ]
