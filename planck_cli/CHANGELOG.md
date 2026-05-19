@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.5
+
+### Custom (OpenAI-compatible) provider in SetupModal
+
+- Step 1 now includes `:custom_openai` ("Custom (OpenAI-compatible)") in the
+  provider dropdown alongside Anthropic, OpenAI, Google, Ollama, and llama.cpp.
+- Step 2 gains two extra fields for `:custom_openai`: **Identifier** (the
+  uppercase tag used to derive the API key env var, e.g. `NVIDIA` →
+  `NVIDIA_API_KEY`) and an optional API Key. The API Key label shows the
+  derived env var name dynamically as you type the identifier.
+- Step 3 summary displays the identifier when set.
+- Credential label and placeholder are now provider-specific helpers
+  (`credential_label/1`, `credential_placeholder/1`) instead of inline strings.
+- Spanish translations added for all five new strings.
+
+### Config merge fix
+
+- `JsonBinding` now concatenates `"models"` arrays from the global
+  (`~/.planck/config.json`) and local (`.planck/config.json`) config files
+  instead of replacing one with the other. Previously a local config with any
+  `models` entry would silently drop all globally configured models, causing
+  "model not found" errors on session resume.
+
 ## v0.1.4
 
 ### Binary target changes

@@ -64,9 +64,17 @@ defmodule Planck.Headless.Config.JsonBinding do
   defp load_files do
     Enum.reduce(Config.config_files!(), %{}, fn path, acc ->
       case load_file(path) do
-        {:ok, map} -> Map.merge(acc, map)
+        {:ok, map} -> merge_configs(acc, map)
         :skip -> acc
       end
+    end)
+  end
+
+  @spec merge_configs(map(), map()) :: map()
+  defp merge_configs(acc, map) do
+    Map.merge(acc, map, fn
+      "models", old, new -> old ++ new
+      _key, _old, new -> new
     end)
   end
 

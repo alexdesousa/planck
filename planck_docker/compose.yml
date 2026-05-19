@@ -7,7 +7,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.1.4
+    image: ghcr.io/alexdesousa/planck:0.1.5
     entrypoint: ["/setup.sh"]
     volumes:
       - ${PLANCK_HOME:-${HOME}/planck}/workspace:/workspace
@@ -22,7 +22,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.1.4
+    image: ghcr.io/alexdesousa/planck:0.1.5
     hostname: planck
     ports:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
@@ -57,7 +57,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/llama-cpu/Dockerfile
-    image: ghcr.io/alexdesousa/planck-llama:0.1.4-cpu
+    image: ghcr.io/alexdesousa/planck-llama:0.1.5-cpu
     volumes:
       - ${PLANCK_HOME:-${HOME}/planck}/models:/models
     environment:

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.5
+
+- Images bumped to v0.1.5 — picks up `:custom_openai` provider support and the
+  config-merge fix from `planck_headless` / `planck_cli` v0.1.5.
+
 ## v0.1.4
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

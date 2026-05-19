@@ -54,7 +54,7 @@
                     class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
                            bg-background focus:outline-none shadow-[2px_2px_0px_#000]
                            placeholder:text-muted-foreground"
-                    placeholder={if cloud_provider?(@provider), do: "sk-...", else: "http://localhost:11434"}
+                    placeholder={credential_placeholder(@provider)}
                   />
                 </form>
               </div>
@@ -149,6 +149,48 @@
               </label>
             <% end %>
 
+            <%!-- custom_openai: Identifier + API Key --%>
+            <%= if custom_openai?(@provider) do %>
+              <div>
+                <label class="font-mono text-xs text-muted-foreground block mb-1">
+                  <%= pgettext("setup label", "Identifier") %>
+                  <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
+                </label>
+                <input
+                  type="text"
+                  name="identifier"
+                  value={@identifier}
+                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                         placeholder:text-muted-foreground"
+                  placeholder="NVIDIA"
+                />
+                <p class="font-mono text-xs text-muted-foreground mt-1">
+                  <%= pgettext("setup help", "Uppercase tag used to derive the API key env var (e.g. NVIDIA → NVIDIA_API_KEY).") %>
+                </p>
+              </div>
+
+              <div>
+                <label class="font-mono text-xs text-muted-foreground block mb-1">
+                  <%= if @identifier != "" do %>
+                    <%= String.upcase(@identifier) %>_API_KEY
+                  <% else %>
+                    <%= pgettext("setup label", "API Key") %>
+                    <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
+                  <% end %>
+                </label>
+                <input
+                  type="password"
+                  name="api_key"
+                  value={@api_key}
+                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                         placeholder:text-muted-foreground"
+                  placeholder="..."
+                />
+              </div>
+            <% end %>
+
             <%!-- Advanced options (all providers) --%>
             <div>
               <label class="font-mono text-xs text-muted-foreground block mb-1">
@@ -214,6 +256,12 @@
                 <p>
                   <span class="text-muted-foreground"><%= pgettext("setup summary", "Context:") %></span>
                   <%= @context_window %>
+                </p>
+              <% end %>
+              <%= if @identifier != "" and custom_openai?(@provider) do %>
+                <p>
+                  <span class="text-muted-foreground"><%= pgettext("setup summary", "Identifier:") %></span>
+                  <%= String.upcase(@identifier) %>
                 </p>
               <% end %>
               <p>

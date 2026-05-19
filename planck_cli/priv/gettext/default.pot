@@ -316,73 +316,73 @@ msgctxt "chat welcome"
 msgid "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:244
+#: lib/planck/web/live/setup_modal.html.heex:292
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Back"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:257
+#: lib/planck/web/live/setup_modal.html.heex:305
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Next"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:267
+#: lib/planck/web/live/setup_modal.html.heex:315
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Save"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:267
+#: lib/planck/web/live/setup_modal.html.heex:315
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Saving…"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:134
+#: lib/planck/web/live/setup_modal.ex:141
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select a provider."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:143
+#: lib/planck/web/live/setup_modal.ex:150
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select or enter a model."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:296
+#: lib/planck/web/live/setup_modal.ex:325
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "All projects (~/.planck/)"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:278
+#: lib/planck/web/live/setup_modal.ex:300
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Anthropic API Key"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:283
+#: lib/planck/web/live/setup_modal.ex:306
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Credential"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:280
+#: lib/planck/web/live/setup_modal.ex:302
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Google API Key"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:281
+#: lib/planck/web/live/setup_modal.ex:303
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Ollama Base URL"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:279
+#: lib/planck/web/live/setup_modal.ex:301
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "OpenAI API Key"
@@ -394,43 +394,43 @@ msgctxt "setup label"
 msgid "Provider"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:175
+#: lib/planck/web/live/setup_modal.html.heex:217
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Save to"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:196
+#: lib/planck/web/live/setup_modal.html.heex:238
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Set as default model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:295
+#: lib/planck/web/live/setup_modal.ex:324
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "This project (.planck/)"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:282
+#: lib/planck/web/live/setup_modal.ex:304
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "llama.cpp Base URL"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:207
+#: lib/planck/web/live/setup_modal.html.heex:249
 #, elixir-autogen, elixir-format
 msgctxt "setup summary"
 msgid "Model:"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:203
+#: lib/planck/web/live/setup_modal.html.heex:245
 #, elixir-autogen, elixir-format
 msgctxt "setup summary"
 msgid "Provider:"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:220
+#: lib/planck/web/live/setup_modal.html.heex:268
 #, elixir-autogen, elixir-format
 msgctxt "setup summary"
 msgid "Saved to:"
@@ -454,19 +454,19 @@ msgctxt "tooltip"
 msgid "Configure models"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:253
+#: lib/planck/web/live/setup_modal.ex:272
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Advanced options contain invalid JSON."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:250
+#: lib/planck/web/live/setup_modal.ex:269
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Advanced options must be a JSON object."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:263
+#: lib/planck/web/live/setup_modal.ex:282
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Context window must be a positive integer."
@@ -478,19 +478,21 @@ msgctxt "setup help"
 msgid "Exact model name as it appears in your server."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:156
+#: lib/planck/web/live/setup_modal.html.heex:198
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "(JSON, optional)"
 msgstr ""
 
 #: lib/planck/web/live/setup_modal.html.heex:106
+#: lib/planck/web/live/setup_modal.html.heex:157
+#: lib/planck/web/live/setup_modal.html.heex:179
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "(optional)"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:155
+#: lib/planck/web/live/setup_modal.html.heex:197
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Advanced options"
@@ -520,7 +522,7 @@ msgctxt "setup label"
 msgid "Supports thinking / extended reasoning"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:215
+#: lib/planck/web/live/setup_modal.html.heex:257
 #, elixir-autogen, elixir-format
 msgctxt "setup summary"
 msgid "Context:"
@@ -548,4 +550,34 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgctxt "model selector"
 msgid "Save"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:169
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Uppercase tag used to derive the API key env var (e.g. NVIDIA → NVIDIA_API_KEY)."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:178
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "API Key"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.ex:305
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Base URL"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:156
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Identifier"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:263
+#, elixir-autogen, elixir-format
+msgctxt "setup summary"
+msgid "Identifier:"
 msgstr ""

@@ -14,7 +14,7 @@ defmodule Planck.Web.Live.SetupModal do
   alias Planck.Headless
 
   @cloud_providers [:anthropic, :openai, :google]
-  @local_providers [:ollama, :llama_cpp]
+  @local_providers [:ollama, :llama_cpp, :custom_openai]
 
   @default_base_urls %{
     ollama: "http://localhost:11434",
@@ -23,7 +23,8 @@ defmodule Planck.Web.Live.SetupModal do
 
   @default_context_windows %{
     ollama: 128_000,
-    llama_cpp: 32_768
+    llama_cpp: 32_768,
+    custom_openai: 128_000
   }
 
   @impl true
@@ -38,6 +39,8 @@ defmodule Planck.Web.Live.SetupModal do
      |> assign(:context_window, "")
      |> assign(:supports_thinking, false)
      |> assign(:advanced_opts, "")
+     |> assign(:identifier, "")
+     |> assign(:api_key, "")
      |> assign(:models, [])
      |> assign(:scope, :local)
      |> assign(:set_default, true)
@@ -60,7 +63,9 @@ defmodule Planck.Web.Live.SetupModal do
     {:noreply,
      socket
      |> assign(:provider, provider)
-     |> assign(:credential, default_cred)}
+     |> assign(:credential, default_cred)
+     |> assign(:identifier, "")
+     |> assign(:api_key, "")}
   end
 
   def handle_event("update_credential", %{"credential" => value}, socket) do
@@ -89,6 +94,8 @@ defmodule Planck.Web.Live.SetupModal do
       |> maybe_assign(:model_name, params, "model_name")
       |> maybe_assign(:context_window, params, "context_window")
       |> maybe_assign(:advanced_opts, params, "advanced_opts")
+      |> maybe_assign(:identifier, params, "identifier")
+      |> maybe_assign(:api_key, params, "api_key")
 
     supports_thinking =
       case Map.get(params, "supports_thinking") do
@@ -153,27 +160,7 @@ defmodule Planck.Web.Live.SetupModal do
 
     with {:ok, advanced_opts} <- parse_advanced_opts(a.advanced_opts),
          {:ok, context_window} <- parse_context_window(a.context_window) do
-      opts = [
-        provider: a.provider,
-        model_id: a.model_id,
-        model_name: non_empty(a.model_name),
-        context_window: context_window,
-        supports_thinking: a.supports_thinking,
-        advanced_opts: advanced_opts,
-        scope: a.scope,
-        default: a.set_default
-      ]
-
-      opts =
-        if a.provider in @cloud_providers and a.credential != "",
-          do: [{:api_key, a.credential} | opts],
-          else: opts
-
-      opts =
-        if a.provider in @local_providers and a.credential != "",
-          do: [{:base_url, a.credential} | opts],
-          else: opts
-
+      opts = build_configure_opts(a, context_window, advanced_opts)
       socket = assign(socket, :saving, true)
 
       case Headless.configure_model(opts) do
@@ -234,6 +221,38 @@ defmodule Planck.Web.Live.SetupModal do
     end
   end
 
+  @spec build_configure_opts(map(), pos_integer() | nil, map() | nil) :: keyword()
+  defp build_configure_opts(a, context_window, advanced_opts) do
+    [
+      provider: a.provider,
+      model_id: a.model_id,
+      model_name: non_empty(a.model_name),
+      context_window: context_window,
+      supports_thinking: a.supports_thinking,
+      advanced_opts: advanced_opts,
+      scope: a.scope,
+      default: a.set_default
+    ]
+    |> add_credential(a.provider, a.credential)
+    |> add_custom_openai_opts(a.provider, a.identifier, a.api_key)
+  end
+
+  defp add_credential(opts, provider, cred) when provider in @cloud_providers and cred != "",
+    do: [{:api_key, cred} | opts]
+
+  defp add_credential(opts, provider, cred) when provider in @local_providers and cred != "",
+    do: [{:base_url, cred} | opts]
+
+  defp add_credential(opts, _provider, _cred), do: opts
+
+  defp add_custom_openai_opts(opts, :custom_openai, id, key) do
+    opts
+    |> then(fn o -> if id != "", do: [{:identifier, id} | o], else: o end)
+    |> then(fn o -> if key != "", do: [{:api_key, key} | o], else: o end)
+  end
+
+  defp add_custom_openai_opts(opts, _provider, _id, _key), do: opts
+
   @spec non_empty(String.t()) :: String.t() | nil
   defp non_empty(""), do: nil
   defp non_empty(s), do: s
@@ -275,12 +294,21 @@ defmodule Planck.Web.Live.SetupModal do
   def local_provider?(provider), do: provider in @local_providers
 
   @doc false
+  def custom_openai?(provider), do: provider == :custom_openai
+
+  @doc false
   def credential_label(:anthropic), do: pgettext("setup label", "Anthropic API Key")
   def credential_label(:openai), do: pgettext("setup label", "OpenAI API Key")
   def credential_label(:google), do: pgettext("setup label", "Google API Key")
   def credential_label(:ollama), do: pgettext("setup label", "Ollama Base URL")
   def credential_label(:llama_cpp), do: pgettext("setup label", "llama.cpp Base URL")
+  def credential_label(:custom_openai), do: pgettext("setup label", "Base URL")
   def credential_label(_), do: pgettext("setup label", "Credential")
+
+  @doc false
+  def credential_placeholder(:custom_openai), do: "https://integrate.api.nvidia.com/v1"
+  def credential_placeholder(p) when p in @cloud_providers, do: "sk-..."
+  def credential_placeholder(_), do: "http://localhost:11434"
 
   @doc false
   def provider_label(:anthropic), do: "Anthropic"
@@ -288,6 +316,7 @@ defmodule Planck.Web.Live.SetupModal do
   def provider_label(:google), do: "Google"
   def provider_label(:ollama), do: "Ollama"
   def provider_label(:llama_cpp), do: "llama.cpp"
+  def provider_label(:custom_openai), do: "Custom (OpenAI-compatible)"
   def provider_label(p) when is_atom(p), do: Atom.to_string(p)
   def provider_label(_), do: ""
 
@@ -297,7 +326,7 @@ defmodule Planck.Web.Live.SetupModal do
 
   @doc false
   def all_providers do
-    [:anthropic, :openai, :google, :ollama, :llama_cpp]
+    [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
     |> Enum.map(&{to_string(&1), provider_label(&1)})
   end
 
