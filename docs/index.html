@@ -306,6 +306,25 @@
     .os-panel { display: none; }
     .os-panel.active { display: block; }
 
+    /* ── Copy button ─────────────────────────────────────────────────── */
+    .code-wrapper { position: relative; margin-bottom: 1.5rem; }
+    .code-wrapper .code-block { margin-bottom: 0; }
+    .copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      background: #2a2d33;
+      color: #5c6370;
+      border: 1px solid #3a3f47;
+      padding: 0.2rem 0.5rem;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.62rem;
+      cursor: pointer;
+      transition: color 0.1s;
+    }
+    .copy-btn:hover { color: var(--accent); }
+    .copy-btn.copied { color: #98c379; }
+
     /* ── Footer ──────────────────────────────────────────────────────── */
     footer {
       border-top: 2px solid var(--border);
@@ -338,7 +357,8 @@
       <p class="hero-sub">Define a team of specialist agents. Talk to the orchestrator. Planck handles the rest.</p>
       <div class="hero-cta">
         <a href="#get-started" class="btn btn-primary">Get started</a>
-        <a href="https://github.com/alexdesousa/planck" class="btn">View on GitHub →</a>
+        <a href="#self-hosted" class="btn btn-accent">Self-host →</a>
+        <a href="https://github.com/alexdesousa/planck" class="btn">GitHub →</a>
       </div>
     </div>
   </section>
@@ -413,13 +433,16 @@
       </div>
 
       <div id="tab-unix" class="os-panel active">
-        <div class="code-block"><span class="co"># Install</span>
+        <div class="code-wrapper">
+          <div class="code-block"><span class="co"># Install</span>
 <span class="kw">curl</span> -fsSL https://thebroken.link/planck/install.sh | sh
 
 <span class="co"># Run</span>
 <span class="kw">planck</span>
 
 <span class="co"># Open http://localhost:4000</span></div>
+          <button class="copy-btn" onclick="copyCode(this)" data-copy="curl -fsSL https://thebroken.link/planck/install.sh | sh">copy</button>
+        </div>
         <p style="margin-top:0.75rem;font-size:0.72rem;color:var(--muted-fg);">
           On macOS, if Gatekeeper blocks the binary, the install script removes the quarantine flag automatically.
           If you downloaded manually: <code style="font-size:0.72rem;">xattr -d com.apple.quarantine /path/to/planck</code>
@@ -427,18 +450,68 @@
       </div>
 
       <div id="tab-windows" class="os-panel">
-        <div class="code-block"><span class="co"># Install (PowerShell)</span>
+        <div class="code-wrapper">
+          <div class="code-block"><span class="co"># Install (PowerShell)</span>
 <span class="kw">irm</span> https://thebroken.link/planck/install.ps1 | iex
 
 <span class="co"># Run</span>
 <span class="kw">planck</span>
 
 <span class="co"># Open http://localhost:4000</span></div>
+          <button class="copy-btn" onclick="copyCode(this)" data-copy="irm https://thebroken.link/planck/install.ps1 | iex">copy</button>
+        </div>
       </div>
 
       <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem;">
         <a href="https://github.com/alexdesousa/planck" class="btn btn-primary">Documentation</a>
         <a href="https://hex.pm/packages/planck_headless" class="btn">Hex.pm packages →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Self-hosted ────────────────────────────────────────────────── -->
+  <section id="self-hosted">
+    <div class="container">
+      <p class="section-label">Self-hosted</p>
+      <p style="font-size:0.82rem;color:var(--muted-fg);max-width:560px;margin-bottom:2rem;line-height:1.8;">
+        Run the full Planck stack on your own hardware — local LLM, private web search,
+        workspace indexing, and document extraction. Requires Docker.
+      </p>
+
+      <div class="code-wrapper">
+        <div class="code-block"><span class="co"># Install (Linux / macOS)</span>
+<span class="kw">curl</span> -fsSL https://thebroken.link/planck/install_docker.sh | sh
+
+<span class="co"># Open http://localhost:4000</span></div>
+        <button class="copy-btn" onclick="copyCode(this)" data-copy="curl -fsSL https://thebroken.link/planck/install_docker.sh | sh">copy</button>
+      </div>
+
+      <p style="font-size:0.72rem;color:var(--muted-fg);margin-bottom:2rem;">
+        Binds to <code style="font-size:0.72rem;">127.0.0.1:4000</code> by default.
+        Pass <code style="font-size:0.72rem;">--bind=0.0.0.0</code> to expose on the network.
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">LLM</span>
+          <h3>Bonsai 1-bit</h3>
+          <p>PrismML's 8B ternary model runs conversationally on CPU. No GPU required.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">SEARCH</span>
+          <h3>Searxng</h3>
+          <p>Private meta-search. Web results without sending queries to third parties.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">INDEX</span>
+          <h3>Typesense</h3>
+          <p>Full-text search over your workspace files. Agents search before they fetch.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">DOCS</span>
+          <h3>Apache Tika</h3>
+          <p>PDF, DOCX, XLSX, PPTX and more — extracted to plain text for agents to read.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -471,6 +544,14 @@
       video.src = theme === 'dark' ? 'planck-dark.webm' : 'planck-light.webm';
       video.load();
       video.play();
+    }
+
+    function copyCode(btn) {
+      navigator.clipboard.writeText(btn.getAttribute('data-copy')).then(() => {
+        btn.textContent = 'copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+      });
     }
 
     (function () {
