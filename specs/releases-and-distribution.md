@@ -25,7 +25,6 @@ def releases do
       burrito: [
         targets: [
           linux:      [os: :linux,   cpu: :x86_64],
-          linux_arm:  [os: :linux,   cpu: :aarch64],
           macos_arm:  [os: :darwin,  cpu: :aarch64],
           windows:    [os: :windows, cpu: :x86_64]
         ],

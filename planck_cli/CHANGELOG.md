@@ -5,7 +5,7 @@
 ### Binary target changes
 
 - Drop macOS x86_64 binary (`macos-13` runner is deprecated with no available capacity).
-- Fix Linux arm64 build (downgrade Zig to `0.13.0` to avoid musl triple incompatibility).
+- Drop Linux arm64 binary (Burrito 1.5.0 requires Zig 0.15.2, which generates an LLVM-incompatible musl triple on aarch64).
 - Fix Windows build (`xz` removed from Chocolatey; use Git for Windows xz instead).
 
 ## v0.1.3

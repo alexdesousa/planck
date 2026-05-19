@@ -146,10 +146,6 @@ defmodule Planck.CLI.MixProject do
       {{:unix, :darwin}, _} ->
         [macos_arm: macos(:aarch64)]
 
-      {{:unix, :linux}, arch}
-      when arch in [~c"aarch64-unknown-linux-gnu", ~c"aarch64-linux-gnu"] ->
-        [linux_arm: linux(:aarch64)]
-
       {{:unix, :linux}, _} ->
         [linux: linux(:x86_64)]
 
@@ -161,7 +157,6 @@ defmodule Planck.CLI.MixProject do
   defp all_targets do
     [
       linux: linux(:x86_64),
-      linux_arm: linux(:aarch64),
       macos_arm: macos(:aarch64),
       windows: windows(:x86_64)
     ]
