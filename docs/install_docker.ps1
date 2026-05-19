@@ -17,15 +17,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Repo        = "alexdesousa/planck"
-$Version     = "0.1.4"
-$Base        = "https://github.com/$Repo/releases/download/planck-docker/v$Version"
+$Version     = "0.1.5"
 $PlanckHome  = Join-Path $HOME "planck"
-$ComposeUrl  = "$Base/compose.yml"
+$ComposeUrl  = "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
 $ComposeFile = Join-Path $PlanckHome "compose.yml"
 $EnvFile     = Join-Path $PlanckHome ".env"
 
-function Invoke-Docker {
-    docker @args
+function Invoke-Compose {
+    & $script:Compose @args
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -39,6 +38,17 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 docker info 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Docker daemon is not running. Start Docker Desktop and try again."
+    exit 1
+}
+
+docker compose version 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    $script:Compose = @("docker", "compose")
+} elseif (Get-Command docker-compose -ErrorAction SilentlyContinue) {
+    $script:Compose = @("docker-compose")
+} else {
+    Write-Host "Neither 'docker compose' nor 'docker-compose' found."
+    Write-Host "Install Docker Compose: https://docs.docker.com/compose/install/"
     exit 1
 }
 
@@ -58,6 +68,7 @@ if (-not (Test-Path $EnvFile)) {
     $secret = $secret.Substring(0, [Math]::Min(32, $secret.Length))
 
     @"
+PLANCK_HOME=$PlanckHome
 TYPESENSE_API_KEY=planck-internal-key
 PLANCK_BIND_ADDRESS=$Bind
 SEARXNG_SECRET=$secret
@@ -94,15 +105,15 @@ $env:PLANCK_HOME = $PlanckHome
 
 # ── Pull images ───────────────────────────────────────────────────────────────
 Write-Host "Pulling Docker images..."
-Invoke-Docker compose -f "$ComposeFile" --env-file "$EnvFile" pull
+Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" pull
 
 # ── Run setup container ───────────────────────────────────────────────────────
 Write-Host "Running first-run setup..."
-Invoke-Docker compose -f "$ComposeFile" --env-file "$EnvFile" run --rm setup
+Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" run --rm setup
 
 # ── Start services ────────────────────────────────────────────────────────────
 Write-Host "Starting Planck..."
-Invoke-Docker compose -f "$ComposeFile" --env-file "$EnvFile" up -d
+Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" up -d
 
 Write-Host ""
 Write-Host "Planck is running at http://localhost:4000"

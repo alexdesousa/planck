@@ -3,9 +3,8 @@ set -e
 
 REPO="alexdesousa/planck"
 VERSION="0.1.5"
-RELEASES="https://github.com/$REPO/releases/download/planck-docker/v${VERSION}"
 PLANCK_HOME="$HOME/planck"
-COMPOSE_URL="$RELEASES/compose.yml"
+COMPOSE_URL="https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 BIND_ADDRESS="127.0.0.1"
@@ -46,6 +45,16 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE="docker-compose"
+else
+  echo "Neither 'docker compose' nor 'docker-compose' found."
+  echo "Install Docker Compose: https://docs.docker.com/compose/install/"
+  exit 1
+fi
+
 # ── Create directory layout ───────────────────────────────────────────────────
 echo "Setting up $PLANCK_HOME..."
 mkdir -p \
@@ -59,6 +68,7 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "Writing $ENV_FILE..."
   SEARXNG_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 32)"
   cat >"$ENV_FILE" <<EOF
+PLANCK_HOME=$PLANCK_HOME
 TYPESENSE_API_KEY=planck-internal-key
 PLANCK_BIND_ADDRESS=$BIND_ADDRESS
 SEARXNG_SECRET=$SEARXNG_SECRET
@@ -103,15 +113,15 @@ fi
 
 # ── Pull images ───────────────────────────────────────────────────────────────
 echo "Pulling Docker images..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
+$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
 
 # ── Run setup container (renders templates, copies sidecar) ──────────────────
 echo "Running first-run setup..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm setup
+$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm setup
 
 # ── Start services ────────────────────────────────────────────────────────────
 echo "Starting Planck..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 
 echo ""
 echo "Planck is running at http://localhost:4000"

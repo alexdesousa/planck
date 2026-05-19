@@ -10,7 +10,7 @@ services:
     image: ghcr.io/alexdesousa/planck:0.1.5
     entrypoint: ["/setup.sh"]
     volumes:
-      - ${PLANCK_HOME:-${HOME}/planck}/workspace:/workspace
+      - ${PLANCK_HOME}/workspace:/workspace
     environment:
       LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
       LLAMA_PORT: ${LLAMA_PORT:-11434}
@@ -27,7 +27,7 @@ services:
     ports:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
     volumes:
-      - ${PLANCK_HOME:-${HOME}/planck}/workspace:/workspace
+      - ${PLANCK_HOME}/workspace:/workspace
     environment:
       WORKSPACE_DIR: /workspace
       TYPESENSE_URL: http://typesense:8108
@@ -59,7 +59,7 @@ services:
       dockerfile: planck_docker/llama-cpu/Dockerfile
     image: ghcr.io/alexdesousa/planck-llama:0.1.5-cpu
     volumes:
-      - ${PLANCK_HOME:-${HOME}/planck}/models:/models
+      - ${PLANCK_HOME}/models:/models
     environment:
       LLAMA_THREADS: ${LLAMA_THREADS:-8}
       LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
@@ -71,7 +71,7 @@ services:
   searxng:
     image: searxng/searxng:2026.5.17-d7e8b7cd1
     volumes:
-      - ${PLANCK_HOME:-${HOME}/planck}/workspace/.planck/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ${PLANCK_HOME}/workspace/.planck/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
@@ -86,7 +86,7 @@ services:
     environment:
       TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
     volumes:
-      - ${PLANCK_HOME:-${HOME}/planck}/typesense-data:/data
+      - ${PLANCK_HOME}/typesense-data:/data
     command: --data-dir /data --api-key ${TYPESENSE_API_KEY} --enable-cors
     restart: unless-stopped
 

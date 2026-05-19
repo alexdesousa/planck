@@ -24,7 +24,10 @@ COPY . .
 ENV MIX_ENV=prod
 ENV PLANCK_LOCAL=true
 RUN cd planck_cli \
-    && mix do deps.get + deps.compile + release planck_docker
+    && mix deps.get \
+    && MIX_ENV=dev mix deps.compile \
+    && MIX_ENV=dev mix do assets.setup + assets.deploy \
+    && mix release planck_docker
 
 # Pre-install sidecar deps (Mix + npm) so the runtime sidecar setup is fast.
 RUN cd planck_docker/sidecar \
