@@ -89,6 +89,9 @@ if (-not (Test-Path $ComposeFile)) {
     Write-Host "  -> compose.yml already exists, skipping."
 }
 
+# ── Export PLANCK_HOME so compose.yml volume paths resolve correctly ──────────
+$env:PLANCK_HOME = $PlanckHome
+
 # ── Pull images ───────────────────────────────────────────────────────────────
 Write-Host "Pulling Docker images..."
 Invoke-Docker compose -f "$ComposeFile" --env-file "$EnvFile" pull
