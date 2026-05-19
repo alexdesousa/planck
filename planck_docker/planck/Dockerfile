@@ -3,6 +3,9 @@
 # container starts quickly without downloading packages.
 FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410 AS builder
 
+# Required for Erlang to boot correctly under QEMU (cross-platform builds).
+ENV ELIXIR_ERL_OPTIONS="+Bd -noinput"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -29,6 +32,9 @@ RUN cd planck_docker/sidecar \
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410
+
+# Required for Erlang to boot correctly under QEMU (cross-platform builds).
+ENV ELIXIR_ERL_OPTIONS="+Bd -noinput"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
