@@ -36,6 +36,16 @@
   large prompt before emitting the first token. Cloud providers use server-side
   keep-alives and are unaffected.
 
+### Windows Docker install script
+
+- `docs/install_docker.ps1` — PowerShell equivalent of `install_docker.sh`.
+  Creates `~/planck/`, writes `.env` with a crypto-random `SEARXNG_SECRET`,
+  downloads the Bonsai model via `WebClient` (streams to disk, no memory spike),
+  fetches `compose.yml`, then pulls images and starts the stack.
+  Accepts `-Bind <addr>` (default `127.0.0.1`).
+- `docs/index.html` self-hosted section now has a Linux/macOS ↔ Windows tab
+  switcher matching the main "Get started" section.
+
 ### `planck_docker` release target
 
 - Changed `planck_docker` release from `[steps: [:assemble]]` to a plain OTP
