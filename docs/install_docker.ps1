@@ -19,7 +19,9 @@ $ErrorActionPreference = "Stop"
 $Repo        = "alexdesousa/planck"
 $Version     = "0.1.5"
 $PlanckHome  = Join-Path $HOME "planck"
-$ComposeUrl  = "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
+# NOTE: v0.1.5 tag predates the compose.yml fixes; use main for this release only.
+# Future releases should use: "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
+$ComposeUrl  = "https://raw.githubusercontent.com/$Repo/main/planck_docker/compose.yml"
 $ComposeFile = Join-Path $PlanckHome "compose.yml"
 $EnvFile     = Join-Path $PlanckHome ".env"
 

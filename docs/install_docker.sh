@@ -4,7 +4,9 @@ set -e
 REPO="alexdesousa/planck"
 VERSION="0.1.5"
 PLANCK_HOME="$HOME/planck"
-COMPOSE_URL="https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml"
+# NOTE: v0.1.5 tag predates the compose.yml fixes; use main for this release only.
+# Future releases should use: https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml
+COMPOSE_URL="https://raw.githubusercontent.com/$REPO/main/planck_docker/compose.yml"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 BIND_ADDRESS="127.0.0.1"
