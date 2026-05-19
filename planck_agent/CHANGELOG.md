@@ -2,7 +2,24 @@
 
 ## v0.1.3
 
-- Version bump to stay in sync with the monorepo release; no functional changes.
+### Generic JSON schema validation
+
+- `Tool.validate_args/2` now validates every tool invocation against the tool's
+  JSON Schema parameters using `ex_json_schema` before `execute_fn` is called.
+  Covers required fields, types, enums, and any other constraint declared in the
+  schema — no per-tool validation boilerplate needed.
+- Validation is wired in `resolve_tool_fn` in `agent.ex`, so all tools — built-in,
+  inter-agent, and sidecar — get it automatically.
+- Enum errors include the list of valid values; required-field and type errors
+  name the offending field.
+- `ex_json_schema ~> 0.11` added as a dependency.
+
+### `spawn_agent` provider enum
+
+- The `provider` parameter now declares `"enum": ["anthropic", "openai", "google",
+  "ollama", "llama_cpp"]`. Invalid provider names are caught by schema validation
+  with a clear error before `execute_fn` runs — the `ArgumentError` rescue that
+  previously handled this case has been removed.
 
 ## v0.1.2
 

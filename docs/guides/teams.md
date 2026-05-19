@@ -153,7 +153,7 @@ a clean slate for a new task.
 | `name` | ✅ | Human-readable name |
 | `description` | ✅ | One-line purpose shown via `list_team` |
 | `system_prompt` | ✅ | System prompt (AGENTS.md is prepended automatically) |
-| `provider` | ✅ | LLM provider |
+| `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp` |
 | `model_id` | ✅ | Model id — use `list_models` to discover available models |
 | `base_url` | ✅ | Server URL. For ollama/llama_cpp use the server address (e.g. `"http://localhost:11434"`). Cloud providers may pass any placeholder. |
 | `tools` | | Built-in tool names to grant (subset of the orchestrator's own tools) |

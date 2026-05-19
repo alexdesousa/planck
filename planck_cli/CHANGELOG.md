@@ -2,6 +2,22 @@
 
 ## v0.1.3
 
+### Session-switch UI fixes
+
+- **Streaming preserved across switches** — switching to an active session now
+  correctly shows the streaming state and orchestrator indicator. Previously,
+  `load_session` hardcoded `streaming: false`, dropping both.
+- **Overlay reset on switch** — the agent context overlay is closed when
+  switching sessions, preventing stale content from a previous session leaking
+  into the new one.
+- **Errored tools show correct state after reload** — tool entries that errored
+  now render with the error indicator after a page refresh or session switch.
+  `pair_tool_results` was not setting `tool_error`; it now detects the
+  `"Error: "` prefix written by `build_tool_result_message`.
+- **Input section shown for errored tools with empty args** — when a tool call
+  has no arguments but errored, the input section is now shown so the error
+  context is visible.
+
 ### Sidecar tools auto-sync for dynamic orchestrators
 
 - When the sidecar connects (`{:connected, node}` PubSub event), `SessionLive`

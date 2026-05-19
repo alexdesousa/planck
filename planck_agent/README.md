@@ -330,7 +330,7 @@ defmodule MySidecar.Planck do
         name: "run_tests",
         description: "Run the test suite.",
         parameters: %{"type" => "object", "properties" => %{}},
-        execute_fn: fn _id, _args ->
+        execute_fn: fn _agent_id, _id, _args ->
           {output, 0} = System.cmd("mix", ["test"])
           {:ok, output}
         end
