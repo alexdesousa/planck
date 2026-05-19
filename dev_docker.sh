@@ -13,6 +13,7 @@ else
 fi
 
 DEV_DIR=".planck-dev"
+export PLANCK_HOME="$(pwd)/$DEV_DIR"
 
 mkdir -p \
   "$DEV_DIR/models" \
