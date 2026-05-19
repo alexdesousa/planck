@@ -641,7 +641,13 @@ defmodule Planck.Agent do
   defp resolve_tool_fn(tools, agent_id, name, id, args) do
     case Map.get(tools, name) do
       nil -> fn -> {:error, "unknown tool: #{name}"} end
-      %Tool{execute_fn: fun} -> fn -> safe_execute(fun, agent_id, id, args) end
+
+      %Tool{execute_fn: fun} = tool ->
+        fn ->
+          with :ok <- Tool.validate_args(tool, args) do
+            safe_execute(fun, agent_id, id, args)
+          end
+        end
     end
   end
 

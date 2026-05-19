@@ -66,6 +66,49 @@ defmodule Planck.Agent.Tool do
   end
 
   @doc """
+  Validate `args` against the tool's JSON schema using `ExJsonSchema`.
+
+  Returns `:ok` or `{:error, message}` suitable for returning directly from an
+  `execute_fn`. Called automatically by the agent before invoking `execute_fn`,
+  so individual tools do not need to duplicate this check.
+  """
+  @spec validate_args(t(), map()) :: :ok | {:error, String.t()}
+  def validate_args(%__MODULE__{parameters: params}, args) do
+    schema = ExJsonSchema.Schema.resolve(params)
+
+    case ExJsonSchema.Validator.validate(schema, args) do
+      :ok -> :ok
+      {:error, errors} -> {:error, format_schema_errors(errors, params)}
+    end
+  end
+
+  @spec format_schema_errors([{String.t(), String.t()}], map()) :: String.t()
+  defp format_schema_errors(errors, params) do
+    properties = get_in(params, ["properties"]) || %{}
+
+    errors
+    |> Enum.map(fn {message, path} -> format_schema_error(message, path, properties) end)
+    |> Enum.join(" ")
+  end
+
+  @spec format_schema_error(String.t(), String.t(), map()) :: String.t()
+  defp format_schema_error(message, "#", _properties), do: message
+
+  defp format_schema_error("Value is not allowed in enum.", "#/" <> key, properties) do
+    case get_in(properties, [key, "enum"]) do
+      [_ | _] = values ->
+        "#{key}: invalid value. Must be one of: #{Enum.join(values, ", ")}."
+
+      _ ->
+        "#{key}: value not allowed."
+    end
+  end
+
+  defp format_schema_error(message, "#/" <> key, _properties) do
+    "#{key}: #{message}"
+  end
+
+  @doc """
   Convert to a `Planck.AI.Tool` for use in `Planck.AI.Context` (drops `execute_fn`).
   """
   @spec to_ai_tool(t()) :: Planck.AI.Tool.t()

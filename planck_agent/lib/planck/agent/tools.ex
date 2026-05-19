@@ -123,6 +123,7 @@ defmodule Planck.Agent.Tools do
       },
       execute_fn: fn agent_id, _id, args ->
         with {:ok, pid} <- resolve_target(team_id, args) do
+          question = args["question"]
           target_id = Agent.get_info(pid).id
 
           cond do
@@ -145,7 +146,7 @@ defmodule Planck.Agent.Tools do
               Registry.register(Planck.Agent.Registry, {:waiting, agent_id}, target_id)
               ref = Process.monitor(pid)
               Agent.subscribe(pid)
-              :ok = Agent.prompt(pid, args["question"])
+              :ok = Agent.prompt(pid, question)
               await_turn_end(ref)
           end
         end
@@ -295,7 +296,11 @@ defmodule Planck.Agent.Tools do
             "description" => "One-line purpose shown to other agents via list_team"
           },
           "system_prompt" => %{"type" => "string", "description" => "System prompt"},
-          "provider" => %{"type" => "string", "description" => "LLM provider (e.g. anthropic)"},
+          "provider" => %{
+            "type" => "string",
+            "description" => "LLM provider",
+            "enum" => ["anthropic", "openai", "google", "ollama", "llama_cpp"]
+          },
           "model_id" => %{
             "type" => "string",
             "description" => "Model id (e.g. claude-sonnet-4-6)"
@@ -329,36 +334,32 @@ defmodule Planck.Agent.Tools do
         ]
       },
       execute_fn: fn agent_id, _id, args ->
-        try do
-          provider = String.to_existing_atom(args["provider"])
-          base_url = Map.get(args, "base_url")
-          granted_tools = filter_granted(Map.get(args, "tools", []), grantable_tool_map)
-          granted_skills = filter_granted(Map.get(args, "skills", []), grantable_skill_map)
+        provider = String.to_existing_atom(args["provider"])
+        base_url = Map.get(args, "base_url")
+        granted_tools = filter_granted(Map.get(args, "tools", []), grantable_tool_map)
+        granted_skills = filter_granted(Map.get(args, "skills", []), grantable_skill_map)
 
-          ctx = %{
-            session_id: session_id,
-            team_id: team_id,
-            orchestrator_id: agent_id,
-            cwd: cwd
-          }
+        ctx = %{
+          session_id: session_id,
+          team_id: team_id,
+          orchestrator_id: agent_id,
+          cwd: cwd
+        }
 
-          with :ok <- validate_local_base_url(provider, base_url),
-               {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url) do
-            agent_id = generate_id()
+        with :ok <- validate_local_base_url(provider, base_url),
+             {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url) do
+          agent_id = generate_id()
 
-            start_opts =
-              build_spawn_start_opts(args, agent_id, model, granted_tools, granted_skills, ctx)
+          start_opts =
+            build_spawn_start_opts(args, agent_id, model, granted_tools, granted_skills, ctx)
 
-            case DynamicSupervisor.start_child(
-                   Planck.Agent.AgentSupervisor,
-                   {Planck.Agent, start_opts}
-                 ) do
-              {:ok, _pid} -> {:ok, agent_id}
-              {:error, reason} -> {:error, "Failed to start agent: #{inspect(reason)}"}
-            end
+          case DynamicSupervisor.start_child(
+                 Planck.Agent.AgentSupervisor,
+                 {Planck.Agent, start_opts}
+               ) do
+            {:ok, _pid} -> {:ok, agent_id}
+            {:error, reason} -> {:error, "Failed to start agent: #{inspect(reason)}"}
           end
-        rescue
-          ArgumentError -> {:error, "Unknown provider: #{args["provider"]}."}
         end
       end
     )

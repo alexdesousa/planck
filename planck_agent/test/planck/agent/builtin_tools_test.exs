@@ -4,8 +4,13 @@ defmodule Planck.Agent.BuiltinToolsTest do
   @moduletag :tmp_dir
 
   alias Planck.Agent.BuiltinTools
+  alias Planck.Agent.Tool
 
-  defp call(tool, args), do: tool.execute_fn.("test-agent", "test-id", args)
+  defp call(tool, args) do
+    with :ok <- Tool.validate_args(tool, args) do
+      tool.execute_fn.("test-agent", "test-id", args)
+    end
+  end
 
   # --- read ---
 
@@ -197,7 +202,7 @@ defmodule Planck.Agent.BuiltinToolsTest do
     test "returns error when command argument is missing" do
       bash = BuiltinTools.bash()
       assert {:error, reason} = call(bash, %{})
-      assert reason =~ "missing required argument"
+      assert reason =~ "command"
     end
   end
 end
