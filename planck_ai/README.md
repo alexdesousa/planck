@@ -3,8 +3,8 @@
 `planck_ai` is a typed LLM provider abstraction for Elixir, built on top of
 [`req_llm`](https://hex.pm/packages/req_llm). It gives you a single, consistent
 interface for streaming and completing requests across Anthropic, OpenAI, Google
-Gemini, Ollama, and llama.cpp — without leaking provider-specific details into
-your application.
+Gemini, Ollama, llama.cpp, and any OpenAI-compatible endpoint — without leaking
+provider-specific details into your application.
 
 ## Installation
 
@@ -22,6 +22,7 @@ your application.
 | Google (Gemini) | `:google` | `GOOGLE_API_KEY` |
 | Ollama (local) | `:ollama` | — |
 | llama.cpp (local) | `:llama_cpp` | — |
+| Custom OpenAI-compatible | `:custom_openai` | `<IDENTIFIER>_API_KEY` (optional) |
 
 ## Quick start
 
@@ -58,12 +59,13 @@ end)
 
 Cloud providers (`:anthropic`, `:openai`, `:google`) source their catalog from
 a bundled LLMDB snapshot loaded offline at startup — no network call required.
-Local providers (`:ollama`, `:llama_cpp`) query the running server at call time.
+Local providers (`:ollama`, `:llama_cpp`, `:custom_openai`) query the running
+server at call time.
 
 ```elixir
 # List all providers
 AI.list_providers()
-#=> [:anthropic, :openai, :google, :ollama, :llama_cpp]
+#=> [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
 
 # List models for a provider
 AI.list_models(:anthropic)
@@ -205,7 +207,11 @@ have the same defaults as `model/2`.
 ```
 
 Valid `"provider"` values: `"anthropic"`, `"openai"`, `"google"`, `"ollama"`,
-`"llama_cpp"`.
+`"llama_cpp"`, `"custom_openai"`.
+
+For `"custom_openai"`, an optional `"identifier"` field (e.g. `"NVIDIA"`) is
+stored in the model struct and used to derive the API key env var at request
+time (`NVIDIA_API_KEY`). It must match `[A-Z][A-Z0-9]*`.
 
 Valid `"input_types"` values: `"text"`, `"image"`, `"image_url"`, `"file"`,
 `"video_url"`. Note that `"video_url"` is only supported by Google Gemini.

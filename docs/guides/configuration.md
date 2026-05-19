@@ -96,12 +96,25 @@ The `models` key declares local or custom models not in the built-in catalog:
       "base_url":       "http://localhost:8080",
       "context_window": 32768,
       "default_opts":   { "temperature": 0.5 }
+    },
+    {
+      "id":             "deepseek-ai/deepseek-v4-pro",
+      "provider":       "custom_openai",
+      "base_url":       "https://integrate.api.nvidia.com/v1",
+      "identifier":     "NVIDIA",
+      "context_window": 128000,
+      "default_opts":   { "receive_timeout": 600000 }
     }
   ]
 }
 ```
 
-Valid providers: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp`.
+Valid providers: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp`, `custom_openai`.
+
+`custom_openai` targets any OpenAI-compatible endpoint (NVIDIA NIM, Together AI,
+vLLM, etc.). The optional `identifier` field (uppercase, e.g. `"NVIDIA"`) derives
+the API key env var name — `NVIDIA` → `NVIDIA_API_KEY`. The key is resolved at
+request time from the system environment, never stored in the config file.
 
 ## Minimal setup for a project
 

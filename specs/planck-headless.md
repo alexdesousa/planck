@@ -421,6 +421,14 @@ Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
       "provider":       "llama_cpp",
       "base_url":       "http://localhost:8080",
       "context_window": 32768
+    },
+    {
+      "id":             "deepseek-ai/deepseek-v4-pro",
+      "provider":       "custom_openai",
+      "base_url":       "https://integrate.api.nvidia.com/v1",
+      "identifier":     "NVIDIA",
+      "context_window": 128000,
+      "default_opts":   { "receive_timeout": 600000 }
     }
   ]
 }
@@ -436,10 +444,12 @@ models are **declared** (no network discovery at boot) and include full
 Cloud providers that have an API key still contribute their static LLMDB
 catalog on top.
 
-All keys are optional. Unknown keys are silently ignored. Arrays replace
-rather than merge — a project-local `skills_dirs` wholly supersedes the
-global one. `:models` has no `PLANCK_*` env var equivalent — the format is
-too structured for a flat string.
+All keys are optional. Unknown keys are silently ignored. Most arrays replace
+rather than merge — a project-local `skills_dirs` wholly supersedes the global
+one. **Exception: `models` arrays are concatenated** — entries from
+`~/.planck/config.json` and `.planck/config.json` are merged so locally
+configured models do not shadow globally configured ones. `:models` has no
+`PLANCK_*` env var equivalent — the format is too structured for a flat string.
 
 ### Struct
 

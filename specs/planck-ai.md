@@ -24,7 +24,7 @@ parameter translation.
 - Typed structs the rest of the system speaks
 - Lazy event-tuple stream: req_llm chunks → `Stream.t()` tuples with stateful tool call assembly
 - Model catalog with metadata (context window, capabilities) sourced from LLMDB for cloud providers
-- Runtime model discovery for local providers (Ollama, llama.cpp)
+- Runtime model discovery for local providers (Ollama, llama.cpp, Custom OpenAI-compatible)
 - JSON config loader for local model configuration
 - Clean public API with full `@spec` coverage
 
@@ -36,13 +36,15 @@ parameter translation.
 %Planck.AI.Model{
   id: String.t(),
   name: String.t(),
-  provider: atom(),              # :anthropic | :openai | :google | :ollama | :llama_cpp
+  provider: atom(),              # :anthropic | :openai | :google | :ollama | :llama_cpp | :custom_openai
   context_window: pos_integer(),
   max_tokens: pos_integer(),
   supports_thinking: boolean(),
   input_types: [:text | :image | :image_url | :file | :video_url],
-  base_url: String.t() | nil,   # nil = provider default; set for llama.cpp, Ollama, custom endpoints
+  base_url: String.t() | nil,   # nil = provider default; set for local/custom endpoints
   api_key: String.t() | nil,    # nil = read from env; set for local servers that require a token
+  identifier: String.t() | nil, # :custom_openai only — uppercase tag (e.g. "NVIDIA") used to
+                                 # derive the API key env var at request time (NVIDIA_API_KEY)
   default_opts: keyword()        # inference params applied on every call unless overridden
 }
 ```
@@ -116,7 +118,7 @@ Type alias (no struct) plus the `from_req_llm/1` normalization function:
 Cloud providers (`:anthropic`, `:openai`, `:google`) source their catalog from LLMDB,
 a bundled snapshot loaded into `:persistent_term` at startup — no network call required.
 
-Local providers (`:ollama`, `:llama_cpp`) query the running server at call time via HTTP.
+Local providers (`:ollama`, `:llama_cpp`, `:custom_openai`) query the running server at call time via HTTP.
 
 | Module | Catalog source |
 |---|---|
@@ -125,6 +127,7 @@ Local providers (`:ollama`, `:llama_cpp`) query the running server at call time 
 | `Planck.AI.Models.Google` | LLMDB |
 | `Planck.AI.Models.Ollama` | Runtime HTTP (`/api/tags`) |
 | `Planck.AI.Models.LlamaCpp` | Runtime HTTP (`/models`) or `model/2` factory |
+| `Planck.AI.Models.CustomOpenAI` | Runtime HTTP (`/models`) or `model/2` factory |
 
 llama.cpp example:
 
@@ -150,8 +153,10 @@ The only module that knows req_llm's input shape.
   {model_spec :: String.t() | map(), req_llm_context :: ReqLLM.Context.t(), opts :: keyword()}
 ```
 
-For `:llama_cpp`, passes `%{provider: :openai, id: id}` as a map to bypass LLMDB catalog
-validation (llama.cpp speaks the OpenAI API but is not in the cloud catalog).
+For `:llama_cpp` and `:custom_openai`, passes `%{provider: :openai, id: id}` as a map
+to bypass LLMDB catalog validation (both speak the OpenAI API but are not in the cloud
+catalog). `:custom_openai` additionally resolves `<IDENTIFIER>_API_KEY` from the system
+environment at request time via `identifier` — never cached, always fresh.
 
 ## Stream normalization — `Planck.AI.Stream`
 
