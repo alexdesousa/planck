@@ -95,8 +95,7 @@ defmodule Sidecar.Tools.WebFetch do
   defp do_fetch(url, cache_path)
        when is_binary(url) and is_binary(cache_path) do
     script = Path.expand("assets/readability.js", File.cwd!())
-    node = System.find_executable("node") || System.find_executable("nodejs")
-    cmd = Enum.map([node, script, url], &String.to_charlist/1)
+    cmd = Enum.map([node_bin(), script, url], &String.to_charlist/1)
     task = Task.async(fn -> :exec.run(cmd, [:sync, :stdout, :stderr]) end)
 
     case Task.yield(task, @timeout) || Task.shutdown(task) do
@@ -123,6 +122,9 @@ defmodule Sidecar.Tools.WebFetch do
         {:error, "web_fetch timed out after #{@timeout}ms"}
     end
   end
+
+  @spec node_bin() :: String.t() | nil
+  defp node_bin, do: System.find_executable("node") || System.find_executable("nodejs")
 
   @spec write_cache(Path.t(), String.t(), String.t()) :: :ok
   defp write_cache(path, url, markdown)
