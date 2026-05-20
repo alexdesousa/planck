@@ -61,11 +61,17 @@ mkdir -p \
   "$PLANCK_HOME/typesense-data" \
   "$PLANCK_HOME/workspace/.planck"
 
-# ── Write .env (skip if present) ─────────────────────────────────────────────
+# ── Write .env — create if absent, add missing keys if it exists ──────────────
 ENV_FILE="$PLANCK_HOME/.env"
+
+add_if_missing() {
+  grep -q "^$1=" "$ENV_FILE" || echo "$1=$2" >> "$ENV_FILE"
+}
+
+SEARXNG_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 32)"
+
 if [ ! -f "$ENV_FILE" ]; then
   echo "Writing $ENV_FILE..."
-  SEARXNG_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 32)"
   cat >"$ENV_FILE" <<EOF
 PLANCK_HOME=$PLANCK_HOME
 TYPESENSE_API_KEY=planck-internal-key
@@ -75,7 +81,12 @@ SEARXNG_LANGUAGE=en
 EOF
   echo "  → $ENV_FILE created. Edit SEARXNG_LANGUAGE to change the search language."
 else
-  echo "  → $ENV_FILE already exists, skipping."
+  echo "  → $ENV_FILE exists — adding any missing keys..."
+  add_if_missing PLANCK_HOME "$PLANCK_HOME"
+  add_if_missing TYPESENSE_API_KEY "planck-internal-key"
+  add_if_missing PLANCK_BIND_ADDRESS "$BIND_ADDRESS"
+  add_if_missing SEARXNG_SECRET "$SEARXNG_SECRET"
+  add_if_missing SEARXNG_LANGUAGE "en"
 fi
 
 # ── Download compose.yml ──────────────────────────────────────────────────────

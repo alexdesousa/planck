@@ -11,8 +11,9 @@
 - `LLAMA_*` env vars (`LLAMA_CTX_SIZE`, `LLAMA_PORT`, `LLAMA_THREADS`,
   `LLAMA_SLEEP_IDLE_SECONDS`) removed from `compose.yml` and install scripts.
 - `install_docker.sh` and `install_docker.ps1`: model download step removed;
-  `models/` directory no longer created; `compose.yml` always re-downloaded
-  (idempotent); version bumped to 0.1.6.
+  `models/` directory no longer created; `compose.yml` always re-downloaded;
+  `.env` handling changed to `add_if_missing` — re-running the installer adds
+  any new keys without overwriting existing values; version bumped to 0.1.6.
 - Image tags bumped to `0.1.6`.
 
 ## v0.1.5

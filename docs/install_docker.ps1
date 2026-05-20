@@ -58,15 +58,21 @@ foreach ($dir in "typesense-data", "workspace\.planck") {
     New-Item -ItemType Directory -Force -Path (Join-Path $PlanckHome $dir) | Out-Null
 }
 
-# ── Write .env (skip if present) ─────────────────────────────────────────────
+# ── Write .env — create if absent, add missing keys if it exists ──────────────
+$rng    = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes  = [byte[]]::new(24)
+$rng.GetBytes($bytes)
+$secret = ([Convert]::ToBase64String($bytes)) -replace '[=+/]'
+$secret = $secret.Substring(0, [Math]::Min(32, $secret.Length))
+
+function Add-IfMissing([string]$Key, [string]$Value) {
+    if (-not (Select-String -Quiet -Path $EnvFile -Pattern "^$Key=")) {
+        Add-Content -Path $EnvFile -Value "$Key=$Value"
+    }
+}
+
 if (-not (Test-Path $EnvFile)) {
     Write-Host "Writing $EnvFile..."
-    $rng    = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $bytes  = [byte[]]::new(24)
-    $rng.GetBytes($bytes)
-    $secret = ([Convert]::ToBase64String($bytes)) -replace '[=+/]'
-    $secret = $secret.Substring(0, [Math]::Min(32, $secret.Length))
-
     @"
 PLANCK_HOME=$PlanckHome
 TYPESENSE_API_KEY=planck-internal-key
@@ -76,7 +82,12 @@ SEARXNG_LANGUAGE=en
 "@ | Set-Content -Path $EnvFile
     Write-Host "  -> $EnvFile created. Edit SEARXNG_LANGUAGE to change the search language."
 } else {
-    Write-Host "  -> $EnvFile already exists, skipping."
+    Write-Host "  -> $EnvFile exists — adding any missing keys..."
+    Add-IfMissing "PLANCK_HOME" $PlanckHome
+    Add-IfMissing "TYPESENSE_API_KEY" "planck-internal-key"
+    Add-IfMissing "PLANCK_BIND_ADDRESS" $Bind
+    Add-IfMissing "SEARXNG_SECRET" $secret
+    Add-IfMissing "SEARXNG_LANGUAGE" "en"
 }
 
 # ── Download compose.yml ──────────────────────────────────────────────────────
