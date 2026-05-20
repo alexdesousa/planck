@@ -4,7 +4,7 @@ defmodule Sidecar.MixProject do
   def project do
     [
       app: :sidecar,
-      version: "0.1.5",
+      version: File.read!(Path.join(__DIR__, "../../VERSION")) |> String.trim(),
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),

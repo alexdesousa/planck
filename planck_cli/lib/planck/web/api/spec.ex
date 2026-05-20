@@ -12,7 +12,7 @@ defmodule Planck.Web.API.Spec do
       servers: [%Server{url: "/"}],
       info: %Info{
         title: "Planck API",
-        version: "0.1.0",
+        version: to_string(Application.spec(:planck_cli, :vsn)),
         description: "HTTP API for managing Planck multi-agent sessions."
       },
       paths: Paths.from_router(Router)
