@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.6
+
+- Drop `:custom_openai`, `:ollama`, and `:llama_cpp` providers — public provider
+  atoms are now `:anthropic | :openai | :google` only
+- `:openai` with `base_url` set routes to the OpenAI-compatible adapter (previously
+  required `:custom_openai`); without `base_url` routes to the standard OpenAI path
+- `identifier` defaults to `"OPENAI"` on `:openai` models when nil — resolves
+  `OPENAI_API_KEY` for local endpoints that don't need a key
+- `Planck.AI.Models.OpenAI.all/1` now accepts a `base_url:` opt to query a custom
+  server's `/models` endpoint; without it returns the LLMDB catalog as before
+- `Planck.AI.Models.CustomOpenAI`, `Planck.AI.Models.Ollama`, and
+  `Planck.AI.Models.LlamaCpp` removed — superseded by `:openai` + `base_url`
+- `Planck.AI.Config.from_map/1` validates `identifier` on `:openai` entries
+  (previously `:custom_openai`)
+
 ## v0.1.5
 
 - New `:custom_openai` provider for OpenAI-compatible endpoints (NVIDIA, Together, vLLM, etc.)

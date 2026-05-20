@@ -8,7 +8,7 @@ defmodule Planck.AI.ConfigTest do
     test "returns {:ok, model} with all fields" do
       entry = %{
         "id" => "my-llama",
-        "provider" => "llama_cpp",
+        "provider" => "openai",
         "name" => "My Llama",
         "base_url" => "http://localhost:8080",
         "context_window" => 32_768,
@@ -21,7 +21,7 @@ defmodule Planck.AI.ConfigTest do
       assert {:ok, %Model{} = model} = Config.from_map(entry)
       assert model.id == "my-llama"
       assert model.name == "My Llama"
-      assert model.provider == :llama_cpp
+      assert model.provider == :openai
       assert model.base_url == "http://localhost:8080"
       assert model.context_window == 32_768
       assert model.max_tokens == 4_096
@@ -31,7 +31,7 @@ defmodule Planck.AI.ConfigTest do
     end
 
     test "applies defaults for optional fields" do
-      entry = %{"id" => "qwen3", "provider" => "ollama"}
+      entry = %{"id" => "qwen3", "provider" => "openai"}
       assert {:ok, model} = Config.from_map(entry)
       assert model.name == "qwen3"
       assert model.base_url == nil
@@ -42,17 +42,17 @@ defmodule Planck.AI.ConfigTest do
       assert model.default_opts == []
     end
 
-    test "accepts all six providers" do
-      for provider <- ~w(anthropic openai google ollama llama_cpp custom_openai) do
+    test "accepts all three providers" do
+      for provider <- ~w(anthropic openai google) do
         assert {:ok, model} = Config.from_map(%{"id" => "m", "provider" => provider})
         assert model.provider == String.to_existing_atom(provider)
       end
     end
 
-    test "parses and upcases identifier for custom_openai" do
+    test "parses and upcases identifier for openai" do
       entry = %{
-        "id" => "meta/llama-3.1-8b-instruct",
-        "provider" => "custom_openai",
+        "id" => "meta/llama-3.3-70b-instruct",
+        "provider" => "openai",
         "identifier" => "nvidia",
         "base_url" => "https://integrate.api.nvidia.com/v1",
         "context_window" => 128_000
@@ -63,32 +63,32 @@ defmodule Planck.AI.ConfigTest do
       assert model.base_url == "https://integrate.api.nvidia.com/v1"
     end
 
-    test "accepts already-uppercase identifier for custom_openai" do
-      entry = %{"id" => "m", "provider" => "custom_openai", "identifier" => "TOGETHER2"}
+    test "accepts already-uppercase identifier for openai" do
+      entry = %{"id" => "m", "provider" => "openai", "identifier" => "TOGETHER2"}
       assert {:ok, model} = Config.from_map(entry)
       assert model.identifier == "TOGETHER2"
     end
 
-    test "accepts nil identifier for custom_openai" do
-      entry = %{"id" => "m", "provider" => "custom_openai", "base_url" => "http://localhost:1234"}
+    test "accepts nil identifier for openai" do
+      entry = %{"id" => "m", "provider" => "openai", "base_url" => "http://localhost:1234"}
       assert {:ok, model} = Config.from_map(entry)
       assert model.identifier == nil
     end
 
     test "returns {:error, _} for identifier with invalid characters" do
-      entry = %{"id" => "m", "provider" => "custom_openai", "identifier" => "nvidia-api"}
+      entry = %{"id" => "m", "provider" => "openai", "identifier" => "nvidia-api"}
       assert {:error, reason} = Config.from_map(entry)
       assert reason =~ "identifier"
     end
 
     test "returns {:error, _} for identifier starting with a digit" do
-      entry = %{"id" => "m", "provider" => "custom_openai", "identifier" => "1nvidia"}
+      entry = %{"id" => "m", "provider" => "openai", "identifier" => "1nvidia"}
       assert {:error, reason} = Config.from_map(entry)
       assert reason =~ "identifier"
     end
 
     test "api_key is nil for all providers (resolved lazily at request time)" do
-      for provider <- ~w(anthropic openai google ollama llama_cpp custom_openai) do
+      for provider <- ~w(anthropic openai google) do
         entry = %{"id" => "m", "provider" => provider}
         assert {:ok, model} = Config.from_map(entry)
         assert model.api_key == nil
@@ -116,13 +116,13 @@ defmodule Planck.AI.ConfigTest do
     end
 
     test "falls back to [:text] when input_types is empty" do
-      entry = %{"id" => "m", "provider" => "ollama", "input_types" => []}
+      entry = %{"id" => "m", "provider" => "openai", "input_types" => []}
       assert {:ok, model} = Config.from_map(entry)
       assert model.input_types == [:text]
     end
 
     test "ignores unknown input_types" do
-      entry = %{"id" => "m", "provider" => "ollama", "input_types" => ["text", "hologram"]}
+      entry = %{"id" => "m", "provider" => "openai", "input_types" => ["text", "hologram"]}
       assert {:ok, model} = Config.from_map(entry)
       assert model.input_types == [:text]
     end
@@ -141,7 +141,7 @@ defmodule Planck.AI.ConfigTest do
     test "drops unknown default_opt keys" do
       entry = %{
         "id" => "m",
-        "provider" => "ollama",
+        "provider" => "openai",
         "default_opts" => %{"temperature" => 1.0, "not_a_real_param_xyz123" => 99}
       }
 
@@ -153,9 +153,9 @@ defmodule Planck.AI.ConfigTest do
   describe "from_list/1" do
     test "converts valid entries and skips invalid ones" do
       entries = [
-        %{"id" => "a", "provider" => "ollama"},
+        %{"id" => "a", "provider" => "openai"},
         %{"id" => "b", "provider" => "bad_provider"},
-        %{"id" => "c", "provider" => "llama_cpp"}
+        %{"id" => "c", "provider" => "google"}
       ]
 
       models = Config.from_list(entries)
@@ -174,7 +174,7 @@ defmodule Planck.AI.ConfigTest do
         Jason.encode!([
           %{
             "id" => "my-model",
-            "provider" => "llama_cpp",
+            "provider" => "openai",
             "context_window" => 16_384,
             "default_opts" => %{"temperature" => 0.7}
           }
@@ -187,7 +187,7 @@ defmodule Planck.AI.ConfigTest do
 
       assert {:ok, [model]} = Config.load(path)
       assert model.id == "my-model"
-      assert model.provider == :llama_cpp
+      assert model.provider == :openai
       assert model.context_window == 16_384
       assert model.default_opts == [temperature: 0.7]
 

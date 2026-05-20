@@ -46,19 +46,16 @@ defmodule Planck.AI.AdapterTest do
       assert spec == "google:gemini-2.5-flash"
     end
 
-    test "ollama produces a map to bypass LLMDB lookup" do
-      {spec, _, _} = to_req_llm(model(:ollama, id: "llama3.2"))
-      assert spec == %{provider: :ollama, id: "llama3.2"}
-    end
+    test "openai with base_url produces an openai-provider map to bypass LLMDB lookup" do
+      {spec, _, _} =
+        to_req_llm(
+          model(:openai,
+            id: "meta/llama-3.3-70b-instruct",
+            base_url: "https://integrate.api.nvidia.com/v1"
+          )
+        )
 
-    test "llama_cpp produces an openai-provider map to bypass LLMDB lookup" do
-      {spec, _, _} = to_req_llm(model(:llama_cpp, id: "mistral-7b"))
-      assert spec == %{provider: :openai, id: "mistral-7b"}
-    end
-
-    test "custom_openai produces an openai-provider map to bypass LLMDB lookup" do
-      {spec, _, _} = to_req_llm(model(:custom_openai, id: "meta/llama-3.1-8b-instruct"))
-      assert spec == %{provider: :openai, id: "meta/llama-3.1-8b-instruct"}
+      assert spec == %{provider: :openai, id: "meta/llama-3.3-70b-instruct"}
     end
   end
 
@@ -75,31 +72,13 @@ defmodule Planck.AI.AdapterTest do
       assert opts[:base_url] == "https://proxy.example.com"
     end
 
-    test "adds base_url and default api_key for ollama" do
-      {_, _, opts} = to_req_llm(model(:ollama, base_url: "http://10.0.0.5:11434"))
-      assert opts[:base_url] == "http://10.0.0.5:11434"
-      assert opts[:api_key] == "not-needed"
-    end
-
-    test "uses model api_key for llama_cpp when provided" do
-      {_, _, opts} =
-        to_req_llm(model(:llama_cpp, base_url: "http://localhost:8080", api_key: "secret"))
-
-      assert opts[:api_key] == "secret"
-    end
-
-    test "falls back to not-needed api_key for llama_cpp without api_key" do
-      {_, _, opts} = to_req_llm(model(:llama_cpp, base_url: "http://localhost:8080"))
-      assert opts[:api_key] == "not-needed"
-    end
-
-    test "custom_openai resolves api_key from env via identifier" do
+    test "openai with base_url resolves api_key from env via identifier" do
       System.put_env("NVIDIA_API_KEY", "test-nvidia-key")
       on_exit(fn -> System.delete_env("NVIDIA_API_KEY") end)
 
       {_, _, opts} =
         to_req_llm(
-          model(:custom_openai,
+          model(:openai,
             base_url: "https://integrate.api.nvidia.com/v1",
             identifier: "NVIDIA"
           )
@@ -108,26 +87,17 @@ defmodule Planck.AI.AdapterTest do
       assert opts[:api_key] == "test-nvidia-key"
     end
 
-    test "custom_openai uses explicit api_key over env var" do
-      System.put_env("NVIDIA_API_KEY", "env-key")
-      on_exit(fn -> System.delete_env("NVIDIA_API_KEY") end)
+    test "openai with base_url defaults to OPENAI_API_KEY when no identifier" do
+      System.put_env("OPENAI_API_KEY", "openai-compat-key")
+      on_exit(fn -> System.delete_env("OPENAI_API_KEY") end)
 
-      {_, _, opts} =
-        to_req_llm(
-          model(:custom_openai,
-            base_url: "https://integrate.api.nvidia.com/v1",
-            identifier: "NVIDIA",
-            api_key: "explicit-key"
-          )
-        )
-
-      assert opts[:api_key] == "explicit-key"
+      {_, _, opts} = to_req_llm(model(:openai, base_url: "http://localhost:11434"))
+      assert opts[:api_key] == "openai-compat-key"
     end
 
-    test "custom_openai falls back to not-needed when identifier and api_key are both nil" do
-      {_, _, opts} =
-        to_req_llm(model(:custom_openai, base_url: "http://localhost:1234"))
-
+    test "openai with base_url falls back to not-needed when no key is available" do
+      System.delete_env("OPENAI_API_KEY")
+      {_, _, opts} = to_req_llm(model(:openai, base_url: "http://localhost:11434"))
       assert opts[:api_key] == "not-needed"
     end
   end

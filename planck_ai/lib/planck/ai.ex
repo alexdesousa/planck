@@ -39,9 +39,9 @@ defmodule Planck.AI do
   """
 
   alias Planck.AI.{Adapter, Context, Message, Model, Stream}
-  alias Planck.AI.Models.{Anthropic, CustomOpenAI, Google, LlamaCpp, Ollama, OpenAI}
+  alias Planck.AI.Models.{Anthropic, Google, OpenAI}
 
-  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
+  @providers [:anthropic, :openai, :google]
 
   @doc """
   Streams a request to the LLM, returning a lazy stream of `StreamEvent` tuples.
@@ -97,7 +97,7 @@ defmodule Planck.AI do
   ## Examples
 
       iex> Planck.AI.list_providers()
-      [:anthropic, :openai, :google, :ollama, :llama_cpp]
+      [:anthropic, :openai, :google]
 
   """
   @spec list_providers() :: [atom()]
@@ -109,13 +109,16 @@ defmodule Planck.AI do
   Cloud providers (`:anthropic`, `:openai`, `:google`) source their catalog from
   LLMDB — a bundled snapshot loaded into `:persistent_term` on first call.
 
-  Local providers (`:ollama`, `:llama_cpp`) query the running server at call time.
-  Pass `base_url:` in `opts` to target a non-default server address.
+  For OpenAI-compatible custom endpoints, pass `base_url:` in `opts` to query
+  the server's `/models` endpoint at call time instead of the LLMDB catalog.
 
   ## Examples
 
       iex> Planck.AI.list_models(:anthropic)
       [%Planck.AI.Model{provider: :anthropic, ...}, ...]
+
+      iex> Planck.AI.list_models(:openai, base_url: "https://integrate.api.nvidia.com/v1")
+      [%Planck.AI.Model{provider: :openai, ...}, ...]
 
   """
   @spec list_models(atom()) :: [Model.t()]
@@ -124,9 +127,6 @@ defmodule Planck.AI do
   def list_models(:anthropic, opts), do: Anthropic.all(opts)
   def list_models(:openai, opts), do: OpenAI.all(opts)
   def list_models(:google, opts), do: Google.all(opts)
-  def list_models(:ollama, opts), do: Ollama.all(opts)
-  def list_models(:llama_cpp, opts), do: LlamaCpp.all(opts)
-  def list_models(:custom_openai, opts), do: CustomOpenAI.all(opts)
   def list_models(_, _), do: []
 
   @doc """

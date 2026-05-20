@@ -19,9 +19,9 @@ defmodule Planck.AI.Model do
 
   """
 
-  @type provider :: :anthropic | :openai | :google | :ollama | :llama_cpp | :custom_openai
+  @type provider :: :anthropic | :openai | :google
 
-  @providers [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
+  @providers [:anthropic, :openai, :google]
 
   @doc "Returns the list of supported provider atoms."
   @spec providers() :: [provider()]

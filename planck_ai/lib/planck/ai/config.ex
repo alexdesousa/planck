@@ -119,9 +119,9 @@ defmodule Planck.AI.Config do
   def from_map(_), do: {:error, "missing required field: id"}
 
   @spec parse_identifier(atom(), term()) :: {:ok, String.t() | nil} | {:error, String.t()}
-  defp parse_identifier(:custom_openai, nil), do: {:ok, nil}
+  defp parse_identifier(:openai, nil), do: {:ok, nil}
 
-  defp parse_identifier(:custom_openai, raw) when is_binary(raw) do
+  defp parse_identifier(:openai, raw) when is_binary(raw) do
     upcased = String.upcase(raw)
 
     if Regex.match?(~r/^[A-Z][A-Z0-9]*$/, upcased) do
@@ -131,7 +131,7 @@ defmodule Planck.AI.Config do
     end
   end
 
-  defp parse_identifier(:custom_openai, other),
+  defp parse_identifier(:openai, other),
     do: {:error, "identifier must be a string, got: #{inspect(other)}"}
 
   defp parse_identifier(_provider, raw), do: {:ok, raw}

@@ -3,8 +3,8 @@
 `planck_ai` is a typed LLM provider abstraction for Elixir, built on top of
 [`req_llm`](https://hex.pm/packages/req_llm). It gives you a single, consistent
 interface for streaming and completing requests across Anthropic, OpenAI, Google
-Gemini, Ollama, llama.cpp, and any OpenAI-compatible endpoint — without leaking
-provider-specific details into your application.
+Gemini, and any OpenAI-compatible endpoint — without leaking provider-specific
+details into your application.
 
 ## Installation
 
@@ -20,9 +20,12 @@ provider-specific details into your application.
 | Anthropic (Claude) | `:anthropic` | `ANTHROPIC_API_KEY` |
 | OpenAI (GPT) | `:openai` | `OPENAI_API_KEY` |
 | Google (Gemini) | `:google` | `GOOGLE_API_KEY` |
-| Ollama (local) | `:ollama` | — |
-| llama.cpp (local) | `:llama_cpp` | — |
-| Custom OpenAI-compatible | `:custom_openai` | `<IDENTIFIER>_API_KEY` (optional) |
+| OpenAI-compatible (NVIDIA, Groq, Ollama, llama.cpp, …) | `:openai` + `base_url` | `<IDENTIFIER>_API_KEY` or none |
+
+OpenAI-compatible endpoints (NVIDIA NIM, Groq, Ollama, llama.cpp, vLLM, etc.)
+use the `:openai` provider atom with a `base_url` set. The optional `identifier`
+field (e.g. `"NVIDIA"`) derives the API key env var (`NVIDIA_API_KEY`); if
+omitted it falls back to `OPENAI_API_KEY`, or `"not-needed"` when no key exists.
 
 ## Quick start
 
@@ -59,13 +62,11 @@ end)
 
 Cloud providers (`:anthropic`, `:openai`, `:google`) source their catalog from
 a bundled LLMDB snapshot loaded offline at startup — no network call required.
-Local providers (`:ollama`, `:llama_cpp`, `:custom_openai`) query the running
-server at call time.
 
 ```elixir
 # List all providers
 AI.list_providers()
-#=> [:anthropic, :openai, :google, :ollama, :llama_cpp, :custom_openai]
+#=> [:anthropic, :openai, :google]
 
 # List models for a provider
 AI.list_models(:anthropic)
@@ -109,50 +110,28 @@ pass the budget via the Google-specific opt:
 AI.stream(model, context, google_thinking_budget: 8_192)
 ```
 
-### Ollama
+### OpenAI-compatible endpoints
 
-Ollama has no static catalog — the available models depend on what you have
-pulled into your local instance. Use `all/1` to discover them at runtime, or
-`model/2` to build one directly:
-
-```elixir
-# Discover all models from the running server
-models = Planck.AI.Models.Ollama.all()
-models = Planck.AI.Models.Ollama.all(base_url: "http://10.0.0.5:11434")
-
-# Build a model struct directly (no server call)
-model = Planck.AI.Models.Ollama.model("llama3.2")
-model = Planck.AI.Models.Ollama.model("deepseek-r1",
-  base_url:          "http://10.0.0.5:11434",
-  context_window:    64_000,
-  max_tokens:        8_192,
-  supports_thinking: true
-)
-```
-
-Ollama must be running at `http://localhost:11434` (or the specified `base_url`).
-No API key needed.
-
-### llama.cpp
-
-llama.cpp has no static catalog because the loaded model depends on your server.
-Use `all/1` to discover models, or `model/2` to build one directly:
+Any OpenAI-compatible server (NVIDIA NIM, Groq, Ollama, llama.cpp, vLLM, etc.)
+uses the `:openai` provider with a `base_url`. Pass `base_url:` to `list_models/2`
+to discover available models at runtime:
 
 ```elixir
-# Discover models from the running server
-models = Planck.AI.Models.LlamaCpp.all(base_url: "http://localhost:8080")
-models = Planck.AI.Models.LlamaCpp.all(base_url: "http://10.0.0.5:8080", api_key: "secret")
+# Discover models from NVIDIA NIM
+models = AI.list_models(:openai, base_url: "https://integrate.api.nvidia.com/v1", identifier: "NVIDIA")
 
-# Build a model struct directly
-model = Planck.AI.Models.LlamaCpp.model("mistral-7b",
-  base_url:       "http://localhost:8080",
-  context_window: 32_768,
-  max_tokens:     4_096
-)
+# Discover models from a local Ollama instance
+models = AI.list_models(:openai, base_url: "http://localhost:11434")
+
+# Discover models from a local llama.cpp server
+models = AI.list_models(:openai, base_url: "http://localhost:8080")
 ```
 
-Pass `api_key:` when the server requires a token — it is sent as a Bearer
-header in both `all/1` (discovery) and via `req_llm` during inference.
+API keys are resolved from the environment at request time. The `identifier`
+field determines the env var name: `"NVIDIA"` → `NVIDIA_API_KEY`. When
+`identifier` is nil, `OPENAI_API_KEY` is used. For keyless local servers (Ollama,
+llama.cpp), neither env var needs to be set — the adapter falls back to
+`"not-needed"`.
 
 ## Per-model inference defaults
 
@@ -161,11 +140,17 @@ should apply to every call for that model. Opts passed explicitly to `stream/3`
 or `complete/3` override the defaults.
 
 ```elixir
-model = Planck.AI.Models.LlamaCpp.model("qwen3-coder",
-  default_opts: [temperature: 1.0, top_p: 0.95, top_k: 64, min_p: 0.01]
-)
+model = %Planck.AI.Model{
+  id: "meta/llama-3.3-70b-instruct",
+  provider: :openai,
+  base_url: "https://integrate.api.nvidia.com/v1",
+  identifier: "NVIDIA",
+  context_window: 128_000,
+  max_tokens: 4_096,
+  default_opts: [temperature: 0.6, receive_timeout: 600_000]
+}
 
-# temperature: 1.0 applies unless overridden
+# temperature: 0.6 applies unless overridden
 AI.stream(model, context)
 
 # temperature: 0.3 overrides the model default
@@ -175,43 +160,43 @@ AI.stream(model, context, temperature: 0.3)
 ## Config file loader
 
 `Planck.AI.Config` loads a list of models from a JSON file — useful for
-configuring local servers without hardcoding model structs in your application.
+configuring models without hardcoding structs in your application.
 
 ### JSON format
 
-Only `"id"` and `"provider"` are required. All other fields are optional and
-have the same defaults as `model/2`.
+Only `"id"` and `"provider"` are required. All other fields are optional.
 
 ```json
 [
   {
-    "id": "qwen3-coder-q4",
-    "provider": "llama_cpp",
-    "name": "Qwen3 Coder Q4",
-    "base_url": "http://localhost:8080",
-    "context_window": 40960,
-    "max_tokens": 8192,
+    "id": "sonnet",
+    "provider": "anthropic"
+  },
+  {
+    "id": "llama-70b",
+    "provider": "openai",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "identifier": "NVIDIA",
+    "context_window": 128000,
     "default_opts": {
-      "temperature": 1.0,
-      "top_p": 0.95,
-      "top_k": 40,
-      "min_p": 0.01
+      "temperature": 0.6,
+      "receive_timeout": 600000
     }
   },
   {
-    "id": "llama3.2:latest",
-    "provider": "ollama",
-    "context_window": 4096
+    "id": "local",
+    "provider": "openai",
+    "base_url": "http://localhost:11434",
+    "context_window": 40960
   }
 ]
 ```
 
-Valid `"provider"` values: `"anthropic"`, `"openai"`, `"google"`, `"ollama"`,
-`"llama_cpp"`, `"custom_openai"`.
+Valid `"provider"` values: `"anthropic"`, `"openai"`, `"google"`.
 
-For `"custom_openai"`, an optional `"identifier"` field (e.g. `"NVIDIA"`) is
-stored in the model struct and used to derive the API key env var at request
-time (`NVIDIA_API_KEY`). It must match `[A-Z][A-Z0-9]*`.
+For `"openai"` with a `base_url`, an optional `"identifier"` field (e.g.
+`"NVIDIA"`) is stored in the model struct and used to derive the API key env var
+at request time (`NVIDIA_API_KEY`). It must match `[A-Z][A-Z0-9]*`.
 
 Valid `"input_types"` values: `"text"`, `"image"`, `"image_url"`, `"file"`,
 `"video_url"`. Note that `"video_url"` is only supported by Google Gemini.
@@ -221,12 +206,12 @@ Valid `"input_types"` values: `"text"`, `"image"`, `"image_url"`, `"file"`,
 ```elixir
 {:ok, models} = Planck.AI.Config.load("config/models.json")
 
-model = Enum.find(models, &(&1.id == "qwen3-coder-q4"))
+model = Enum.find(models, &(&1.id == "llama-70b"))
 AI.stream(model, context)
 ```
 
-Invalid entries are skipped with a warning; the file read or JSON parse
-returning an error is propagated as `{:error, reason}`.
+Invalid entries are skipped with a warning; file read or JSON parse errors are
+propagated as `{:error, reason}`.
 
 ## Streaming events
 

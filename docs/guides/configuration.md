@@ -86,35 +86,36 @@ The `models` key declares local or custom models not in the built-in catalog:
   "models": [
     {
       "id":             "llama3.2",
-      "provider":       "ollama",
+      "provider":       "openai",
       "base_url":       "http://localhost:11434",
       "context_window": 128000
     },
     {
       "id":             "mistral",
-      "provider":       "llama_cpp",
+      "provider":       "openai",
       "base_url":       "http://localhost:8080",
       "context_window": 32768,
       "default_opts":   { "temperature": 0.5 }
     },
     {
-      "id":             "deepseek-ai/deepseek-v4-pro",
-      "provider":       "custom_openai",
+      "id":             "meta/llama-3.3-70b-instruct",
+      "provider":       "openai",
       "base_url":       "https://integrate.api.nvidia.com/v1",
       "identifier":     "NVIDIA",
       "context_window": 128000,
-      "default_opts":   { "receive_timeout": 600000 }
+      "default_opts":   { "temperature": 0.6, "receive_timeout": 600000 }
     }
   ]
 }
 ```
 
-Valid providers: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp`, `custom_openai`.
+Valid providers: `anthropic`, `openai`, `google`.
 
-`custom_openai` targets any OpenAI-compatible endpoint (NVIDIA NIM, Together AI,
-vLLM, etc.). The optional `identifier` field (uppercase, e.g. `"NVIDIA"`) derives
-the API key env var name — `NVIDIA` → `NVIDIA_API_KEY`. The key is resolved at
-request time from the system environment, never stored in the config file.
+`openai` with a `base_url` targets any OpenAI-compatible endpoint (NVIDIA NIM,
+Groq, Ollama, llama.cpp, vLLM, etc.). The optional `identifier` field (uppercase,
+e.g. `"NVIDIA"`) derives the API key env var name — `NVIDIA` → `NVIDIA_API_KEY`.
+The key is resolved at request time from the system environment, never stored in
+the config file. Omit `identifier` for keyless local servers (Ollama, llama.cpp).
 
 ## Minimal setup for a project
 
