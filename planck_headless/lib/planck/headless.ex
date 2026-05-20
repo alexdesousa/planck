@@ -1080,11 +1080,9 @@ defmodule Planck.Headless do
   defp env_path_for(:local), do: ".planck/.env"
   defp env_path_for(:global), do: "~/.planck/.env"
 
-
   @spec maybe_put(map(), String.t(), term()) :: map()
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
 
   @spec ensure_config_dir(Path.t()) :: :ok | {:error, File.posix()}
   defp ensure_config_dir(path) do

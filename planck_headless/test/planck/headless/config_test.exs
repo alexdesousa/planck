@@ -194,7 +194,9 @@ defmodule Planck.Headless.ConfigTest do
       File.write!(
         local_path,
         Jason.encode!(%{
-          "providers" => %{"nvidia" => %{"type" => "openai", "base_url" => "https://api.nvidia.com/v1"}}
+          "providers" => %{
+            "nvidia" => %{"type" => "openai", "base_url" => "https://api.nvidia.com/v1"}
+          }
         })
       )
 
@@ -211,7 +213,9 @@ defmodule Planck.Headless.ConfigTest do
     test "models from multiple files are concatenated", %{tmp_dir: dir} do
       global =
         write_config(dir, %{
-          "models" => [%{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"}]
+          "models" => [
+            %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"}
+          ]
         })
 
       local_path = Path.join(dir, "local.json")

@@ -106,7 +106,11 @@ defmodule Planck.Headless.ResourceStoreTest do
 
       Application.put_env(:planck, :providers, %{
         "anthropic" => %{"type" => "anthropic"},
-        "local" => %{"type" => "openai", "base_url" => "http://localhost:11434", "has_api_key" => false}
+        "local" => %{
+          "type" => "openai",
+          "base_url" => "http://localhost:11434",
+          "has_api_key" => false
+        }
       })
 
       Application.put_env(:planck, :models, [

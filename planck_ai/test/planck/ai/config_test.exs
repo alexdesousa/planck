@@ -85,7 +85,12 @@ defmodule Planck.AI.ConfigTest do
 
     test "falls back to [:text] when input_types is empty" do
       models = [
-        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic", "input_types" => []}
+        %{
+          "id" => "sonnet",
+          "model" => "claude-sonnet-4-6",
+          "provider" => "anthropic",
+          "input_types" => []
+        }
       ]
 
       [m] = Config.from_config(@providers, models)
@@ -94,7 +99,12 @@ defmodule Planck.AI.ConfigTest do
 
     test "ignores unknown input_types" do
       models = [
-        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic", "input_types" => ["text", "hologram"]}
+        %{
+          "id" => "sonnet",
+          "model" => "claude-sonnet-4-6",
+          "provider" => "anthropic",
+          "input_types" => ["text", "hologram"]
+        }
       ]
 
       [m] = Config.from_config(@providers, models)
@@ -134,7 +144,11 @@ defmodule Planck.AI.ConfigTest do
 
     test "identifier is upcased from provider entry" do
       providers = %{
-        "nvidia" => %{"type" => "openai", "base_url" => "https://api.nvidia.com/v1", "identifier" => "nvidia"}
+        "nvidia" => %{
+          "type" => "openai",
+          "base_url" => "https://api.nvidia.com/v1",
+          "identifier" => "nvidia"
+        }
       }
 
       models = [%{"id" => "m", "model" => "m", "provider" => "nvidia"}]

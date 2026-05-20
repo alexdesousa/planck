@@ -607,8 +607,19 @@ defmodule Planck.Headless.SessionLifecycleTest do
       config_path = Path.join(dir, "config.json")
       env_path = Path.join(dir, ".env")
 
-      Headless.configure_provider(id: "p1", type: "anthropic", config_file: config_path, env_file: env_path)
-      Headless.configure_provider(id: "p2", type: "openai", config_file: config_path, env_file: env_path)
+      Headless.configure_provider(
+        id: "p1",
+        type: "anthropic",
+        config_file: config_path,
+        env_file: env_path
+      )
+
+      Headless.configure_provider(
+        id: "p2",
+        type: "openai",
+        config_file: config_path,
+        env_file: env_path
+      )
 
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
@@ -781,8 +792,21 @@ defmodule Planck.Headless.SessionLifecycleTest do
     test "models array is appended not replaced on successive calls", %{tmp_dir: dir} do
       config_path = Path.join(dir, "multi.json")
 
-      Headless.configure_model(id: "first", model: "model-a", provider: "p1", default: false, config_file: config_path)
-      Headless.configure_model(id: "second", model: "model-b", provider: "p1", default: false, config_file: config_path)
+      Headless.configure_model(
+        id: "first",
+        model: "model-a",
+        provider: "p1",
+        default: false,
+        config_file: config_path
+      )
+
+      Headless.configure_model(
+        id: "second",
+        model: "model-b",
+        provider: "p1",
+        default: false,
+        config_file: config_path
+      )
 
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
