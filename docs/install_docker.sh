@@ -2,11 +2,9 @@
 set -e
 
 REPO="alexdesousa/planck"
-VERSION="0.1.5"
+VERSION="0.1.6"
 PLANCK_HOME="$HOME/planck"
-# NOTE: v0.1.5 tag predates the compose.yml fixes; use main for this release only.
-# Future releases should use: https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml
-COMPOSE_URL="https://raw.githubusercontent.com/$REPO/main/planck_docker/compose.yml"
+COMPOSE_URL="https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 BIND_ADDRESS="127.0.0.1"
@@ -60,7 +58,6 @@ fi
 # ── Create directory layout ───────────────────────────────────────────────────
 echo "Setting up $PLANCK_HOME..."
 mkdir -p \
-  "$PLANCK_HOME/models" \
   "$PLANCK_HOME/typesense-data" \
   "$PLANCK_HOME/workspace/.planck"
 
@@ -81,36 +78,13 @@ else
   echo "  → $ENV_FILE already exists, skipping."
 fi
 
-# ── Download model ────────────────────────────────────────────────────────────
-MODEL="Bonsai-8B-Q1_0.gguf"
-MODEL_PATH="$PLANCK_HOME/models/$MODEL"
-MODEL_URL="https://huggingface.co/prism-ml/Bonsai-8B-gguf/resolve/main/$MODEL"
-
-if [ ! -f "$MODEL_PATH" ]; then
-  echo "Downloading Bonsai model (1.16 GB)..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -L --progress-bar -o "$MODEL_PATH" "$MODEL_URL"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q --show-progress -O "$MODEL_PATH" "$MODEL_URL"
-  else
-    echo "Neither curl nor wget found. Please install one and retry."
-    exit 1
-  fi
-else
-  echo "  → Model already downloaded, skipping."
-fi
-
 # ── Download compose.yml ──────────────────────────────────────────────────────
 COMPOSE_FILE="$PLANCK_HOME/compose.yml"
-if [ ! -f "$COMPOSE_FILE" ]; then
-  echo "Downloading compose.yml..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$COMPOSE_FILE" "$COMPOSE_URL"
-  else
-    wget -qO "$COMPOSE_FILE" "$COMPOSE_URL"
-  fi
+echo "Downloading compose.yml..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL -o "$COMPOSE_FILE" "$COMPOSE_URL"
 else
-  echo "  → compose.yml already exists, skipping."
+  wget -qO "$COMPOSE_FILE" "$COMPOSE_URL"
 fi
 
 # ── Pull images ───────────────────────────────────────────────────────────────
@@ -127,4 +101,4 @@ $COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 
 echo ""
 echo "Planck is running at http://localhost:4000"
-echo "(Bonsai model may take 30–60 s to load on first start)"
+echo "Open it in your browser and follow the setup wizard to configure a provider."

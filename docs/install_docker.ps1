@@ -17,11 +17,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Repo        = "alexdesousa/planck"
-$Version     = "0.1.5"
+$Version     = "0.1.6"
 $PlanckHome  = Join-Path $HOME "planck"
-# NOTE: v0.1.5 tag predates the compose.yml fixes; use main for this release only.
-# Future releases should use: "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
-$ComposeUrl  = "https://raw.githubusercontent.com/$Repo/main/planck_docker/compose.yml"
+$ComposeUrl  = "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
 $ComposeFile = Join-Path $PlanckHome "compose.yml"
 $EnvFile     = Join-Path $PlanckHome ".env"
 
@@ -56,7 +54,7 @@ if ($LASTEXITCODE -eq 0) {
 
 # ── Create directory layout ───────────────────────────────────────────────────
 Write-Host "Setting up $PlanckHome..."
-foreach ($dir in "models", "typesense-data", "workspace\.planck") {
+foreach ($dir in "typesense-data", "workspace\.planck") {
     New-Item -ItemType Directory -Force -Path (Join-Path $PlanckHome $dir) | Out-Null
 }
 
@@ -81,26 +79,9 @@ SEARXNG_LANGUAGE=en
     Write-Host "  -> $EnvFile already exists, skipping."
 }
 
-# ── Download model ────────────────────────────────────────────────────────────
-$Model     = "Bonsai-8B-Q1_0.gguf"
-$ModelPath = Join-Path $PlanckHome "models\$Model"
-$ModelUrl  = "https://huggingface.co/prism-ml/Bonsai-8B-gguf/resolve/main/$Model"
-
-if (-not (Test-Path $ModelPath)) {
-    Write-Host "Downloading Bonsai model (1.16 GB)..."
-    $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile($ModelUrl, $ModelPath)
-} else {
-    Write-Host "  -> Model already downloaded, skipping."
-}
-
 # ── Download compose.yml ──────────────────────────────────────────────────────
-if (-not (Test-Path $ComposeFile)) {
-    Write-Host "Downloading compose.yml..."
-    Invoke-WebRequest -Uri $ComposeUrl -OutFile $ComposeFile -UseBasicParsing
-} else {
-    Write-Host "  -> compose.yml already exists, skipping."
-}
+Write-Host "Downloading compose.yml..."
+Invoke-WebRequest -Uri $ComposeUrl -OutFile $ComposeFile -UseBasicParsing
 
 # ── Export PLANCK_HOME so compose.yml volume paths resolve correctly ──────────
 $env:PLANCK_HOME = $PlanckHome
@@ -119,4 +100,4 @@ Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" up -d
 
 Write-Host ""
 Write-Host "Planck is running at http://localhost:4000"
-Write-Host "(Bonsai model may take 30-60 s to load on first start)"
+Write-Host "Open it in your browser and follow the setup wizard to configure a provider."

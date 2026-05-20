@@ -7,13 +7,11 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.1.5
+    image: ghcr.io/alexdesousa/planck:0.1.6
     entrypoint: ["/setup.sh"]
     volumes:
       - ${PLANCK_HOME}/workspace:/workspace
     environment:
-      LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
-      LLAMA_PORT: ${LLAMA_PORT:-11434}
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
 
@@ -22,7 +20,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.1.5
+    image: ghcr.io/alexdesousa/planck:0.1.6
     hostname: planck
     ports:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
@@ -35,8 +33,6 @@ services:
       TYPESENSE_COLLECTION: ${TYPESENSE_COLLECTION:-workspace}
       SEARXNG_URL: http://searxng:8080
       TIKA_URL: http://tika:9998
-      LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
-      LLAMA_PORT: ${LLAMA_PORT:-11434}
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
     depends_on:
@@ -48,23 +44,6 @@ services:
         condition: service_started
       tika:
         condition: service_started
-      llama-cpp:
-        condition: service_started
-    restart: unless-stopped
-
-  # ── Bonsai 1-bit LLM (CPU) ─────────────────────────────────────────────────
-  llama-cpp:
-    build:
-      context: ..
-      dockerfile: planck_docker/llama-cpu/Dockerfile
-    image: ghcr.io/alexdesousa/planck-llama:0.1.5-cpu
-    volumes:
-      - ${PLANCK_HOME}/models:/models
-    environment:
-      LLAMA_THREADS: ${LLAMA_THREADS:-8}
-      LLAMA_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
-      LLAMA_PORT: ${LLAMA_PORT:-11434}
-      LLAMA_SLEEP_IDLE_SECONDS: ${LLAMA_SLEEP_IDLE_SECONDS:-600}
     restart: unless-stopped
 
   # ── Privacy-respecting web search ──────────────────────────────────────────
@@ -94,4 +73,3 @@ services:
   tika:
     image: apache/tika:3.3.0.0-full
     restart: unless-stopped
-

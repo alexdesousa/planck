@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.6
+
+- `llama-cpp` service removed — local LLM is no longer bundled. Configure any
+  provider (NVIDIA NIM, Groq, Ollama, etc.) via the SetupModal after first run.
+- `planck_docker/llama-cpu/Dockerfile` removed.
+- `default_config.json.template` replaced with an empty config (`{}`);
+  the SetupModal opens automatically on first launch and guides the user through
+  provider and model setup.
+- `LLAMA_*` env vars (`LLAMA_CTX_SIZE`, `LLAMA_PORT`, `LLAMA_THREADS`,
+  `LLAMA_SLEEP_IDLE_SECONDS`) removed from `compose.yml` and install scripts.
+- `install_docker.sh` and `install_docker.ps1`: model download step removed;
+  `models/` directory no longer created; `compose.yml` always re-downloaded
+  (idempotent); version bumped to 0.1.6.
+- Image tags bumped to `0.1.6`.
+
 ## v0.1.5
 
 - Images bumped to v0.1.5 — picks up `:custom_openai` provider support and the

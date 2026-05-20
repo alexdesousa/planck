@@ -1,12 +1,1 @@
-{
-  "default_provider": "llama_cpp",
-  "default_model": "Bonsai-8B-Q1_0",
-  "models": [
-    {
-      "id": "Bonsai-8B-Q1_0",
-      "provider": "llama_cpp",
-      "base_url": "http://llama-cpp:$LLAMA_PORT",
-      "context_window": $LLAMA_CTX_SIZE
-    }
-  ]
-}
+{}
