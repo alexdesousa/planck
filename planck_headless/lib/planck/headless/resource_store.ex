@@ -212,23 +212,11 @@ defmodule Planck.Headless.ResourceStore do
     end
   end
 
-  # Cloud models: static LLMDB catalog filtered by API key presence (no network).
-  # Local/custom models: explicitly declared in Config.models!() and already
-  # parsed to Planck.AI.Model structs by the Models Skogsra type — no network,
-  # no timeouts.
+  # Available models are derived entirely from the providers map + models list
+  # declared in config.json. The LLMDB catalog is no longer included — only
+  # explicitly configured models are available.
   @spec detect_available_models() :: [Planck.AI.Model.t()]
   defp detect_available_models do
-    cloud =
-      [:anthropic, :openai, :google]
-      |> Enum.filter(&api_key_set?/1)
-      |> Enum.flat_map(&Planck.AI.list_models/1)
-
-    cloud ++ Config.models!()
+    Planck.AI.Config.from_config(Config.providers!(), Config.models!())
   end
-
-  @spec api_key_set?(atom()) :: boolean()
-  defp api_key_set?(:anthropic), do: Config.anthropic_api_key!() != nil
-  defp api_key_set?(:openai), do: Config.openai_api_key!() != nil
-  defp api_key_set?(:google), do: Config.google_api_key!() != nil
-  defp api_key_set?(_), do: false
 end

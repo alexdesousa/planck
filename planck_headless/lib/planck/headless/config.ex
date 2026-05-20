@@ -51,23 +51,30 @@ defmodule Planck.Headless.Config do
 
   use Skogsra
 
-  defmodule Models do
-    @moduledoc "Skogsra type for the list of local model configurations."
-
-    # Skogsra type for the `models` config key. Accepts a list of model-entry
-    # maps and parses them via `Planck.AI.Config.from_list/1`, producing a list
-    # of `%Planck.AI.Model{}` structs. Invalid entries are skipped with a
-    # warning (delegated to `Planck.AI.Config`). No env-var form — model
-    # declarations are too structured for a flat string.
+  defmodule Providers do
+    @moduledoc "Skogsra type for the providers map in config.json."
 
     use Skogsra.Type
 
-    alias Planck.AI.Config, as: AIConfig
+    @impl Skogsra.Type
+    @spec cast(term()) :: {:ok, %{String.t() => map()}} | {:error, String.t()}
+    def cast(map) when is_map(map), do: {:ok, map}
+    def cast(_), do: {:error, "expected a map of provider entries"}
+  end
+
+  defmodule Models do
+    @moduledoc "Skogsra type for the models list in config.json."
+
+    # Raw list passthrough — model structs are built lazily by
+    # Planck.AI.Config.from_config/2 when available_models are needed.
+    # No env-var form — model declarations are too structured for a flat string.
+
+    use Skogsra.Type
 
     @impl Skogsra.Type
-    @spec cast(term()) :: {:ok, [Planck.AI.Model.t()]} | {:error, String.t()}
-    def cast(list) when is_list(list), do: {:ok, AIConfig.from_list(list)}
-    def cast(_), do: {:error, "expected a list of model maps"}
+    @spec cast(term()) :: {:ok, [map()]} | {:error, String.t()}
+    def cast(list) when is_list(list), do: {:ok, list}
+    def cast(_), do: {:error, "expected a list of model entries"}
   end
 
   defmodule PathList do
@@ -116,13 +123,14 @@ defmodule Planck.Headless.Config do
   The resolved configuration struct returned by `get/0`.
   """
   @type t :: %__MODULE__{
-          default_provider: atom() | nil,
+          default_provider: String.t() | nil,
           default_model: String.t() | nil,
           sessions_dir: Path.t(),
           skills_dirs: [Path.t()],
           teams_dirs: [Path.t()],
           sidecar: Path.t(),
-          models: [Planck.AI.Model.t()]
+          providers: %{String.t() => map()},
+          models: [map()]
         }
 
   defstruct default_provider: nil,
@@ -131,6 +139,7 @@ defmodule Planck.Headless.Config do
             skills_dirs: [".planck/skills", "~/.planck/skills"],
             teams_dirs: [".planck/teams", "~/.planck/teams"],
             sidecar: ".planck/sidecar",
+            providers: %{},
             models: []
 
   @envdoc """
@@ -159,9 +168,8 @@ defmodule Planck.Headless.Config do
   # API key binding order: system env → project .env → global .env → Elixir config.
   @dotenv [:system, Planck.Headless.Config.EnvBinding, :config]
 
-  @envdoc "Default LLM provider (e.g. anthropic)."
+  @envdoc "Default provider key — references an entry in the `providers` map (e.g. \"anthropic\")."
   app_env :default_provider, :planck, :default_provider,
-    type: :atom,
     default: nil,
     binding_order: @json
 
@@ -208,28 +216,35 @@ defmodule Planck.Headless.Config do
     binding_order: @json
 
   @envdoc """
-  List of model declarations for local providers (and optional cloud model
-  overrides). Each entry follows the `Planck.AI.Config` JSON format. Only
-  readable from `.planck/config.json` or application config — no env var
-  equivalent (the format is too structured for a flat string).
+  Map of named provider entries. Each key is a user-defined provider alias;
+  the value describes the provider type and connection details. Only readable
+  from `.planck/config.json` or application config — no env var equivalent.
+
+  Example (in .planck/config.json):
+  ```json
+  "providers": {
+    "anthropic":    { "type": "anthropic" },
+    "nvidia":       { "type": "openai", "base_url": "https://integrate.api.nvidia.com/v1", "identifier": "NVIDIA" },
+    "local-ollama": { "type": "openai", "base_url": "http://localhost:11434", "has_api_key": false }
+  }
+  ```
+  """
+  app_env :providers, :planck, :providers,
+    type: Providers,
+    default: %{},
+    binding_order: @json
+
+  @envdoc """
+  List of model declarations. Each entry references a key in `providers` and
+  assigns a user alias. Only readable from `.planck/config.json` or application
+  config — no env var equivalent (the format is too structured for a flat string).
 
   Example (in .planck/config.json):
   ```json
   "models": [
-    {
-      "id":             "llama3.2",
-      "provider":       "ollama",
-      "base_url":       "http://localhost:11434",
-      "context_window": 128000,
-      "default_opts":   {"temperature": 0.7, "top_p": 0.9}
-    },
-    {
-      "id":             "mistral",
-      "provider":       "llama_cpp",
-      "base_url":       "http://localhost:8080",
-      "context_window": 32768,
-      "default_opts":   {"temperature": 0.5}
-    }
+    { "id": "sonnet",   "model": "claude-sonnet-4-6",              "provider": "anthropic" },
+    { "id": "llama70b", "model": "meta/llama-3.3-70b-instruct",    "provider": "nvidia",
+      "params": { "temperature": 0.6, "receive_timeout": 600000 } }
   ]
   ```
   """
@@ -269,6 +284,7 @@ defmodule Planck.Headless.Config do
       skills_dirs: skills_dirs!(),
       teams_dirs: teams_dirs!(),
       sidecar: sidecar!(),
+      providers: providers!(),
       models: models!()
     }
   end

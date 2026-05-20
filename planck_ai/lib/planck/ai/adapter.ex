@@ -28,24 +28,48 @@ defmodule Planck.AI.Adapter do
 
   """
   @spec to_req_llm(Model.t(), Context.t(), keyword()) ::
-          {model_spec :: String.t() | map(), req_llm_context :: ReqLLM.Context.t(),
-           opts :: keyword()}
+          {model_spec, req_llm_context, opts}
+        when model_spec: String.t() | map(),
+             req_llm_context: ReqLLM.Context.t(),
+             opts: keyword()
+  def to_req_llm(model, context, opts)
+
   def to_req_llm(%Model{} = model, %Context{} = context, opts) do
     model_spec = build_model_spec(model)
     req_context = build_context(context)
-    req_opts = opts |> add_base_url(model) |> add_tools(context.tools)
+
+    req_opts =
+      opts
+      |> add_base_url(model)
+      |> add_tools(context.tools)
+
     {model_spec, req_context, req_opts}
   end
 
   # --- Private ---
 
   @spec build_model_spec(Model.t()) :: String.t() | map()
-  defp build_model_spec(%Model{provider: :anthropic, id: id}), do: "anthropic:#{id}"
-  defp build_model_spec(%Model{provider: :openai, base_url: nil, id: id}), do: "openai:#{id}"
-  defp build_model_spec(%Model{provider: :openai, id: id}), do: %{provider: :openai, id: id}
-  defp build_model_spec(%Model{provider: :google, id: id}), do: "google:#{id}"
+  defp build_model_spec(model)
+
+  defp build_model_spec(%Model{provider: :anthropic} = m) do
+    "anthropic:#{m.model || m.id}"
+  end
+
+  defp build_model_spec(%Model{provider: :google} = m) do
+    "google:#{m.model || m.id}"
+  end
+
+  defp build_model_spec(%Model{provider: :openai, base_url: nil} = m) do
+    "openai:#{m.model || m.id}"
+  end
+
+  defp build_model_spec(%Model{provider: :openai} = m) do
+    %{provider: :openai, id: m.model || m.id}
+  end
 
   @spec build_context(Context.t()) :: ReqLLM.Context.t()
+  defp build_context(context)
+
   defp build_context(%Context{system: system, messages: messages}) do
     parts = Enum.flat_map(messages, &message_to_req_llm/1)
     parts = if system, do: [ReqLLM.Context.system(system) | parts], else: parts
@@ -53,39 +77,65 @@ defmodule Planck.AI.Adapter do
   end
 
   @spec add_base_url(keyword(), Model.t()) :: keyword()
-  defp add_base_url(opts, %Model{base_url: nil}), do: opts
+  defp add_base_url(opts, model)
 
-  defp add_base_url(opts, %Model{provider: :openai, base_url: url, api_key: key, identifier: id}) do
+  defp add_base_url(opts, %Model{base_url: nil}) do
+    opts
+  end
+
+  defp add_base_url(opts, %Model{provider: :openai, base_url: url, has_api_key: false}) do
+    opts
+    |> Keyword.put_new(:base_url, url)
+    |> Keyword.put_new(:api_key, "not-needed")
+  end
+
+  defp add_base_url(opts, %Model{provider: :openai, base_url: url, identifier: id}) do
     effective_id = id || "OPENAI"
-    resolved = key || resolve_api_key(effective_id) || "not-needed"
+    resolved = resolve_api_key(effective_id) || "not-needed"
 
     opts
     |> Keyword.put_new(:base_url, url)
     |> Keyword.put_new(:api_key, resolved)
   end
 
-  defp add_base_url(opts, %Model{base_url: url}), do: Keyword.put_new(opts, :base_url, url)
+  defp add_base_url(opts, %Model{base_url: url}) do
+    Keyword.put_new(opts, :base_url, url)
+  end
 
   @spec resolve_api_key(String.t()) :: String.t() | nil
-  defp resolve_api_key(id), do: System.get_env("#{id}_API_KEY")
+  defp resolve_api_key(id)
+
+  defp resolve_api_key(id) do
+    System.get_env("#{id}_API_KEY")
+  end
 
   @spec add_tools(keyword(), [Tool.t()]) :: keyword()
-  defp add_tools(opts, []), do: opts
+  defp add_tools(opts, tools)
+
+  defp add_tools(opts, []) do
+    opts
+  end
 
   defp add_tools(opts, tools) do
-    req_tools =
-      tools
-      |> Enum.flat_map(fn tool ->
-        case build_req_llm_tool(tool) do
-          {:ok, t} -> [t]
-          _error -> []
-        end
-      end)
+    tools
+    |> Enum.flat_map(fn tool ->
+      case build_req_llm_tool(tool) do
+        {:ok, t} -> [t]
+        _error -> []
+      end
+    end)
+    |> case do
+      [] ->
+        opts
 
-    if req_tools == [], do: opts, else: Keyword.put(opts, :tools, req_tools)
+      [_ | _] = req_tools ->
+        Keyword.put(opts, :tools, req_tools)
+    end
   end
 
   @spec build_req_llm_tool(Tool.t()) :: {:ok, ReqLLM.Tool.t()} | {:error, term()}
+  defp build_req_llm_tool(tool)
+
   defp build_req_llm_tool(%Tool{name: name, description: desc, parameters: params}) do
     ReqLLM.Tool.new(
       name: name,
@@ -96,6 +146,8 @@ defmodule Planck.AI.Adapter do
   end
 
   @spec message_to_req_llm(Message.t()) :: [term()]
+  defp message_to_req_llm(message)
+
   defp message_to_req_llm(%Message{role: :user, content: parts}) do
     [ReqLLM.Context.user(Enum.map(parts, &content_part_to_req_llm/1))]
   end
@@ -129,19 +181,37 @@ defmodule Planck.AI.Adapter do
   end
 
   @spec content_part_to_req_llm(Message.content_part()) :: term()
-  defp content_part_to_req_llm({:text, text}), do: ContentPart.text(text)
-  defp content_part_to_req_llm({:image, data, mime_type}), do: ContentPart.image(data, mime_type)
-  defp content_part_to_req_llm({:image_url, url}), do: ContentPart.image_url(url)
+  defp content_part_to_req_llm(part)
 
-  defp content_part_to_req_llm({:file, data, mime_type}),
-    do: ContentPart.file(data, "", mime_type)
+  defp content_part_to_req_llm({:text, text}) do
+    ContentPart.text(text)
+  end
 
-  defp content_part_to_req_llm({:video_url, url}), do: ContentPart.video_url(url)
-  defp content_part_to_req_llm({:thinking, text}), do: ContentPart.thinking(text)
+  defp content_part_to_req_llm({:image, data, mime_type}) do
+    ContentPart.image(data, mime_type)
+  end
 
-  defp content_part_to_req_llm({:tool_call, _id, _name, _args}),
-    do: ContentPart.text("")
+  defp content_part_to_req_llm({:image_url, url}) do
+    ContentPart.image_url(url)
+  end
 
-  defp content_part_to_req_llm({:tool_result, _id, _result}),
-    do: ContentPart.text("")
+  defp content_part_to_req_llm({:file, data, mime_type}) do
+    ContentPart.file(data, "", mime_type)
+  end
+
+  defp content_part_to_req_llm({:video_url, url}) do
+    ContentPart.video_url(url)
+  end
+
+  defp content_part_to_req_llm({:thinking, text}) do
+    ContentPart.thinking(text)
+  end
+
+  defp content_part_to_req_llm({:tool_call, _id, _name, _args}) do
+    ContentPart.text("")
+  end
+
+  defp content_part_to_req_llm({:tool_result, _id, _result}) do
+    ContentPart.text("")
+  end
 end

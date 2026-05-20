@@ -16,7 +16,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
   @model %Model{
     id: "llama3.2",
     name: "Llama 3.2",
-    provider: :ollama,
+    provider: :openai,
     context_window: 4_096,
     max_tokens: 2_048
   }
@@ -40,9 +40,36 @@ defmodule Planck.Headless.SessionLifecycleTest do
       Config.reload_sessions_dir()
     end)
 
-    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
 
     {:ok, sessions_dir: sessions_dir}
+  end
+
+  # Sets up providers + models config so build_dynamic_team can find the model.
+  defp configure_available_model(model_id) do
+    Application.put_env(:planck, :providers, %{
+      "test" => %{"type" => "openai", "base_url" => "http://test.local", "has_api_key" => false}
+    })
+
+    Application.put_env(:planck, :models, [
+      %{"id" => model_id, "model" => model_id, "provider" => "test"}
+    ])
+
+    Application.put_env(:planck, :default_model, model_id)
+    Config.reload_providers()
+    Config.reload_models()
+    Config.reload_default_model()
+    ResourceStore.reload()
+  end
+
+  defp clear_available_model do
+    Application.delete_env(:planck, :providers)
+    Application.delete_env(:planck, :models)
+    Application.delete_env(:planck, :default_model)
+    Config.reload_providers()
+    Config.reload_models()
+    Config.reload_default_model()
+    ResourceStore.reload()
   end
 
   defp write_team(dir, alias_name) do
@@ -56,7 +83,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate.",
             "tools" => ["read", "write", "edit", "bash"]
@@ -297,7 +324,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
           "members" => [
             %{
               "type" => "orchestrator",
-              "provider" => "ollama",
+              "provider" => "openai",
               "model_id" => "llama3.2",
               "system_prompt" => "You coordinate.",
               "tools" => ["read", "list_skills"]
@@ -317,17 +344,8 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
 
     test "starts a dynamic team session when default model is configured", %{tmp_dir: _dir} do
-      Application.put_env(:planck, :default_provider, :ollama)
-      Application.put_env(:planck, :default_model, "llama3.2")
-      Config.reload_default_provider()
-      Config.reload_default_model()
-
-      on_exit(fn ->
-        Application.delete_env(:planck, :default_provider)
-        Application.delete_env(:planck, :default_model)
-        Config.reload_default_provider()
-        Config.reload_default_model()
-      end)
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
 
       assert {:ok, session_id} = Headless.start_session()
 
@@ -340,6 +358,18 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert "write" in tool_names
       assert "bash" in tool_names
       assert "spawn_agent" in tool_names
+    end
+
+    test "returns error when default_model alias has no matching available model" do
+      Application.put_env(:planck, :default_model, "nonexistent")
+      Config.reload_default_model()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_model)
+        Config.reload_default_model()
+      end)
+
+      assert {:error, {:default_model_not_available, _}} = Headless.start_session()
     end
 
     test "starts a session by team alias from ResourceStore", %{tmp_dir: dir} do
@@ -390,17 +420,8 @@ defmodule Planck.Headless.SessionLifecycleTest do
       ResourceStore.put_tools([sidecar_tool])
       on_exit(fn -> ResourceStore.clear_tools() end)
 
-      Application.put_env(:planck, :default_provider, :ollama)
-      Application.put_env(:planck, :default_model, "llama3.2")
-      Config.reload_default_provider()
-      Config.reload_default_model()
-
-      on_exit(fn ->
-        Application.delete_env(:planck, :default_provider)
-        Application.delete_env(:planck, :default_model)
-        Config.reload_default_provider()
-        Config.reload_default_model()
-      end)
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
 
       {:ok, session_id} = Headless.start_session()
       {:ok, meta} = Session.get_metadata(session_id)
@@ -466,17 +487,8 @@ defmodule Planck.Headless.SessionLifecycleTest do
       ResourceStore.put_tools([sidecar_tool])
       ResourceStore.clear_tools()
 
-      Application.put_env(:planck, :default_provider, :ollama)
-      Application.put_env(:planck, :default_model, "llama3.2")
-      Config.reload_default_provider()
-      Config.reload_default_model()
-
-      on_exit(fn ->
-        Application.delete_env(:planck, :default_provider)
-        Application.delete_env(:planck, :default_model)
-        Config.reload_default_provider()
-        Config.reload_default_model()
-      end)
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
 
       {:ok, session_id} = Headless.start_session()
       {:ok, meta} = Session.get_metadata(session_id)
@@ -518,17 +530,8 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
 
     test "dynamic team session has nil team_description", %{tmp_dir: _dir} do
-      Application.put_env(:planck, :default_provider, :ollama)
-      Application.put_env(:planck, :default_model, "llama3.2")
-      Config.reload_default_provider()
-      Config.reload_default_model()
-
-      on_exit(fn ->
-        Application.delete_env(:planck, :default_provider)
-        Application.delete_env(:planck, :default_model)
-        Config.reload_default_provider()
-        Config.reload_default_model()
-      end)
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
 
       {:ok, session_id} = Headless.start_session()
 
@@ -550,76 +553,212 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
-  # --- configure_model/1 ---
+  # --- configure_provider/1 ---
 
-  describe "configure_model/1" do
+  describe "configure_provider/1" do
     setup %{tmp_dir: dir} do
-      original_model = Application.get_env(:planck, :default_model)
-      original_provider = Application.get_env(:planck, :default_provider)
-
       on_exit(fn ->
-        Application.delete_env(:planck, :default_model)
-        Application.delete_env(:planck, :default_provider)
-        if original_model, do: Application.put_env(:planck, :default_model, original_model)
-
-        if original_provider,
-          do: Application.put_env(:planck, :default_provider, original_provider)
-
-        Config.reload_default_model()
-        Config.reload_default_provider()
+        Application.delete_env(:planck, :providers)
+        Config.reload_providers()
         ResourceStore.reload()
       end)
 
       {:ok, config_dir: dir}
     end
 
-    test "writes default_provider and default_model to the JSON config file", %{tmp_dir: dir} do
+    test "writes a provider entry to the JSON config file", %{tmp_dir: dir} do
       config_path = Path.join(dir, "config.json")
 
       assert :ok =
-               Headless.configure_model(
-                 provider: :ollama,
-                 model_id: "llama3.2",
-                 scope: :local,
-                 default: true,
+               Headless.configure_provider(
+                 id: "local",
+                 type: "openai",
+                 base_url: "http://localhost:11434",
+                 has_api_key: false,
                  config_file: config_path,
                  env_file: Path.join(dir, ".env")
                )
 
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
-      assert map["default_provider"] == "ollama"
-      assert map["default_model"] == "llama3.2"
+      assert map["providers"]["local"]["type"] == "openai"
+      assert map["providers"]["local"]["base_url"] == "http://localhost:11434"
+      assert map["providers"]["local"]["has_api_key"] == false
     end
 
-    test "appends a local model entry with all fields", %{tmp_dir: dir} do
+    test "merges provider entry with existing JSON config", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+      File.write!(config_path, Jason.encode!(%{"sessions_dir" => ".planck/sessions"}))
+
+      Headless.configure_provider(
+        id: "mycloud",
+        type: "anthropic",
+        config_file: config_path,
+        env_file: Path.join(dir, ".env")
+      )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["sessions_dir"] == ".planck/sessions"
+      assert map["providers"]["mycloud"]["type"] == "anthropic"
+    end
+
+    test "successive calls accumulate providers, not replace them", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(id: "p1", type: "anthropic", config_file: config_path, env_file: env_path)
+      Headless.configure_provider(id: "p2", type: "openai", config_file: config_path, env_file: env_path)
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert Map.has_key?(map["providers"], "p1")
+      assert Map.has_key?(map["providers"], "p2")
+    end
+
+    test "writes ANTHROPIC_API_KEY to .env for anthropic type", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "myanthropic",
+        type: "anthropic",
+        api_key: "sk-ant-test",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "ANTHROPIC_API_KEY=sk-ant-test"
+    end
+
+    test "writes GOOGLE_API_KEY to .env for google type", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "mygoogle",
+        type: "google",
+        api_key: "goog-secret",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "GOOGLE_API_KEY=goog-secret"
+    end
+
+    test "writes <IDENTIFIER>_API_KEY to .env for openai type with identifier", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "nvidia",
+        type: "openai",
+        identifier: "NVIDIA",
+        base_url: "https://integrate.api.nvidia.com/v1",
+        api_key: "nvapi-secret",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "NVIDIA_API_KEY=nvapi-secret"
+    end
+
+    test "updating an existing API key replaces the line in .env", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+      File.write!(env_path, "ANTHROPIC_API_KEY=old-key\nOTHER=value\n")
+
+      Headless.configure_provider(
+        id: "ant",
+        type: "anthropic",
+        api_key: "new-key",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "ANTHROPIC_API_KEY=new-key"
+      refute content =~ "old-key"
+      assert content =~ "OTHER=value"
+    end
+
+    test "has_api_key: false does not write api_key to .env", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "local",
+        type: "openai",
+        base_url: "http://localhost:11434",
+        has_api_key: false,
+        api_key: "should-be-ignored",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      refute File.exists?(env_path)
+    end
+  end
+
+  # --- configure_model/1 ---
+
+  describe "configure_model/1" do
+    setup %{tmp_dir: dir} do
+      original_model = Application.get_env(:planck, :default_model)
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_model)
+        Application.delete_env(:planck, :providers)
+        Application.delete_env(:planck, :models)
+        if original_model, do: Application.put_env(:planck, :default_model, original_model)
+        Config.reload_default_model()
+        Config.reload_providers()
+        Config.reload_models()
+        ResourceStore.reload()
+      end)
+
+      {:ok, config_dir: dir}
+    end
+
+    test "writes default_model and model entry to the JSON config file", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      assert :ok =
+               Headless.configure_model(
+                 id: "llama3.2",
+                 model: "llama3.2",
+                 provider: "local",
+                 default: true,
+                 config_file: config_path
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["default_model"] == "llama3.2"
+      [entry] = map["models"]
+      assert entry["id"] == "llama3.2"
+      assert entry["model"] == "llama3.2"
+      assert entry["provider"] == "local"
+    end
+
+    test "appends a model entry with params", %{tmp_dir: dir} do
       config_path = Path.join(dir, "models.json")
 
       assert :ok =
                Headless.configure_model(
-                 provider: :llama_cpp,
-                 model_id: "mymodel",
-                 base_url: "http://localhost:8080",
-                 model_name: "My Model",
-                 context_window: 32_768,
-                 supports_thinking: true,
-                 advanced_opts: %{"temperature" => 1.0},
-                 scope: :local,
+                 id: "mymodel",
+                 model: "meta/llama-3.1-8b-instruct",
+                 provider: "nvidia",
+                 params: %{"temperature" => 0.8},
                  default: false,
-                 config_file: config_path,
-                 env_file: Path.join(dir, ".env")
+                 config_file: config_path
                )
 
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
       [entry] = map["models"]
       assert entry["id"] == "mymodel"
-      assert entry["provider"] == "llama_cpp"
-      assert entry["base_url"] == "http://localhost:8080"
-      assert entry["name"] == "My Model"
-      assert entry["context_window"] == 32_768
-      assert entry["supports_thinking"] == true
-      assert entry["default_opts"] == %{"temperature" => 1.0}
+      assert entry["model"] == "meta/llama-3.1-8b-instruct"
+      assert entry["provider"] == "nvidia"
+      assert entry["params"] == %{"temperature" => 0.8}
     end
 
     test "merges with existing JSON config rather than overwriting", %{tmp_dir: dir} do
@@ -627,11 +766,10 @@ defmodule Planck.Headless.SessionLifecycleTest do
       File.write!(config_path, Jason.encode!(%{"sessions_dir" => ".planck/sessions"}))
 
       Headless.configure_model(
-        provider: :ollama,
-        model_id: "llama3.2",
-        scope: :local,
-        config_file: config_path,
-        env_file: Path.join(dir, ".env")
+        id: "llama3.2",
+        model: "llama3.2",
+        provider: "local",
+        config_file: config_path
       )
 
       {:ok, content} = File.read(config_path)
@@ -643,25 +781,8 @@ defmodule Planck.Headless.SessionLifecycleTest do
     test "models array is appended not replaced on successive calls", %{tmp_dir: dir} do
       config_path = Path.join(dir, "multi.json")
 
-      env_path = Path.join(dir, ".env")
-
-      Headless.configure_model(
-        provider: :ollama,
-        model_id: "first",
-        base_url: "http://localhost:11434",
-        scope: :local,
-        config_file: config_path,
-        env_file: env_path
-      )
-
-      Headless.configure_model(
-        provider: :ollama,
-        model_id: "second",
-        base_url: "http://localhost:11434",
-        scope: :local,
-        config_file: config_path,
-        env_file: env_path
-      )
+      Headless.configure_model(id: "first", model: "model-a", provider: "p1", default: false, config_file: config_path)
+      Headless.configure_model(id: "second", model: "model-b", provider: "p1", default: false, config_file: config_path)
 
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
@@ -670,98 +791,20 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert "second" in ids
     end
 
-    test "writes API key to .env file for cloud providers", %{tmp_dir: dir} do
-      env_path = Path.join(dir, ".env")
-
-      Headless.configure_model(
-        provider: :anthropic,
-        model_id: "claude-sonnet-4-6",
-        api_key: "sk-ant-test",
-        scope: :local,
-        config_file: Path.join(dir, "config.json"),
-        env_file: env_path
-      )
-
-      content = File.read!(env_path)
-      assert content =~ "ANTHROPIC_API_KEY=sk-ant-test"
-    end
-
-    test "updating an existing API key replaces the line in .env", %{tmp_dir: dir} do
-      env_path = Path.join(dir, ".env")
-      File.write!(env_path, "ANTHROPIC_API_KEY=old-key\nOTHER=value\n")
-
-      Headless.configure_model(
-        provider: :anthropic,
-        model_id: "claude-sonnet-4-6",
-        api_key: "new-key",
-        scope: :local,
-        config_file: Path.join(dir, "config.json"),
-        env_file: env_path
-      )
-
-      content = File.read!(env_path)
-      assert content =~ "ANTHROPIC_API_KEY=new-key"
-      refute content =~ "old-key"
-      assert content =~ "OTHER=value"
-    end
-
-    test "writes custom_openai model entry with identifier and base_url", %{tmp_dir: dir} do
+    test "default: false does not set default_model", %{tmp_dir: dir} do
       config_path = Path.join(dir, "config.json")
 
-      assert :ok =
-               Headless.configure_model(
-                 provider: :custom_openai,
-                 model_id: "meta/llama-3.1-8b-instruct",
-                 identifier: "NVIDIA",
-                 base_url: "https://integrate.api.nvidia.com/v1",
-                 context_window: 128_000,
-                 default: false,
-                 config_file: config_path,
-                 env_file: Path.join(dir, ".env")
-               )
+      Headless.configure_model(
+        id: "mymodel",
+        model: "some-model",
+        provider: "p1",
+        default: false,
+        config_file: config_path
+      )
 
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
-      [entry] = map["models"]
-      assert entry["id"] == "meta/llama-3.1-8b-instruct"
-      assert entry["provider"] == "custom_openai"
-      assert entry["identifier"] == "NVIDIA"
-      assert entry["base_url"] == "https://integrate.api.nvidia.com/v1"
-      assert entry["context_window"] == 128_000
-    end
-
-    test "writes <IDENTIFIER>_API_KEY to .env for custom_openai", %{tmp_dir: dir} do
-      env_path = Path.join(dir, ".env")
-
-      Headless.configure_model(
-        provider: :custom_openai,
-        model_id: "meta/llama-3.1-8b-instruct",
-        identifier: "NVIDIA",
-        base_url: "https://integrate.api.nvidia.com/v1",
-        api_key: "nvapi-secret",
-        default: false,
-        config_file: Path.join(dir, "config.json"),
-        env_file: env_path
-      )
-
-      content = File.read!(env_path)
-      assert content =~ "NVIDIA_API_KEY=nvapi-secret"
-    end
-
-    test "custom_openai without identifier does not write api_key to .env", %{tmp_dir: dir} do
-      env_path = Path.join(dir, ".env")
-
-      Headless.configure_model(
-        provider: :custom_openai,
-        model_id: "some-model",
-        base_url: "http://localhost:1234",
-        api_key: "a-key",
-        default: false,
-        config_file: Path.join(dir, "config.json"),
-        env_file: env_path
-      )
-
-      refute File.exists?(env_path)
+      refute Map.has_key?(map, "default_model")
     end
   end
 
@@ -986,7 +1029,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
              "name" => "Reviewer",
              "description" => "Reviews code.",
              "system_prompt" => "You are a code reviewer.",
-             "provider" => "ollama",
+             "provider" => "openai",
              "model_id" => "llama3.2",
              "tools" => []
            }}
@@ -1031,7 +1074,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
              "name" => "Reviewer",
              "description" => "Reviews code.",
              "system_prompt" => "You are a reviewer.",
-             "provider" => "ollama",
+             "provider" => "openai",
              "model_id" => "llama3.2",
              "tools" => []
            }}
@@ -1077,7 +1120,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
              "name" => "Reviewer",
              "description" => "Reviews code.",
              "system_prompt" => "You are a reviewer.",
-             "provider" => "ollama",
+             "provider" => "openai",
              "model_id" => "llama3.2",
              "tools" => []
            }}
@@ -1115,7 +1158,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
         "name" => "Reviewer",
         "description" => "Reviews code.",
         "system_prompt" => "You are a reviewer.",
-        "provider" => "ollama",
+        "provider" => "openai",
         "model_id" => "llama3.2",
         "tools" => []
       }
@@ -1265,7 +1308,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
     test "agent usage and cost are restored after resume", %{tmp_dir: dir} do
       model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, model_with_cost} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, model_with_cost} end)
 
       team_dir = write_team(dir, "usage-restore-team")
       {:ok, session_id} = Headless.start_session(template: team_dir)
@@ -1294,7 +1337,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
     test "accumulated usage and cost survive multiple resumes", %{tmp_dir: dir} do
       model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, model_with_cost} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, model_with_cost} end)
 
       team_dir = write_team(dir, "multi-resume-team")
       {:ok, session_id} = Headless.start_session(template: team_dir)
@@ -1355,7 +1398,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate."
           }
@@ -1377,7 +1420,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate.",
             "tools" => ["read", "write", "edit", "bash", extra_tool]
@@ -1400,14 +1443,14 @@ defmodule Planck.Headless.SessionLifecycleTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate.",
             "tools" => ["read"]
           },
           %{
             "type" => "worker",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You implement.",
             "tools" => ["read", "write", "edit", "bash"]

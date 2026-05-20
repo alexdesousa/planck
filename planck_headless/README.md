@@ -44,20 +44,25 @@ Planck.Headless.list_sessions()
 
 ```json
 {
-  "default_provider": "llama_cpp",
-  "default_model":    "my-model",
-  "models": [
-    {
-      "id":             "my-model",
-      "provider":       "llama_cpp",
-      "base_url":       "http://my-server:8080",
-      "context_window": 32768
+  "default_model": "sonnet",
+  "providers": {
+    "anthropic":  { "type": "anthropic" },
+    "local": {
+      "type":        "openai",
+      "base_url":    "http://localhost:11434",
+      "has_api_key": false
     }
+  },
+  "models": [
+    { "id": "sonnet",   "model": "claude-sonnet-4-6", "provider": "anthropic" },
+    { "id": "llama3.2", "model": "llama3.2",          "provider": "local" }
   ]
 }
 ```
 
-See the module docs on `Planck.Headless.Config` for the full env-var table.
+See the module docs on `Planck.Headless.Config` for the full env-var table and
+the [configuration guide](../docs/guides/configuration.md) for all provider and
+model fields.
 
 ## Sidecars
 

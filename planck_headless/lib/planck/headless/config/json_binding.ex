@@ -74,6 +74,7 @@ defmodule Planck.Headless.Config.JsonBinding do
   defp merge_configs(acc, map) do
     Map.merge(acc, map, fn
       "models", old, new -> old ++ new
+      "providers", old, new -> Map.merge(old, new)
       _key, _old, new -> new
     end)
   end

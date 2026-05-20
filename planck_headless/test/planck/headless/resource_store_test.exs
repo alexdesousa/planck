@@ -16,7 +16,7 @@ defmodule Planck.Headless.ResourceStoreTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate."
           }
@@ -93,6 +93,63 @@ defmodule Planck.Headless.ResourceStoreTest do
 
       log = ExUnit.CaptureLog.capture_log(fn -> ResourceStore.reload() end)
       assert log =~ "skipping"
+    end
+
+    test "available_models is populated from providers + models config", %{tmp_dir: _dir} do
+      on_exit(fn ->
+        Application.delete_env(:planck, :providers)
+        Application.delete_env(:planck, :models)
+        Config.reload_providers()
+        Config.reload_models()
+        ResourceStore.reload()
+      end)
+
+      Application.put_env(:planck, :providers, %{
+        "anthropic" => %{"type" => "anthropic"},
+        "local" => %{"type" => "openai", "base_url" => "http://localhost:11434", "has_api_key" => false}
+      })
+
+      Application.put_env(:planck, :models, [
+        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"},
+        %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}
+      ])
+
+      Config.reload_providers()
+      Config.reload_models()
+      :ok = ResourceStore.reload()
+
+      models = ResourceStore.get().available_models
+      assert length(models) == 2
+      ids = Enum.map(models, & &1.id)
+      assert "sonnet" in ids
+      assert "llama3.2" in ids
+    end
+
+    test "models with unknown provider key are skipped", %{tmp_dir: _dir} do
+      on_exit(fn ->
+        Application.delete_env(:planck, :providers)
+        Application.delete_env(:planck, :models)
+        Config.reload_providers()
+        Config.reload_models()
+        ResourceStore.reload()
+      end)
+
+      Application.put_env(:planck, :providers, %{"anthropic" => %{"type" => "anthropic"}})
+
+      Application.put_env(:planck, :models, [
+        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"},
+        %{"id" => "orphan", "model" => "some-model", "provider" => "no-such-provider"}
+      ])
+
+      Config.reload_providers()
+      Config.reload_models()
+
+      log = ExUnit.CaptureLog.capture_log(fn -> ResourceStore.reload() end)
+
+      models = ResourceStore.get().available_models
+      assert length(models) == 1
+      assert hd(models).id == "sonnet"
+      assert log =~ "unknown provider key"
     end
   end
 

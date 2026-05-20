@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.1.6
+
+### New config schema (breaking)
+
+`config.json` now separates provider definitions from model declarations. The old
+flat `models` list format is gone — no migration path.
+
+**`providers` map** — user-keyed, each entry defines a backend:
+
+```json
+"providers": {
+  "anthropic":  { "type": "anthropic" },
+  "nvidia":     { "type": "openai", "base_url": "https://integrate.api.nvidia.com/v1", "identifier": "NVIDIA" },
+  "local":      { "type": "openai", "base_url": "http://localhost:11434", "has_api_key": false }
+}
+```
+
+**`models` list** — each entry references a provider key and assigns a user alias:
+
+```json
+"models": [
+  { "id": "sonnet",   "model": "claude-sonnet-4-6",           "provider": "anthropic" },
+  { "id": "llama70b", "model": "meta/llama-3.3-70b-instruct", "provider": "nvidia",
+    "params": { "temperature": 0.6, "receive_timeout": 600000 } }
+]
+```
+
+When multiple config files are loaded, `providers` maps are merged (local wins on
+key collision); `models` lists are concatenated.
+
+### `configure_provider/1` — new function
+
+Writes a provider entry to the JSON config and optionally its API key to `.env`:
+
+```elixir
+Headless.configure_provider(id: "nvidia", type: "openai",
+  base_url: "https://integrate.api.nvidia.com/v1",
+  identifier: "NVIDIA", api_key: "nvapi-...")
+```
+
+### `configure_model/1` — rewritten
+
+New signature: `id:` (user alias), `model:` (provider model id), `provider:`
+(string key into the providers map). No longer accepts or writes API keys.
+
+```elixir
+Headless.configure_model(id: "llama70b",
+  model: "meta/llama-3.3-70b-instruct", provider: "nvidia",
+  params: %{"temperature" => 0.6})
+```
+
+### `ResourceStore` — available models from config
+
+`detect_available_models/0` now delegates entirely to
+`Planck.AI.Config.from_config/2`. Models are exactly those declared in `providers`
++ `models` config — no LLMDB catalog filtering by API key presence.
+
+### `build_dynamic_team` — lookup by model alias
+
+The default dynamic team is built by looking up `default_model` (user alias) in
+`available_models`, rather than deriving a provider from `default_provider`.
+
 ## v0.1.5
 
 - `configure_model/1` gains an `:identifier` option for `:custom_openai` — the

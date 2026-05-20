@@ -57,6 +57,24 @@ defmodule Planck.AI.AdapterTest do
 
       assert spec == %{provider: :openai, id: "meta/llama-3.3-70b-instruct"}
     end
+
+    test "uses model.model field as the API identifier when set" do
+      {spec, _, _} =
+        to_req_llm(%Model{
+          id: "sonnet",
+          model: "claude-sonnet-4-6",
+          provider: :anthropic,
+          context_window: 200_000,
+          max_tokens: 8_096
+        })
+
+      assert spec == "anthropic:claude-sonnet-4-6"
+    end
+
+    test "falls back to model.id when model.model is nil" do
+      {spec, _, _} = to_req_llm(model(:anthropic, id: "claude-sonnet-4-6"))
+      assert spec == "anthropic:claude-sonnet-4-6"
+    end
   end
 
   # --- base url / api key ---
@@ -98,6 +116,23 @@ defmodule Planck.AI.AdapterTest do
     test "openai with base_url falls back to not-needed when no key is available" do
       System.delete_env("OPENAI_API_KEY")
       {_, _, opts} = to_req_llm(model(:openai, base_url: "http://localhost:11434"))
+      assert opts[:api_key] == "not-needed"
+    end
+
+    test "openai with base_url and has_api_key: false always uses not-needed" do
+      System.put_env("OPENAI_API_KEY", "should-not-be-used")
+      on_exit(fn -> System.delete_env("OPENAI_API_KEY") end)
+
+      {_, _, opts} =
+        to_req_llm(%Model{
+          id: "local",
+          provider: :openai,
+          base_url: "http://localhost:11434",
+          has_api_key: false,
+          context_window: 4_096,
+          max_tokens: 2_048
+        })
+
       assert opts[:api_key] == "not-needed"
     end
   end

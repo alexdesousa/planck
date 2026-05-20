@@ -2,209 +2,204 @@ defmodule Planck.AI.ConfigTest do
   use ExUnit.Case, async: true
 
   alias Planck.AI.Config
-  alias Planck.AI.Model
 
-  describe "from_map/1" do
-    test "returns {:ok, model} with all fields" do
-      entry = %{
-        "id" => "my-llama",
-        "provider" => "openai",
-        "name" => "My Llama",
-        "base_url" => "http://localhost:8080",
-        "context_window" => 32_768,
-        "max_tokens" => 4_096,
-        "supports_thinking" => true,
-        "input_types" => ["text", "image", "image_url", "file", "video_url"],
-        "default_opts" => %{"temperature" => 0.8, "top_p" => 0.95}
-      }
+  @providers %{
+    "anthropic" => %{"type" => "anthropic"},
+    "nvidia" => %{
+      "type" => "openai",
+      "base_url" => "https://integrate.api.nvidia.com/v1",
+      "identifier" => "NVIDIA"
+    },
+    "local" => %{
+      "type" => "openai",
+      "base_url" => "http://localhost:11434",
+      "has_api_key" => false
+    }
+  }
 
-      assert {:ok, %Model{} = model} = Config.from_map(entry)
-      assert model.id == "my-llama"
-      assert model.name == "My Llama"
-      assert model.provider == :openai
-      assert model.base_url == "http://localhost:8080"
-      assert model.context_window == 32_768
-      assert model.max_tokens == 4_096
-      assert model.supports_thinking == true
-      assert model.input_types == [:text, :image, :image_url, :file, :video_url]
-      assert model.default_opts == [temperature: 0.8, top_p: 0.95]
+  describe "from_config/2" do
+    test "builds Model structs from providers + models" do
+      models = [%{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"}]
+      [m] = Config.from_config(@providers, models)
+      assert m.id == "sonnet"
+      assert m.model == "claude-sonnet-4-6"
+      assert m.provider == :anthropic
+      assert m.base_url == nil
     end
 
-    test "applies defaults for optional fields" do
-      entry = %{"id" => "qwen3", "provider" => "openai"}
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.name == "qwen3"
-      assert model.base_url == nil
-      assert model.context_window == 4_096
-      assert model.max_tokens == 2_048
-      assert model.supports_thinking == false
-      assert model.input_types == [:text]
-      assert model.default_opts == []
+    test "resolves base_url and identifier from provider entry" do
+      models = [
+        %{"id" => "llama70b", "model" => "meta/llama-3.3-70b-instruct", "provider" => "nvidia"}
+      ]
+
+      [m] = Config.from_config(@providers, models)
+      assert m.provider == :openai
+      assert m.base_url == "https://integrate.api.nvidia.com/v1"
+      assert m.identifier == "NVIDIA"
     end
 
-    test "accepts all three providers" do
-      for provider <- ~w(anthropic openai google) do
-        assert {:ok, model} = Config.from_map(%{"id" => "m", "provider" => provider})
-        assert model.provider == String.to_existing_atom(provider)
-      end
+    test "has_api_key: false is carried into the model struct" do
+      models = [%{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}]
+      [m] = Config.from_config(@providers, models)
+      assert m.has_api_key == false
     end
 
-    test "parses and upcases identifier for openai" do
-      entry = %{
-        "id" => "meta/llama-3.3-70b-instruct",
-        "provider" => "openai",
-        "identifier" => "nvidia",
-        "base_url" => "https://integrate.api.nvidia.com/v1",
-        "context_window" => 128_000
-      }
+    test "params are parsed as default_opts" do
+      models = [
+        %{
+          "id" => "llama70b",
+          "model" => "meta/llama-3.3-70b-instruct",
+          "provider" => "nvidia",
+          "params" => %{"temperature" => 0.6}
+        }
+      ]
 
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.identifier == "NVIDIA"
-      assert model.base_url == "https://integrate.api.nvidia.com/v1"
+      [m] = Config.from_config(@providers, models)
+      assert m.default_opts == [temperature: 0.6]
     end
 
-    test "accepts already-uppercase identifier for openai" do
-      entry = %{"id" => "m", "provider" => "openai", "identifier" => "TOGETHER2"}
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.identifier == "TOGETHER2"
-    end
-
-    test "accepts nil identifier for openai" do
-      entry = %{"id" => "m", "provider" => "openai", "base_url" => "http://localhost:1234"}
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.identifier == nil
-    end
-
-    test "returns {:error, _} for identifier with invalid characters" do
-      entry = %{"id" => "m", "provider" => "openai", "identifier" => "nvidia-api"}
-      assert {:error, reason} = Config.from_map(entry)
-      assert reason =~ "identifier"
-    end
-
-    test "returns {:error, _} for identifier starting with a digit" do
-      entry = %{"id" => "m", "provider" => "openai", "identifier" => "1nvidia"}
-      assert {:error, reason} = Config.from_map(entry)
-      assert reason =~ "identifier"
-    end
-
-    test "api_key is nil for all providers (resolved lazily at request time)" do
-      for provider <- ~w(anthropic openai google) do
-        entry = %{"id" => "m", "provider" => provider}
-        assert {:ok, model} = Config.from_map(entry)
-        assert model.api_key == nil
-      end
-    end
-
-    test "returns {:error, _} for unknown provider" do
-      assert {:error, reason} = Config.from_map(%{"id" => "m", "provider" => "fake"})
-      assert reason =~ "unknown provider"
-    end
-
-    test "returns {:error, _} when id is missing" do
-      assert {:error, reason} = Config.from_map(%{"provider" => "ollama"})
-      assert reason =~ "id"
-    end
-
-    test "returns {:error, _} when id is empty" do
-      assert {:error, reason} = Config.from_map(%{"id" => "", "provider" => "ollama"})
-      assert reason =~ "id"
-    end
-
-    test "returns {:error, _} when provider is missing" do
-      assert {:error, reason} = Config.from_map(%{"id" => "m"})
-      assert reason =~ "provider"
-    end
-
-    test "falls back to [:text] when input_types is empty" do
-      entry = %{"id" => "m", "provider" => "openai", "input_types" => []}
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.input_types == [:text]
-    end
-
-    test "ignores unknown input_types" do
-      entry = %{"id" => "m", "provider" => "openai", "input_types" => ["text", "hologram"]}
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.input_types == [:text]
+    test "applies defaults for optional model fields" do
+      models = [%{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}]
+      [m] = Config.from_config(@providers, models)
+      assert m.name == "llama3.2"
+      assert m.context_window == 4_096
+      assert m.max_tokens == 2_048
+      assert m.supports_thinking == false
+      assert m.input_types == [:text]
+      assert m.default_opts == []
     end
 
     test "accepts all valid input_types" do
-      entry = %{
-        "id" => "m",
-        "provider" => "google",
-        "input_types" => ["text", "image", "image_url", "file", "video_url"]
-      }
+      models = [
+        %{
+          "id" => "sonnet",
+          "model" => "claude-sonnet-4-6",
+          "provider" => "anthropic",
+          "input_types" => ["text", "image", "image_url", "file", "video_url"]
+        }
+      ]
 
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.input_types == [:text, :image, :image_url, :file, :video_url]
+      [m] = Config.from_config(@providers, models)
+      assert m.input_types == [:text, :image, :image_url, :file, :video_url]
+    end
+
+    test "falls back to [:text] when input_types is empty" do
+      models = [
+        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic", "input_types" => []}
+      ]
+
+      [m] = Config.from_config(@providers, models)
+      assert m.input_types == [:text]
+    end
+
+    test "ignores unknown input_types" do
+      models = [
+        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic", "input_types" => ["text", "hologram"]}
+      ]
+
+      [m] = Config.from_config(@providers, models)
+      assert m.input_types == [:text]
     end
 
     test "drops unknown default_opt keys" do
-      entry = %{
-        "id" => "m",
-        "provider" => "openai",
-        "default_opts" => %{"temperature" => 1.0, "not_a_real_param_xyz123" => 99}
-      }
-
-      assert {:ok, model} = Config.from_map(entry)
-      assert model.default_opts == [temperature: 1.0]
-    end
-  end
-
-  describe "from_list/1" do
-    test "converts valid entries and skips invalid ones" do
-      entries = [
-        %{"id" => "a", "provider" => "openai"},
-        %{"id" => "b", "provider" => "bad_provider"},
-        %{"id" => "c", "provider" => "google"}
+      models = [
+        %{
+          "id" => "sonnet",
+          "model" => "claude-sonnet-4-6",
+          "provider" => "anthropic",
+          "params" => %{"temperature" => 1.0, "not_a_real_param_xyz123" => 99}
+        }
       ]
 
-      models = Config.from_list(entries)
-      assert length(models) == 2
-      assert Enum.map(models, & &1.id) == ["a", "c"]
+      [m] = Config.from_config(@providers, models)
+      assert m.default_opts == [temperature: 1.0]
     end
 
-    test "returns [] for empty list" do
-      assert Config.from_list([]) == []
-    end
-  end
+    test "accepts all three provider types" do
+      providers = %{
+        "a" => %{"type" => "anthropic"},
+        "o" => %{"type" => "openai"},
+        "g" => %{"type" => "google"}
+      }
 
-  describe "load/1" do
-    test "loads and parses a JSON file" do
-      json =
-        Jason.encode!([
-          %{
-            "id" => "my-model",
-            "provider" => "openai",
-            "context_window" => 16_384,
-            "default_opts" => %{"temperature" => 0.7}
-          }
-        ])
+      models = [
+        %{"id" => "m1", "model" => "m", "provider" => "a"},
+        %{"id" => "m2", "model" => "m", "provider" => "o"},
+        %{"id" => "m3", "model" => "m", "provider" => "g"}
+      ]
 
-      path =
-        System.tmp_dir!() |> Path.join("planck_ai_config_test_#{System.unique_integer()}.json")
-
-      File.write!(path, json)
-
-      assert {:ok, [model]} = Config.load(path)
-      assert model.id == "my-model"
-      assert model.provider == :openai
-      assert model.context_window == 16_384
-      assert model.default_opts == [temperature: 0.7]
-
-      File.rm!(path)
+      result = Config.from_config(providers, models)
+      assert Enum.map(result, & &1.provider) == [:anthropic, :openai, :google]
     end
 
-    test "returns {:error, _} for missing file" do
-      assert {:error, _} = Config.load("/does/not/exist.json")
+    test "identifier is upcased from provider entry" do
+      providers = %{
+        "nvidia" => %{"type" => "openai", "base_url" => "https://api.nvidia.com/v1", "identifier" => "nvidia"}
+      }
+
+      models = [%{"id" => "m", "model" => "m", "provider" => "nvidia"}]
+      [m] = Config.from_config(providers, models)
+      assert m.identifier == "NVIDIA"
     end
 
-    test "returns {:error, _} for invalid JSON" do
-      path = System.tmp_dir!() |> Path.join("planck_ai_bad_#{System.unique_integer()}.json")
-      File.write!(path, "not json {{{")
+    test "skips entries with unknown provider key" do
+      models = [%{"id" => "x", "model" => "x", "provider" => "no-such-provider"}]
 
-      assert {:error, _} = Config.load(path)
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Config.from_config(@providers, models) == []
+        end)
 
-      File.rm!(path)
+      assert log =~ "unknown provider key"
+    end
+
+    test "skips entries with unknown provider type" do
+      providers = %{"bad" => %{"type" => "fakeprovider"}}
+      models = [%{"id" => "x", "model" => "x", "provider" => "bad"}]
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Config.from_config(providers, models) == []
+        end)
+
+      assert log =~ "unknown provider"
+    end
+
+    test "skips entry when id is empty" do
+      models = [%{"id" => "", "model" => "m", "provider" => "anthropic"}]
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Config.from_config(@providers, models) == []
+        end)
+
+      assert log =~ "id"
+    end
+
+    test "skips entry when model field is missing" do
+      models = [%{"id" => "m", "provider" => "anthropic"}]
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Config.from_config(@providers, models) == []
+        end)
+
+      assert log =~ "missing"
+    end
+
+    test "valid entries are kept when mixed with invalid ones" do
+      models = [
+        %{"id" => "good", "model" => "claude-sonnet-4-6", "provider" => "anthropic"},
+        %{"id" => "bad", "model" => "x", "provider" => "no-such-key"}
+      ]
+
+      result = Config.from_config(@providers, models)
+      assert length(result) == 1
+      assert hd(result).id == "good"
+    end
+
+    test "returns [] for empty models list" do
+      assert Config.from_config(@providers, []) == []
     end
   end
 end

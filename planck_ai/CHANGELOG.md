@@ -12,8 +12,17 @@
   server's `/models` endpoint; without it returns the LLMDB catalog as before
 - `Planck.AI.Models.CustomOpenAI`, `Planck.AI.Models.Ollama`, and
   `Planck.AI.Models.LlamaCpp` removed — superseded by `:openai` + `base_url`
-- `Planck.AI.Config.from_map/1` validates `identifier` on `:openai` entries
-  (previously `:custom_openai`)
+- `Planck.AI.Model` gains `model` field — the actual provider model identifier
+  (e.g. `"claude-sonnet-4-6"`); `id` becomes the user-facing alias. The adapter
+  uses `model || id` so structs without the new field keep working
+- `Planck.AI.Model` gains `has_api_key: boolean()` (default `true`); when `false`,
+  the adapter passes `"not-needed"` directly and skips env-var lookup — for local
+  servers like Ollama that require no authentication
+- `Planck.AI.Config.from_map/1`, `from_list/1`, and `load/1` removed — superseded
+  by `from_config/2`
+- `Planck.AI.Config.from_config/2` added — builds `[Model.t()]` from a providers
+  map (user-keyed, each entry has a `"type"` field) and a models list (each entry
+  references a provider key); this is the v0.1.6 config format
 
 ## v0.1.5
 

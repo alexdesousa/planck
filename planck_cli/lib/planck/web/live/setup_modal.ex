@@ -14,17 +14,14 @@ defmodule Planck.Web.Live.SetupModal do
   alias Planck.Headless
 
   @cloud_providers [:anthropic, :openai, :google]
-  @local_providers [:ollama, :llama_cpp, :custom_openai]
+  @local_providers [:openai_compat]
 
   @default_base_urls %{
-    ollama: "http://localhost:11434",
-    llama_cpp: "http://localhost:8080"
+    openai_compat: "http://localhost:11434"
   }
 
   @default_context_windows %{
-    ollama: 128_000,
-    llama_cpp: 32_768,
-    custom_openai: 128_000
+    openai_compat: 128_000
   }
 
   @impl true
@@ -158,16 +155,15 @@ defmodule Planck.Web.Live.SetupModal do
   def handle_event("save", _params, socket) do
     a = socket.assigns
 
-    with {:ok, advanced_opts} <- parse_advanced_opts(a.advanced_opts),
-         {:ok, context_window} <- parse_context_window(a.context_window) do
-      opts = build_configure_opts(a, context_window, advanced_opts)
+    with {:ok, advanced_opts} <- parse_advanced_opts(a.advanced_opts) do
       socket = assign(socket, :saving, true)
+      provider_key = derive_provider_key(a.provider, a.identifier)
 
-      case Headless.configure_model(opts) do
-        :ok ->
-          send(self(), :setup_complete)
-          {:noreply, socket}
-
+      with :ok <- Headless.configure_provider(build_provider_opts(a, provider_key)),
+           :ok <- Headless.configure_model(build_model_opts(a, provider_key, advanced_opts)) do
+        send(self(), :setup_complete)
+        {:noreply, socket}
+      else
         {:error, reason} ->
           {:noreply,
            socket
@@ -196,11 +192,10 @@ defmodule Planck.Web.Live.SetupModal do
   # Fetches available models from a running local server (2 s timeout).
   # Returns [] on error or timeout so the template falls back to a text input.
   @spec fetch_local_models(atom(), String.t()) :: [{String.t(), String.t()}]
-  defp fetch_local_models(provider, base_url) do
+  defp fetch_local_models(_provider, base_url) do
     task =
       Task.async(fn ->
-        provider
-        |> Planck.AI.list_models(base_url: base_url)
+        Planck.AI.list_models(:openai, base_url: base_url)
         |> Enum.map(&{&1.id, &1.id})
       end)
 
@@ -221,41 +216,52 @@ defmodule Planck.Web.Live.SetupModal do
     end
   end
 
-  @spec build_configure_opts(map(), pos_integer() | nil, map() | nil) :: keyword()
-  defp build_configure_opts(a, context_window, advanced_opts) do
+  @spec derive_provider_key(atom(), String.t()) :: String.t()
+  defp derive_provider_key(:anthropic, _), do: "anthropic"
+  defp derive_provider_key(:openai, _), do: "openai"
+  defp derive_provider_key(:google, _), do: "google"
+  defp derive_provider_key(:openai_compat, id) when is_binary(id) and id != "",
+    do: String.downcase(id)
+
+  defp derive_provider_key(:openai_compat, _), do: "openai-compat"
+
+  @spec build_provider_opts(map(), String.t()) :: keyword()
+  defp build_provider_opts(a, provider_key) do
+    base = [id: provider_key, type: provider_type_for(a.provider), scope: a.scope]
+
+    case a.provider do
+      p when p in @cloud_providers ->
+        if a.credential != "", do: [{:api_key, a.credential} | base], else: base
+
+      :openai_compat ->
+        base
+        |> then(fn o -> if a.credential != "", do: [{:base_url, a.credential} | o], else: o end)
+        |> then(fn o -> if a.identifier != "", do: [{:identifier, a.identifier} | o], else: o end)
+        |> then(fn o -> if a.api_key != "", do: [{:api_key, a.api_key} | o], else: o end)
+        |> then(fn o ->
+          no_key = a.credential != "" and a.api_key == "" and a.identifier == ""
+          if no_key, do: [{:has_api_key, false} | o], else: o
+        end)
+    end
+  end
+
+  @spec build_model_opts(map(), String.t(), map() | nil) :: keyword()
+  defp build_model_opts(a, provider_key, params) do
     [
-      provider: a.provider,
-      model_id: a.model_id,
-      model_name: non_empty(a.model_name),
-      context_window: context_window,
-      supports_thinking: a.supports_thinking,
-      advanced_opts: advanced_opts,
+      id: a.model_id,
+      model: a.model_id,
+      provider: provider_key,
       scope: a.scope,
-      default: a.set_default
+      default: a.set_default,
+      params: params
     ]
-    |> add_credential(a.provider, a.credential)
-    |> add_custom_openai_opts(a.provider, a.identifier, a.api_key)
   end
 
-  defp add_credential(opts, provider, cred) when provider in @cloud_providers and cred != "",
-    do: [{:api_key, cred} | opts]
-
-  defp add_credential(opts, provider, cred) when provider in @local_providers and cred != "",
-    do: [{:base_url, cred} | opts]
-
-  defp add_credential(opts, _provider, _cred), do: opts
-
-  defp add_custom_openai_opts(opts, :custom_openai, id, key) do
-    opts
-    |> then(fn o -> if id != "", do: [{:identifier, id} | o], else: o end)
-    |> then(fn o -> if key != "", do: [{:api_key, key} | o], else: o end)
-  end
-
-  defp add_custom_openai_opts(opts, _provider, _id, _key), do: opts
-
-  @spec non_empty(String.t()) :: String.t() | nil
-  defp non_empty(""), do: nil
-  defp non_empty(s), do: s
+  @spec provider_type_for(atom()) :: String.t()
+  defp provider_type_for(:anthropic), do: "anthropic"
+  defp provider_type_for(:openai), do: "openai"
+  defp provider_type_for(:google), do: "google"
+  defp provider_type_for(:openai_compat), do: "openai"
 
   @spec parse_advanced_opts(String.t()) :: {:ok, map() | nil} | {:error, String.t()}
   defp parse_advanced_opts(""), do: {:ok, nil}

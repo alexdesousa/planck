@@ -157,61 +157,57 @@ AI.stream(model, context)
 AI.stream(model, context, temperature: 0.3)
 ```
 
-## Config file loader
+## Config loader — `Planck.AI.Config`
 
-`Planck.AI.Config` loads a list of models from a JSON file — useful for
-configuring models without hardcoding structs in your application.
-
-### JSON format
-
-Only `"id"` and `"provider"` are required. All other fields are optional.
-
-```json
-[
-  {
-    "id": "sonnet",
-    "provider": "anthropic"
-  },
-  {
-    "id": "llama-70b",
-    "provider": "openai",
-    "base_url": "https://integrate.api.nvidia.com/v1",
-    "identifier": "NVIDIA",
-    "context_window": 128000,
-    "default_opts": {
-      "temperature": 0.6,
-      "receive_timeout": 600000
-    }
-  },
-  {
-    "id": "local",
-    "provider": "openai",
-    "base_url": "http://localhost:11434",
-    "context_window": 40960
-  }
-]
-```
-
-Valid `"provider"` values: `"anthropic"`, `"openai"`, `"google"`.
-
-For `"openai"` with a `base_url`, an optional `"identifier"` field (e.g.
-`"NVIDIA"`) is stored in the model struct and used to derive the API key env var
-at request time (`NVIDIA_API_KEY`). It must match `[A-Z][A-Z0-9]*`.
-
-Valid `"input_types"` values: `"text"`, `"image"`, `"image_url"`, `"file"`,
-`"video_url"`. Note that `"video_url"` is only supported by Google Gemini.
-
-### Loading
+`Planck.AI.Config.from_config/2` builds a list of `%Model{}` structs from the
+v0.1.6 config format: a `providers` map (user-keyed) and a `models` list where
+each entry references a provider by key.
 
 ```elixir
-{:ok, models} = Planck.AI.Config.load("config/models.json")
+providers = %{
+  "anthropic" => %{"type" => "anthropic"},
+  "nvidia"    => %{"type" => "openai",
+                   "base_url"   => "https://integrate.api.nvidia.com/v1",
+                   "identifier" => "NVIDIA"},
+  "local"     => %{"type" => "openai",
+                   "base_url"    => "http://localhost:11434",
+                   "has_api_key" => false}
+}
 
-model = Enum.find(models, &(&1.id == "llama-70b"))
+models = [
+  %{"id" => "sonnet",   "model" => "claude-sonnet-4-6",           "provider" => "anthropic"},
+  %{"id" => "llama70b", "model" => "meta/llama-3.3-70b-instruct", "provider" => "nvidia",
+    "params" => %{"temperature" => 0.6, "receive_timeout" => 600_000}},
+  %{"id" => "llama3.2", "model" => "llama3.2",                    "provider" => "local"}
+]
+
+models = Planck.AI.Config.from_config(providers, models)
+# => [%Planck.AI.Model{id: "sonnet", model: "claude-sonnet-4-6", provider: :anthropic}, ...]
+
+model = Enum.find(models, &(&1.id == "llama70b"))
 AI.stream(model, context)
 ```
 
-Invalid entries are skipped with a warning; file read or JSON parse errors are
-propagated as `{:error, reason}`.
+Invalid entries (unknown provider key, unknown provider type, missing required
+fields) are skipped with a warning; valid entries are returned.
+
+### Provider entry fields
+
+| Field | Required | Description |
+|---|---|---|
+| `"type"` | yes | `"anthropic"`, `"openai"`, or `"google"` |
+| `"base_url"` | no | Custom endpoint — required for OpenAI-compatible local servers |
+| `"identifier"` | no | Uppercase tag for API key env var (`"NVIDIA"` → `NVIDIA_API_KEY`) |
+| `"has_api_key"` | no | `false` skips key lookup entirely (Ollama, llama.cpp). Default: `true` |
+
+### Model entry fields
+
+| Field | Required | Description |
+|---|---|---|
+| `"id"` | yes | User alias — used to look up the model |
+| `"model"` | yes | Provider model identifier sent to the API |
+| `"provider"` | yes | Key referencing a `providers` entry |
+| `"params"` | no | Inference parameters (`temperature`, `max_tokens`, etc.) |
 
 ## Streaming events
 

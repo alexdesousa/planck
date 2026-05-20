@@ -165,8 +165,9 @@ When the `planck_headless` application starts:
 3. **Teams** — scan `config.teams_dirs` and call `Planck.Agent.Team.load/1` on
    each subdirectory; store in `ResourceStore.teams` keyed by alias. Project-
    local aliases overwrite global ones on collision.
-4. **Models** — cloud providers filtered by API key; local models from
-   `Config.models!()`.
+4. **Models** — `Planck.AI.Config.from_config(Config.providers!(), Config.models!())`
+   builds the `available_models` list. Models are exactly those declared in config —
+   no LLMDB catalog filtering by API key presence.
 5. **Sidecar** — if `Config.sidecar!()` is set, spawn the sidecar process,
    wait for it to connect, then call `list_tools/0` to populate
    `ResourceStore.sidecar_tools`. External tools and per-agent compactors
@@ -227,14 +228,18 @@ The system-prompt assembly has two layers:
 ## Default team
 
 When `start_session/1` is called with `template: nil`, `planck_headless` builds
-a dynamic team of one via `Planck.Agent.Team.dynamic/1`:
+a dynamic team of one. It looks up `Config.default_model!()` (a user alias) in
+`ResourceStore.available_models` to find the model struct, then calls
+`Planck.Agent.Team.dynamic/1`:
 
 ```elixir
+model = Enum.find(store.available_models, &(&1.id == Config.default_model!()))
+
 orchestrator =
   AgentSpec.new(
     type:          "orchestrator",
-    provider:      config.default_provider,
-    model_id:      config.default_model,
+    provider:      model.provider,
+    model_id:      model.model || model.id,
     system_prompt: Planck.Headless.DefaultPrompt.orchestrator(),
     tools:         Enum.map(resource_store.tools, & &1.name),
     skills:        Enum.map(resource_store.skills, & &1.name)
@@ -242,6 +247,10 @@ orchestrator =
 
 Team.dynamic(orchestrator)
 ```
+
+Returns `{:error, {:no_default_model_configured, _}}` when `default_model` is nil,
+or `{:error, {:default_model_not_available, _}}` when the alias is not found in
+`available_models`.
 
 The orchestrator sees every loaded tool and skill. A `new_team` skill can later
 grow this into a multi-member dynamic team via `spawn_agent`.
@@ -403,33 +412,29 @@ Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
 
 ```json
 {
-  "default_provider": "anthropic",
-  "default_model":    "claude-sonnet-4-6",
-  "sessions_dir":     ".planck/sessions",
-  "skills_dirs":      ["~/.planck/skills"],
-  "teams_dirs":       ["~/.planck/teams"],
-  "sidecar":          ".planck/sidecar",
-  "models": [
-    {
-      "id":             "llama3.2",
-      "provider":       "ollama",
-      "base_url":       "http://localhost:11434",
-      "context_window": 128000
+  "default_model":  "sonnet",
+  "sessions_dir":   ".planck/sessions",
+  "skills_dirs":    ["~/.planck/skills"],
+  "teams_dirs":     ["~/.planck/teams"],
+  "sidecar":        ".planck/sidecar",
+  "providers": {
+    "anthropic": { "type": "anthropic" },
+    "nvidia": {
+      "type":       "openai",
+      "base_url":   "https://integrate.api.nvidia.com/v1",
+      "identifier": "NVIDIA"
     },
-    {
-      "id":             "mistral",
-      "provider":       "llama_cpp",
-      "base_url":       "http://localhost:8080",
-      "context_window": 32768
-    },
-    {
-      "id":             "deepseek-ai/deepseek-v4-pro",
-      "provider":       "custom_openai",
-      "base_url":       "https://integrate.api.nvidia.com/v1",
-      "identifier":     "NVIDIA",
-      "context_window": 128000,
-      "default_opts":   { "receive_timeout": 600000 }
+    "local": {
+      "type":        "openai",
+      "base_url":    "http://localhost:11434",
+      "has_api_key": false
     }
+  },
+  "models": [
+    { "id": "sonnet",   "model": "claude-sonnet-4-6",           "provider": "anthropic" },
+    { "id": "llama70b", "model": "meta/llama-3.3-70b-instruct", "provider": "nvidia",
+      "params": { "temperature": 0.6, "receive_timeout": 600000 } },
+    { "id": "llama3.2", "model": "llama3.2",                    "provider": "local" }
   ]
 }
 ```
@@ -437,31 +442,30 @@ Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
 `tools_dirs` and `compactor` keys are removed — external tools and per-agent
 compactors come from the sidecar. See `specs/sidecar.md`.
 
-The `models` list uses the same format as `Planck.AI.Config` — only `"id"`
-and `"provider"` are required. This replaces the old `local_servers` approach:
-models are **declared** (no network discovery at boot) and include full
-`Planck.AI.Model` fields (`context_window`, `max_tokens`, `base_url`, etc.).
-Cloud providers that have an API key still contribute their static LLMDB
-catalog on top.
+`providers` is a user-keyed map. Each entry has a `"type"` field (`"anthropic"`,
+`"openai"`, or `"google"`) plus optional `"base_url"`, `"identifier"`, and
+`"has_api_key"` fields. `models` entries reference a provider by key and assign
+a user alias (`"id"`) distinct from the provider's model identifier (`"model"`).
 
 All keys are optional. Unknown keys are silently ignored. Most arrays replace
 rather than merge — a project-local `skills_dirs` wholly supersedes the global
-one. **Exception: `models` arrays are concatenated** — entries from
-`~/.planck/config.json` and `.planck/config.json` are merged so locally
-configured models do not shadow globally configured ones. `:models` has no
-`PLANCK_*` env var equivalent — the format is too structured for a flat string.
+one. **Exception: `models` lists are concatenated and `providers` maps are
+merged** — entries from `~/.planck/config.json` and `.planck/config.json` are
+combined so globally configured providers and models are not shadowed by
+project-local ones. Neither key has a `PLANCK_*` env var equivalent.
 
 ### Struct
 
 ```elixir
 %Planck.Headless.Config{
-  default_provider:  atom() | nil,
-  default_model:     String.t() | nil,
+  default_provider:  String.t() | nil,   # kept for UI display; not used by build_dynamic_team
+  default_model:     String.t() | nil,   # user alias — looked up in available_models at session start
   sessions_dir:      Path.t(),
   skills_dirs:       [Path.t()],
   teams_dirs:        [Path.t()],
-  sidecar:           Path.t(),        # defaults to ".planck/sidecar"; skipped if absent on disk
-  models:            [Planck.AI.Model.t()]
+  sidecar:           Path.t(),           # defaults to ".planck/sidecar"; skipped if absent on disk
+  providers:         %{String.t() => map()},   # raw provider map from config; parsed by planck_ai
+  models:            [map()]             # raw model list from config; parsed by planck_ai
 }
 ```
 
@@ -614,6 +618,12 @@ is the configured application that resolves paths once and threads them through.
 - `get_team/1`: hit and `:not_found` cases.
 
 ### Other
-- `available_models/0`: returns only models whose provider has an API key.
+- `available_models/0`: returns models declared in `providers` + `models` config.
+- `configure_provider/1`: writes a provider entry to JSON config and API key to
+  `.env`; reloads resources. Options: `id:`, `type:`, `base_url:`, `identifier:`,
+  `has_api_key:`, `api_key:`, `scope:` (`:local` / `:global`).
+- `configure_model/1`: writes a model entry to JSON config and reloads resources.
+  Options: `id:` (alias), `model:` (provider id), `provider:` (key string),
+  `params:`, `default:`, `scope:`.
 - `reload_resources/0`: new sessions see new resources; existing sessions
   unaffected.

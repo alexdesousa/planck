@@ -40,6 +40,7 @@ defmodule Planck.Headless.ConfigTest do
       assert config.skills_dirs == [".planck/skills", "~/.planck/skills"]
       assert config.teams_dirs == [".planck/teams", "~/.planck/teams"]
       assert config.sidecar == ".planck/sidecar"
+      assert config.providers == %{}
       assert config.models == []
     end
   end
@@ -180,6 +181,57 @@ defmodule Planck.Headless.ConfigTest do
 
       {:ok, config} = JsonBinding.init(env_for(:default_model))
       assert config["default_model"] == "after"
+    end
+
+    test "providers from multiple files are merged, not replaced", %{tmp_dir: dir} do
+      global =
+        write_config(dir, %{
+          "providers" => %{"anthropic" => %{"type" => "anthropic"}}
+        })
+
+      local_path = Path.join(dir, "local.json")
+
+      File.write!(
+        local_path,
+        Jason.encode!(%{
+          "providers" => %{"nvidia" => %{"type" => "openai", "base_url" => "https://api.nvidia.com/v1"}}
+        })
+      )
+
+      Application.put_env(:planck_headless, :skip_json_config, false)
+      Application.put_env(:planck, :config_files, [global, local_path])
+      Config.reload_config_files()
+      JsonBinding.invalidate()
+
+      {:ok, config} = JsonBinding.init(env_for(:providers))
+      assert Map.has_key?(config["providers"], "anthropic")
+      assert Map.has_key?(config["providers"], "nvidia")
+    end
+
+    test "models from multiple files are concatenated", %{tmp_dir: dir} do
+      global =
+        write_config(dir, %{
+          "models" => [%{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"}]
+        })
+
+      local_path = Path.join(dir, "local.json")
+
+      File.write!(
+        local_path,
+        Jason.encode!(%{
+          "models" => [%{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}]
+        })
+      )
+
+      Application.put_env(:planck_headless, :skip_json_config, false)
+      Application.put_env(:planck, :config_files, [global, local_path])
+      Config.reload_config_files()
+      JsonBinding.invalidate()
+
+      {:ok, config} = JsonBinding.init(env_for(:models))
+      ids = Enum.map(config["models"], & &1["id"])
+      assert "sonnet" in ids
+      assert "llama3.2" in ids
     end
   end
 

@@ -34,17 +34,21 @@ parameter translation.
 
 ```elixir
 %Planck.AI.Model{
-  id: String.t(),
+  id: String.t(),                # user-facing alias (e.g. "sonnet")
+  model: String.t() | nil,       # provider model identifier (e.g. "claude-sonnet-4-6");
+                                  # falls back to id when nil
   name: String.t(),
-  provider: atom(),              # :anthropic | :openai | :google | :ollama | :llama_cpp | :custom_openai
+  provider: atom(),              # :anthropic | :openai | :google
   context_window: pos_integer(),
   max_tokens: pos_integer(),
   supports_thinking: boolean(),
   input_types: [:text | :image | :image_url | :file | :video_url],
   base_url: String.t() | nil,   # nil = provider default; set for local/custom endpoints
-  api_key: String.t() | nil,    # nil = read from env; set for local servers that require a token
-  identifier: String.t() | nil, # :custom_openai only — uppercase tag (e.g. "NVIDIA") used to
-                                 # derive the API key env var at request time (NVIDIA_API_KEY)
+  api_key: String.t() | nil,    # reserved; API keys are resolved from env at request time
+  identifier: String.t() | nil, # uppercase tag (e.g. "NVIDIA") used to derive the API key
+                                 # env var at request time (NVIDIA_API_KEY); openai only
+  has_api_key: boolean(),        # false = no key needed (Ollama, llama.cpp); adapter passes
+                                 # "not-needed" and skips env-var lookup
   default_opts: keyword()        # inference params applied on every call unless overridden
 }
 ```
@@ -118,31 +122,41 @@ Type alias (no struct) plus the `from_req_llm/1` normalization function:
 Cloud providers (`:anthropic`, `:openai`, `:google`) source their catalog from LLMDB,
 a bundled snapshot loaded into `:persistent_term` at startup — no network call required.
 
-Local providers (`:ollama`, `:llama_cpp`, `:custom_openai`) query the running server at call time via HTTP.
+OpenAI-compatible local servers (Ollama, llama.cpp, vLLM, etc.) use the `:openai`
+provider with a `base_url`. Pass `base_url:` to `list_models/2` to discover available
+models at runtime via `GET {base_url}/models`.
 
 | Module | Catalog source |
 |---|---|
 | `Planck.AI.Models.Anthropic` | LLMDB |
-| `Planck.AI.Models.OpenAI` | LLMDB |
+| `Planck.AI.Models.OpenAI` | LLMDB (no `base_url`) or runtime HTTP (`base_url` set) |
 | `Planck.AI.Models.Google` | LLMDB |
-| `Planck.AI.Models.Ollama` | Runtime HTTP (`/api/tags`) |
-| `Planck.AI.Models.LlamaCpp` | Runtime HTTP (`/models`) or `model/2` factory |
-| `Planck.AI.Models.CustomOpenAI` | Runtime HTTP (`/models`) or `model/2` factory |
 
-llama.cpp example:
+## Config loader — `Planck.AI.Config`
+
+`from_config/2` builds `[Model.t()]` from the v0.1.6 config format:
 
 ```elixir
-Planck.AI.Models.LlamaCpp.model("llama3.2", base_url: "http://localhost:8080")
+providers = %{
+  "anthropic" => %{"type" => "anthropic"},
+  "nvidia"    => %{"type" => "openai",
+                   "base_url" => "https://integrate.api.nvidia.com/v1",
+                   "identifier" => "NVIDIA"},
+  "local"     => %{"type" => "openai",
+                   "base_url" => "http://localhost:11434",
+                   "has_api_key" => false}
+}
+
+models = [
+  %{"id" => "sonnet",   "model" => "claude-sonnet-4-6",           "provider" => "anthropic"},
+  %{"id" => "llama70b", "model" => "meta/llama-3.3-70b-instruct", "provider" => "nvidia"}
+]
+
+Planck.AI.Config.from_config(providers, models)
+# => [%Model{id: "sonnet", model: "claude-sonnet-4-6", provider: :anthropic}, ...]
 ```
 
-## Config file loader — `Planck.AI.Config`
-
-Loads a list of `%Model{}` structs from a JSON file. Useful for CLI tools and
-applications that configure local servers without hardcoding model structs.
-
-Two entry points:
-- `load/1` — reads and parses a JSON file by path
-- `from_list/1` — accepts a pre-decoded list of maps (for callers that parse a larger config)
+Invalid entries are skipped with a warning logged at `:warning`.
 
 ## Context translation — `Planck.AI.Adapter`
 
@@ -153,10 +167,15 @@ The only module that knows req_llm's input shape.
   {model_spec :: String.t() | map(), req_llm_context :: ReqLLM.Context.t(), opts :: keyword()}
 ```
 
-For `:llama_cpp` and `:custom_openai`, passes `%{provider: :openai, id: id}` as a map
-to bypass LLMDB catalog validation (both speak the OpenAI API but are not in the cloud
-catalog). `:custom_openai` additionally resolves `<IDENTIFIER>_API_KEY` from the system
-environment at request time via `identifier` — never cached, always fresh.
+For `:openai` with a `base_url`, passes `%{provider: :openai, id: model || id}` as a map
+to bypass LLMDB catalog validation (local servers are not in the cloud catalog).
+Without a `base_url`, passes `"openai:#{model || id}"` — a string spec that goes through
+LLMDB. The `model` field is used as the API identifier when set; falls back to `id`.
+
+API key resolution at request time:
+- `has_api_key: false` → `"not-needed"` (no env lookup)
+- `identifier` set → `<IDENTIFIER>_API_KEY`
+- no identifier → `OPENAI_API_KEY` (fallback to `"not-needed"` if absent)
 
 ## Stream normalization — `Planck.AI.Stream`
 
@@ -208,7 +227,7 @@ and emitted as `{:error, exception}` events — the stream never raises.
 - Model catalog: `get_model`, `list_models`, unknown provider/id
 - `Adapter.to_req_llm/3`: assert output shape for each provider, content part type, message role
 - `Stream.from_req_llm/1`: feed mock chunk list, assert event sequence including tool call assembly
-- `Config.from_map/1`, `from_list/1`, `load/1`: valid and invalid entries
+- `Config.from_config/2`: valid and invalid entries, unknown provider key, missing fields
 - `Tool.new/1`: struct construction
 
 ### Integration tests (mocked via Mox)
