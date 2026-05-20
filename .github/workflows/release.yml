@@ -29,15 +29,6 @@ jobs:
           elixir-version: "1.19.5"
           otp-version: "28.5"
 
-      - name: Verify tag matches mix.exs version
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if [ "v$VERSION" != "$TAG" ]; then
-            echo "Tag $TAG does not match mix.exs version $VERSION"
-            exit 1
-          fi
-
       - name: Install dependencies
         run: mix do local.rebar --force + local.hex --force + deps.get
 
@@ -46,7 +37,7 @@ jobs:
 
       - name: Publish to Hex.pm
         run: |
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(cat ../VERSION | tr -d '[:space:]')
           PKG=$(grep '@app' mix.exs | head -1 | sed 's/.*:\([a-z_]*\).*/\1/')
           if curl -sf "https://hex.pm/api/packages/${PKG}/releases/${VERSION}" > /dev/null; then
             mix hex.publish --yes --replace
@@ -71,15 +62,6 @@ jobs:
           elixir-version: "1.19.5"
           otp-version: "28.5"
 
-      - name: Verify tag matches mix.exs version
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if [ "v$VERSION" != "$TAG" ]; then
-            echo "Tag $TAG does not match mix.exs version $VERSION"
-            exit 1
-          fi
-
       - name: Install dependencies
         run: mix do local.rebar --force + local.hex --force + deps.get
 
@@ -88,7 +70,7 @@ jobs:
 
       - name: Publish to Hex.pm
         run: |
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(cat ../VERSION | tr -d '[:space:]')
           PKG=$(grep '@app' mix.exs | head -1 | sed 's/.*:\([a-z_]*\).*/\1/')
           if curl -sf "https://hex.pm/api/packages/${PKG}/releases/${VERSION}" > /dev/null; then
             mix hex.publish --yes --replace
@@ -113,15 +95,6 @@ jobs:
           elixir-version: "1.19.5"
           otp-version: "28.5"
 
-      - name: Verify tag matches mix.exs version
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if [ "v$VERSION" != "$TAG" ]; then
-            echo "Tag $TAG does not match mix.exs version $VERSION"
-            exit 1
-          fi
-
       - name: Install dependencies
         run: mix do local.rebar --force + local.hex --force + deps.get
 
@@ -130,7 +103,7 @@ jobs:
 
       - name: Publish to Hex.pm
         run: |
-          VERSION=$(grep '@version' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(cat ../VERSION | tr -d '[:space:]')
           PKG=$(grep '@app' mix.exs | head -1 | sed 's/.*:\([a-z_]*\).*/\1/')
           if curl -sf "https://hex.pm/api/packages/${PKG}/releases/${VERSION}" > /dev/null; then
             mix hex.publish --yes --replace
@@ -270,15 +243,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify tag matches mix.exs version
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION=$(grep '@version' planck_cli/mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if [ "v$VERSION" != "$TAG" ]; then
-            echo "Tag $TAG does not match mix.exs version $VERSION"
-            exit 1
-          fi
 
       - uses: actions/download-artifact@v4
         with:
