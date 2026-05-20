@@ -28,6 +28,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:setup_visible, false)
       |> assign(:model_selector, nil)
       |> assign(:available_models, [])
+      |> assign(:first_run, false)
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -46,13 +47,15 @@ defmodule Planck.Web.SessionLive do
         end
 
       teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
-      setup_visible = is_nil(Headless.config().default_model)
+      config = Headless.config()
+      first_run = config.providers == %{} and config.models == []
 
       {:ok,
        socket
        |> assign(:sessions, Headless.list_sessions())
        |> assign(:teams, teams)
-       |> assign(:setup_visible, setup_visible)
+       |> assign(:first_run, first_run)
+       |> assign(:setup_visible, first_run)
        |> assign(:available_models, Headless.available_models())}
     else
       {:ok, socket}
@@ -225,10 +228,13 @@ defmodule Planck.Web.SessionLive do
 
   def handle_info(:setup_complete, socket) do
     teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+    config = Headless.config()
+    first_run = config.providers == %{} and config.models == []
 
     socket =
       socket
       |> assign(:setup_visible, false)
+      |> assign(:first_run, first_run)
       |> assign(:teams, teams)
       |> assign(:available_models, Headless.available_models())
 
@@ -292,7 +298,7 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_event("close_setup", _params, socket) do
-    if is_nil(Headless.config().default_model) do
+    if socket.assigns.first_run do
       {:noreply, socket}
     else
       {:noreply, assign(socket, :setup_visible, false)}

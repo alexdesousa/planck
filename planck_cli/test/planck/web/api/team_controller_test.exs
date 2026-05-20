@@ -97,7 +97,7 @@ defmodule Planck.Web.API.TeamControllerTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate."
           }

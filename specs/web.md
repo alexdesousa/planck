@@ -93,25 +93,35 @@ PubSub and routes events to the right component via `send_update/3`.
 
 ## Setup modal — `SetupModal`
 
-Multi-step modal for configuring a model provider. Appears automatically on
-first run (when `Config.default_model` is nil) and can be re-opened via the
-⚙ button in the status bar. **Cannot be dismissed** while no default model
-is configured — Planck cannot start a session without one.
+Multi-step modal for first-time onboarding and returning-user configuration.
+Appears automatically when no providers **and** no models are configured.
+Can be re-opened via ⚙ in the status bar. Cannot be dismissed during first run.
 
-Three steps:
-1. **Provider & credentials** — provider dropdown; API key (cloud) or base
-   URL (local); for local providers the modal attempts to fetch the available
-   model list from the running server (2 s timeout, falls back to text input).
-2. **Model details** — model ID (dropdown for cloud, text input for local);
-   display name; context window; supports-thinking checkbox; JSON textarea for
-   `default_opts` (temperature, timeouts, etc.).
-3. **Save** — scope (this project vs all projects); set-as-default checkbox
-   (always checked and disabled on first run).
+### First-time onboarding (no providers or models configured)
 
-On save calls `Headless.configure_model/1` which writes `default_provider`/
-`default_model` to the JSON config file, adds a model entry for local
-providers, and writes the API key to the `.env` file. Then calls
-`reload_resources/0` so the new model is immediately available.
+Two steps, shared by first run and the "Configure a provider" returning-user flow:
+
+1. **Add a provider** — provider type picker (Anthropic, Google, OpenAI,
+   OpenAI-compatible); API key for cloud providers; for OpenAI-compatible: preset
+   dropdown (NVIDIA NIM, Groq, Ollama, llama.cpp, Other) with `base_url`,
+   `identifier`, and `has_api_key` pre-filled; "Get started for free" links to
+   NVIDIA NIM, Groq, and Google AI Studio.
+2. **Add a model** — model picker (catalog dropdown for cloud, text input for
+   local); alias field; set-as-default checkbox; JSON inference parameters
+   (pre-filled for known presets — NVIDIA NIM pre-selects
+   `qwen/qwen3-coder-480b-a35b-instruct`; Groq pre-selects
+   `llama-3.3-70b-versatile`); scope selector (defaults to "All projects").
+
+On save calls `Headless.configure_provider/1` then `Headless.configure_model/1`.
+
+### Returning users (⚙ button)
+
+Opens a "choose action" screen:
+
+- **Configure a provider** → same 2-step flow, saves provider + model.
+- **Configure a model** → step 2 only; provider picked from the configured
+  providers list. Selecting a model already in config pre-fills its alias,
+  params, and default state for editing.
 
 ## Model selector — `ModelSelectorModal`
 
@@ -266,7 +276,7 @@ planck_cli/lib/planck/web/
     status_bar.html.heex
     edit_message_modal.ex    — LiveComponent: edit + rewind flow
     edit_message_modal.html.heex
-    setup_modal.ex           — LiveComponent: 3-step provider/model setup
+    setup_modal.ex           — LiveComponent: 2-step provider/model setup (onboarding + config)
     setup_modal.html.heex
     model_selector_modal.ex  — LiveComponent: runtime model switcher
     model_selector_modal.html.heex

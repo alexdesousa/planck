@@ -14,7 +14,7 @@ defmodule Planck.Web.API.SessionControllerTest do
 
   @model %Model{
     id: "llama3.2",
-    provider: :ollama,
+    provider: :openai,
     context_window: 4_096,
     max_tokens: 2_048
   }
@@ -37,7 +37,7 @@ defmodule Planck.Web.API.SessionControllerTest do
       Config.reload_sessions_dir()
     end)
 
-    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
 
     team_dir = write_team(dir, "test-team")
 
@@ -252,7 +252,7 @@ defmodule Planck.Web.API.SessionControllerTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You coordinate."
           }

@@ -18,23 +18,31 @@ defmodule Planck.Web.API.ModelControllerTest do
     end
 
     test "returns configured local models", %{conn: conn} do
-      original = Application.get_env(:planck, :models)
+      original_providers = Application.get_env(:planck, :providers)
+      original_models = Application.get_env(:planck, :models)
+
+      Application.put_env(:planck, :providers, %{
+        "local" => %{
+          "type" => "openai",
+          "base_url" => "http://localhost:11434",
+          "has_api_key" => false
+        }
+      })
 
       Application.put_env(:planck, :models, [
-        %{
-          "id" => "llama3.2",
-          "provider" => "ollama",
-          "base_url" => "http://localhost:11434",
-          "context_window" => 128_000
-        }
+        %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}
       ])
 
+      Config.reload_providers()
       Config.reload_models()
       Headless.reload_resources()
 
       on_exit(fn ->
+        Application.delete_env(:planck, :providers)
         Application.delete_env(:planck, :models)
-        if original, do: Application.put_env(:planck, :models, original)
+        if original_providers, do: Application.put_env(:planck, :providers, original_providers)
+        if original_models, do: Application.put_env(:planck, :models, original_models)
+        Config.reload_providers()
         Config.reload_models()
         Headless.reload_resources()
       end)
@@ -44,8 +52,7 @@ defmodule Planck.Web.API.ModelControllerTest do
 
       assert_schema(body, "ModelList", api_spec())
       assert [model] = Enum.filter(body, &(&1["id"] == "llama3.2"))
-      assert model["provider"] == "ollama"
-      assert model["context_window"] == 128_000
+      assert model["provider"] == "openai"
       assert model["base_url"] == "http://localhost:11434"
     end
   end

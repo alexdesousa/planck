@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.1.6
+
+### SetupModal overhaul
+
+Complete redesign of the provider/model setup flow.
+
+**First-time onboarding** (shown automatically when no providers or models are
+configured — replaces the old `default_model == nil` check):
+
+- Step 1 — Add a provider: type picker (Anthropic, Google, OpenAI,
+  OpenAI-compatible); API key field for cloud providers; preset dropdown for
+  OpenAI-compatible (NVIDIA NIM, Groq, Ollama, llama.cpp, Other) with
+  `base_url`, `identifier`, and `has_api_key` pre-filled per preset; "Get
+  started for free" section with links to NVIDIA NIM, Groq, and Google AI
+  Studio.
+- Step 2 — Add a model: model picker (catalog dropdown for cloud, text input
+  for local); alias field (pre-filled from model ID); set-as-default checkbox;
+  JSON inference parameters (pre-filled for known presets); scope selector
+  (defaults to "All projects").
+
+On save calls `Headless.configure_provider/1` then `Headless.configure_model/1`.
+Reloads `ResourceStore` and starts a session on completion.
+
+**Returning users** (⚙ button):
+
+- New "choose action" screen: "Configure a provider" or "Configure a model".
+- Configure a provider → same 2-step flow as first run.
+- Configure a model → pick from configured providers, then step 2 as above;
+  selecting a model that is already configured pre-fills its alias, params, and
+  default state for editing.
+
+**Preset defaults:**
+
+| Preset | Default model | Default params |
+|---|---|---|
+| NVIDIA NIM | `qwen/qwen3-coder-480b-a35b-instruct` | `temperature: 0.7, top_p: 0.8, receive_timeout: 600000` |
+| Groq | `llama-3.3-70b-versatile` | `temperature: 0.5, top_p: 0.9` |
+
+**Other fixes:**
+
+- Provider key computed at save time for the `add_provider` flow (previously
+  stayed `""` because the `next` handler was never called).
+- Old provider atoms (`:ollama`, `:llama_cpp`, `:custom_openai`) removed;
+  all OpenAI-compatible endpoints now use `:openai_compat` with presets.
+- Test fixtures updated throughout (`"provider": "ollama"` → `"provider":
+  "openai"`; Mox stubs widened to wildcards).
+
 ## v0.1.5
 
 ### Custom (OpenAI-compatible) provider in SetupModal

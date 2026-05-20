@@ -14,7 +14,7 @@ defmodule Planck.Web.API.EventControllerTest do
 
   @model %Model{
     id: "llama3.2",
-    provider: :ollama,
+    provider: :openai,
     context_window: 4_096,
     max_tokens: 2_048
   }
@@ -37,8 +37,8 @@ defmodule Planck.Web.API.EventControllerTest do
       Config.reload_sessions_dir()
     end)
 
-    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-    stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
     {:ok, conn: conn, team_dir: write_team(dir)}
   end
@@ -233,13 +233,13 @@ defmodule Planck.Web.API.EventControllerTest do
       "name" => "Helper",
       "description" => "A helper worker",
       "system_prompt" => "You help.",
-      "provider" => "ollama",
+      "provider" => "openai",
       "model_id" => "llama3.2",
       "base_url" => "http://localhost:11434"
     }
 
-    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-    stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
     stub(MockAI, :stream, fn _model, _context, _opts ->
       n = Agent.get_and_update(counter, &{&1, &1 + 1})
@@ -411,7 +411,7 @@ defmodule Planck.Web.API.EventControllerTest do
         "members" => [
           %{
             "type" => "orchestrator",
-            "provider" => "ollama",
+            "provider" => "openai",
             "model_id" => "llama3.2",
             "system_prompt" => "You are a helpful orchestrator.",
             "tools" => ["read", "write", "edit", "bash"]
