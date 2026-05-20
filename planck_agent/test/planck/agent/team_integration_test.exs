@@ -13,7 +13,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
   @model %Model{
     id: "llama3.2",
     name: "Llama 3.2",
-    provider: :ollama,
+    provider: :openai,
     context_window: 4_096,
     max_tokens: 2_048
   }
@@ -496,7 +496,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       "name" => "Reviewer",
       "description" => "Reviews code",
       "system_prompt" => "You are a reviewer.",
-      "provider" => "ollama",
+      "provider" => "openai",
       "model_id" => "llama3.2",
       "base_url" => "http://localhost:11434"
     }
@@ -520,8 +520,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "spawned agent always receives worker inter-agent tools" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [])
       tools = call_spawn(spawn_tool, orch_id)
@@ -535,8 +535,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "spawned agent receives requested tools from the grantable set" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [BuiltinTools.read()])
       tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["read"]})
@@ -547,8 +547,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "tools not in the grantable set are silently ignored" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [BuiltinTools.read()])
       tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["bash", "write"]})
@@ -561,8 +561,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "spawned agent with no tools key gets only worker inter-agent tools" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spawn_tool =
         Tools.spawn_agent(unique_id(), team_id, [
@@ -588,7 +588,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       "name" => "Reviewer",
       "description" => "Reviews code",
       "system_prompt" => "You are a reviewer.",
-      "provider" => "ollama",
+      "provider" => "openai",
       "model_id" => "llama3.2",
       "base_url" => "http://localhost:11434"
     }
@@ -608,8 +608,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "granted skills are appended to the spawned agent's system prompt" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "code_review",
@@ -629,8 +629,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "unknown skill names are silently ignored" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["unknown"]})
@@ -641,8 +641,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
     test "no skills key leaves system prompt unchanged" do
       team_id = unique_id()
       orch_id = unique_id()
-      stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-      stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "code_review",
@@ -665,8 +665,8 @@ defmodule Planck.Agent.TeamIntegrationTest do
   defp spawn_with_tool(tool) do
     team_id = unique_id()
     orch_id = unique_id()
-    stub(MockAI, :get_model, fn :ollama, "llama3.2" -> {:ok, @model} end)
-    stub(MockAI, :get_model, fn :ollama, "llama3.2", _opts -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
     spawn_tool = Tools.spawn_agent(unique_id(), team_id, [tool])
 
@@ -676,7 +676,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         "name" => "Worker",
         "description" => "A worker agent.",
         "system_prompt" => "You are a worker.",
-        "provider" => "ollama",
+        "provider" => "openai",
         "model_id" => "llama3.2",
         "base_url" => "http://localhost:11434",
         "tools" => [tool.name]

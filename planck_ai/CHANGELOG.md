@@ -18,7 +18,7 @@
 - `Planck.AI.Model` gains `has_api_key: boolean()` (default `true`); when `false`,
   the adapter passes `"not-needed"` directly and skips env-var lookup — for local
   servers like Ollama that require no authentication
-- `Planck.AI.Config.from_map/1`, `from_list/1`, and `load/1` removed — superseded
+- `Planck.AI.Config` functions `from_map/1`, `from_list/1`, and `load/1` removed — superseded
   by `from_config/2`
 - `Planck.AI.Config.from_config/2` added — builds `[Model.t()]` from a providers
   map (user-keyed, each entry has a `"type"` field) and a models list (each entry
@@ -29,7 +29,7 @@
 - New `:custom_openai` provider for OpenAI-compatible endpoints (NVIDIA, Together, vLLM, etc.)
 - `Planck.AI.Model` gains an `identifier` field — a short uppercase tag (e.g. `"NVIDIA"`) used to derive the env var `<IDENTIFIER>_API_KEY` at request time
 - `Planck.AI.Models.CustomOpenAI` — factory (`model/2`) and runtime discovery (`all/1`) via `GET {base_url}/models`
-- `Planck.AI.Config.from_map/1` validates and upcases `identifier`; rejects values that don't match `[A-Z][A-Z0-9]*`
+- `Planck.AI.Config` `from_map/1` validates and upcases `identifier`; rejects values that don't match `[A-Z][A-Z0-9]*`
 - API keys for `:custom_openai` are resolved lazily from the environment at request time, never cached
 
 ## v0.1.4

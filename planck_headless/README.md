@@ -61,7 +61,7 @@ Planck.Headless.list_sessions()
 ```
 
 See the module docs on `Planck.Headless.Config` for the full env-var table and
-the [configuration guide](../docs/guides/configuration.md) for all provider and
+the [configuration guide](https://github.com/alexdesousa/planck/blob/main/docs/guides/configuration.md) for all provider and
 model fields.
 
 ## Sidecars

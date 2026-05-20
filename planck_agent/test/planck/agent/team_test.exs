@@ -9,7 +9,7 @@ defmodule Planck.Agent.TeamTest do
     Map.merge(
       %{
         "type" => "orchestrator",
-        "provider" => "ollama",
+        "provider" => "openai",
         "model_id" => "llama3.2",
         "system_prompt" => "You are the orchestrator."
       },
@@ -21,7 +21,7 @@ defmodule Planck.Agent.TeamTest do
     Map.merge(
       %{
         "type" => "builder",
-        "provider" => "ollama",
+        "provider" => "openai",
         "model_id" => "llama3.2",
         "system_prompt" => "You are a builder."
       },
@@ -257,7 +257,7 @@ defmodule Planck.Agent.TeamTest do
       orchestrator =
         AgentSpec.new(
           type: "orchestrator",
-          provider: :ollama,
+          provider: :openai,
           model_id: "llama3.2",
           system_prompt: "Coordinate."
         )
@@ -274,7 +274,7 @@ defmodule Planck.Agent.TeamTest do
       spec =
         AgentSpec.new(
           type: "builder",
-          provider: :ollama,
+          provider: :openai,
           model_id: "llama3.2",
           system_prompt: "Build."
         )

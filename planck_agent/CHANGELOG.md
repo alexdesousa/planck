@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.6
+
+- Drop `:ollama`, `:llama_cpp`, and `:custom_openai` provider atoms — valid
+  providers are now `:anthropic | :openai | :google` only, matching `planck_ai`
+- `spawn_agent` tool provider enum updated: `ollama`, `llama_cpp`, and
+  `custom_openai` removed; OpenAI-compatible endpoints use `openai` with a
+  `base_url`
+- `@local_providers` and related validation (`validate_local_base_url`,
+  `resolve_spawn_model`) updated — local inference servers are now configured
+  via `openai` + `base_url`
+
 ## v0.1.5
 
 - `"custom_openai"` added to the `spawn_agent` provider enum; the LLM can now

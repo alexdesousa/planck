@@ -13,7 +13,7 @@ defmodule Planck.Agent.CompactorTest do
   @model %Model{
     id: "llama3.2",
     name: "Llama 3.2",
-    provider: :ollama,
+    provider: :openai,
     context_window: 1_000,
     max_tokens: 512
   }

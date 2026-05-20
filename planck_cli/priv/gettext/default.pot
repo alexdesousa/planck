@@ -340,38 +340,38 @@ msgctxt "setup button"
 msgid "Saving…"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:247
+#: lib/planck/web/live/setup_modal.ex:220
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select a provider."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:257
-#: lib/planck/web/live/setup_modal.ex:272
+#: lib/planck/web/live/setup_modal.ex:230
+#: lib/planck/web/live/setup_modal.ex:245
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select or enter a model."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:460
+#: lib/planck/web/live/setup_modal.ex:459
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "All projects (~/.planck/)"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:441
+#: lib/planck/web/live/setup_modal.ex:440
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Anthropic API Key"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:443
+#: lib/planck/web/live/setup_modal.ex:442
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Google API Key"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:442
+#: lib/planck/web/live/setup_modal.ex:441
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "OpenAI API Key"
@@ -389,7 +389,7 @@ msgctxt "setup label"
 msgid "Set as default model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:459
+#: lib/planck/web/live/setup_modal.ex:458
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "This project (.planck/)"
@@ -407,13 +407,13 @@ msgctxt "tooltip"
 msgid "Configure models"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:422
+#: lib/planck/web/live/setup_modal.ex:421
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Advanced options contain invalid JSON."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:419
+#: lib/planck/web/live/setup_modal.ex:418
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Advanced options must be a JSON object."
@@ -450,7 +450,7 @@ msgctxt "model selector"
 msgid "Save"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:444
+#: lib/planck/web/live/setup_modal.ex:443
 #: lib/planck/web/live/setup_modal.html.heex:158
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
@@ -493,7 +493,7 @@ msgctxt "setup action"
 msgid "Configure a provider"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:251
+#: lib/planck/web/live/setup_modal.ex:224
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select a preset."
@@ -547,7 +547,7 @@ msgctxt "setup label"
 msgid "Model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:454
+#: lib/planck/web/live/setup_modal.ex:453
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "OpenAI-compatible"
@@ -565,31 +565,31 @@ msgctxt "setup label"
 msgid "Provider type"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:498
+#: lib/planck/web/live/setup_modal.ex:497
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Add a model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:492
+#: lib/planck/web/live/setup_modal.ex:491
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Add a provider"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:489
+#: lib/planck/web/live/setup_modal.ex:488
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Step 1 of 2 — Add a provider"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:495
+#: lib/planck/web/live/setup_modal.ex:494
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Step 2 of 2 — Add a model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:486
+#: lib/planck/web/live/setup_modal.ex:485
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "What would you like to configure?"

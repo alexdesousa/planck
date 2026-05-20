@@ -168,35 +168,8 @@ defmodule Planck.Web.Live.SetupModal do
 
   def handle_event("next", _params, %{assigns: %{step: 1}} = socket) do
     case validate_provider_step(socket.assigns) do
-      :ok ->
-        a = socket.assigns
-        provider_key = compute_provider_key(a.provider, a.identifier, a.preset)
-
-        models =
-          if a.provider in @local_providers and a.base_url != "" do
-            fetch_local_models(a.base_url)
-          else
-            load_models(a.provider)
-          end
-
-        preset_params = Map.get(@preset_default_params, a.preset || "")
-        preset_model = Map.get(@preset_default_models, a.preset || "")
-
-        advanced_opts =
-          if preset_params, do: Jason.encode!(preset_params, pretty: true), else: ""
-
-        {:noreply,
-         socket
-         |> assign(:provider_key, provider_key)
-         |> assign(:step, 2)
-         |> assign(:models, models)
-         |> assign(:advanced_opts, advanced_opts)
-         |> assign(:model_api_id, preset_model || "")
-         |> assign(:model_alias, preset_model || "")
-         |> assign(:error, nil)}
-
-      {:error, msg} ->
-        {:noreply, assign(socket, :error, msg)}
+      :ok -> {:noreply, advance_to_step_2(socket)}
+      {:error, msg} -> {:noreply, assign(socket, :error, msg)}
     end
   end
 
@@ -274,6 +247,29 @@ defmodule Planck.Web.Live.SetupModal do
 
   defp maybe_save_model(a, params) do
     Headless.configure_model(build_model_opts(a, a.provider_key, params))
+  end
+
+  defp advance_to_step_2(socket) do
+    a = socket.assigns
+    provider_key = compute_provider_key(a.provider, a.identifier, a.preset)
+
+    models =
+      if a.provider in @local_providers and a.base_url != "",
+        do: fetch_local_models(a.base_url),
+        else: load_models(a.provider)
+
+    preset_params = Map.get(@preset_default_params, a.preset || "")
+    preset_model = Map.get(@preset_default_models, a.preset || "")
+    advanced_opts = if preset_params, do: Jason.encode!(preset_params, pretty: true), else: ""
+
+    socket
+    |> assign(:provider_key, provider_key)
+    |> assign(:step, 2)
+    |> assign(:models, models)
+    |> assign(:advanced_opts, advanced_opts)
+    |> assign(:model_api_id, preset_model || "")
+    |> assign(:model_alias, preset_model || "")
+    |> assign(:error, nil)
   end
 
   # ---------------------------------------------------------------------------
@@ -380,12 +376,15 @@ defmodule Planck.Web.Live.SetupModal do
 
       :openai_compat ->
         base
-        |> then(fn o -> if a.base_url != "", do: [{:base_url, a.base_url} | o], else: o end)
-        |> then(fn o -> if a.identifier != "", do: [{:identifier, a.identifier} | o], else: o end)
-        |> then(fn o -> if a.api_key != "", do: [{:api_key, a.api_key} | o], else: o end)
-        |> then(fn o -> if not a.has_api_key, do: [{:has_api_key, false} | o], else: o end)
+        |> prepend_if(:base_url, a.base_url, a.base_url != "")
+        |> prepend_if(:identifier, a.identifier, a.identifier != "")
+        |> prepend_if(:api_key, a.api_key, a.api_key != "")
+        |> prepend_if(:has_api_key, false, not a.has_api_key)
     end
   end
+
+  defp prepend_if(opts, _key, _val, false), do: opts
+  defp prepend_if(opts, key, val, true), do: [{key, val} | opts]
 
   @spec build_model_opts(map(), String.t(), map() | nil) :: keyword()
   defp build_model_opts(a, provider_key, params) do

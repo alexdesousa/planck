@@ -13,7 +13,7 @@ defmodule Planck.Agent.AgentTest do
   @model %Model{
     id: "llama3.2",
     name: "Llama 3.2",
-    provider: :ollama,
+    provider: :openai,
     context_window: 4_096,
     max_tokens: 2_048
   }
@@ -109,7 +109,7 @@ defmodule Planck.Agent.AgentTest do
 
       new_model = %Model{
         id: "llama3.1",
-        provider: :ollama,
+        provider: :openai,
         context_window: 8_192,
         max_tokens: 4_096
       }
@@ -121,7 +121,7 @@ defmodule Planck.Agent.AgentTest do
 
     test "does not affect current status or messages" do
       agent = start_agent()
-      new_model = %Model{id: "other", provider: :ollama, context_window: 4_096, max_tokens: 2_048}
+      new_model = %Model{id: "other", provider: :openai, context_window: 4_096, max_tokens: 2_048}
 
       Agent.change_model(agent, new_model)
 
