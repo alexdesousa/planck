@@ -1,7 +1,7 @@
 defmodule Planck.CLI.MixProject do
   use Mix.Project
 
-  @version File.read!(Path.join(__DIR__, "../VERSION")) |> String.trim()
+  @version "0.1.6"
   @app :planck_cli
   @description "Planck coding agent CLI"
   def project do
