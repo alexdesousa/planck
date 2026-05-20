@@ -73,7 +73,7 @@ defmodule Planck.Headless.Config.JsonBinding do
   @spec merge_configs(map(), map()) :: map()
   defp merge_configs(acc, map) do
     Map.merge(acc, map, fn
-      "models", old, new -> old ++ new
+      "models", old, new -> Enum.uniq_by(new ++ old, & &1["id"])
       "providers", old, new -> Map.merge(old, new)
       _key, _old, new -> new
     end)

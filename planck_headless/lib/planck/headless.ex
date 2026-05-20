@@ -1104,7 +1104,7 @@ defmodule Planck.Headless do
 
     merged =
       Map.merge(existing, update, fn
-        "models", old, new -> old ++ new
+        "models", old, new -> Enum.uniq_by(new ++ old, & &1["id"])
         "providers", old, new -> Map.merge(old, new)
         _key, _old, new -> new
       end)
