@@ -116,7 +116,7 @@ lives in the `Planck.Agent.AgentSpec` module docs; the summary is:
 | Field           | Req | Description                                                    |
 |-----------------|-----|----------------------------------------------------------------|
 | `type`          | ✓   | Role identifier (e.g. `"orchestrator"`, `"builder"`)           |
-| `provider`      | ✓   | LLM provider (`anthropic`, `openai`, `google`, `ollama`, `llama_cpp`) |
+| `provider`      | ✓   | LLM provider (`anthropic`, `openai`, `google`; use `openai` + `base_url` for Ollama or other OpenAI-compatible servers) |
 | `model_id`      | ✓   | Provider-specific model id (e.g. `"claude-sonnet-4-6"`)        |
 | `name`          |     | Human-readable label; defaults to `type` when absent. Disambiguates when `type` repeats — required in that case. |
 | `description`   |     | One-line purpose shown to other agents via `list_team`         |

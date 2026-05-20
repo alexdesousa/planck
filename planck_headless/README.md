@@ -107,7 +107,3 @@ PLANCK_LOCAL=true mix check
 Set `PLANCK_LOCAL=true` to resolve sibling packages (`planck_agent`, `planck_ai`)
 from disk instead of Hex.
 
-## Playground
-
-See [`../playground/`](../playground/README.md) for a ready-to-run sandbox
-against a local llamacpp or Ollama server.

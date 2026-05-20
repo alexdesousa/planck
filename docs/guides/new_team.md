@@ -50,7 +50,7 @@ Key fields:
 | Field | Required | Notes |
 |---|---|---|
 | `type` | ✅ | `"orchestrator"` or any worker role name |
-| `provider` | ✅ | `anthropic`, `openai`, `google`, `ollama`, `llama_cpp` |
+| `provider` | ✅ | `anthropic`, `openai`, `google` (use `openai` + `base_url` for Ollama or other OpenAI-compatible servers) |
 | `model_id` | ✅ | From `list_models` tool |
 | `system_prompt` | | Inline string or path to `.md` file (relative to team dir) |
 | `tools` | | `["read", "write", "edit", "bash"]` + any sidecar tools |

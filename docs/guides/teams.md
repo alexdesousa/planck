@@ -21,9 +21,9 @@ Exactly one member must have `"type": "orchestrator"`. All others are workers.
 | `type` | ✅ | Role string — `"orchestrator"` or any worker type (e.g. `"planner"`, `"builder"`) |
 | `name` | | Display name; defaults to `type` if omitted; must be unique within the team (types may repeat, names may not) |
 | `description` | | One-line description shown to the orchestrator via `list_team` |
-| `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp` |
+| `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google` (use `openai` + `base_url` for Ollama or other OpenAI-compatible servers) |
 | `model_id` | ✅ | Model identifier (e.g. `"claude-sonnet-4-6"`, `"llama3.2"`) |
-| `base_url` | | Base URL for local/custom model servers (e.g. `"http://localhost:11434"`). Required when multiple servers of the same provider type are configured. |
+| `base_url` | | Base URL for OpenAI-compatible endpoints (e.g. `"http://localhost:11434"`). Not needed for cloud providers. |
 | `system_prompt` | | Inline string or path to a `.md` file (relative to the team directory) |
 | `tools` | | List of tool names available to this agent (e.g. `["read", "write", "bash"]`) |
 | `skills` | | List of skill names whose content is appended to the system prompt at session start |
@@ -153,9 +153,9 @@ a clean slate for a new task.
 | `name` | ✅ | Human-readable name |
 | `description` | ✅ | One-line purpose shown via `list_team` |
 | `system_prompt` | ✅ | System prompt (AGENTS.md is prepended automatically) |
-| `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google`, `ollama`, `llama_cpp` |
+| `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google` (use `openai` + `base_url` for Ollama or other OpenAI-compatible servers) |
 | `model_id` | ✅ | Model id — use `list_models` to discover available models |
-| `base_url` | ✅ | Server URL. For ollama/llama_cpp use the server address (e.g. `"http://localhost:11434"`). Cloud providers may pass any placeholder. |
+| `base_url` | ✅ | Server URL for OpenAI-compatible endpoints (e.g. Ollama: `"http://localhost:11434"`, NVIDIA: `"https://integrate.api.nvidia.com/v1"`). Not needed for cloud providers. |
 | `tools` | | Built-in tool names to grant (subset of the orchestrator's own tools) |
 | `skills` | | Skill names to attach; their content is appended to the system prompt |
 

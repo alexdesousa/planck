@@ -369,7 +369,8 @@ Define a team in JSON and load it at runtime:
     "type":          "coder",
     "name":          "Coder",
     "description":   "Writes and edits code",
-    "provider":      "ollama",
+    "provider":      "openai",
+    "base_url":      "http://localhost:11434",
     "model_id":      "llama3.2",
     "system_prompt": "prompts/coder.md"
   }
@@ -377,8 +378,8 @@ Define a team in JSON and load it at runtime:
 ```
 
 `system_prompt` accepts an inline string or a `.md`/`.txt` path resolved
-relative to the template file. Valid providers are `"anthropic"`, `"openai"`,
-`"google"`, `"ollama"`, `"llama_cpp"`.
+relative to the template file. Valid providers are `"anthropic"`, `"openai"`, `"google"`. OpenAI-compatible
+servers (e.g. Ollama) use `"openai"` + `"base_url"`.
 
 The optional `"tools"` array lists tool names the agent should receive. Names are
 resolved at start time from the `tool_pool:` keyword passed to `AgentSpec.to_start_opts/2`:

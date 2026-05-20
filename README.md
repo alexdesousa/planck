@@ -31,9 +31,6 @@ https://github.com/user-attachments/assets/4045b308-4b1c-4315-9024-11574a8c8eb5
 The Web UI and HTTP API live inside `planck_cli` — rendering surface and external
 integration layer on top of `planck_headless`.
 
-A [`playground/`](./playground) directory provides a ready-to-run sandbox
-against a local llamacpp or Ollama server — useful for testing sessions end-to-end.
-
 ## Design principles
 
 **Agents are processes.** Each agent instance is a `GenServer`. Subagents are spawned

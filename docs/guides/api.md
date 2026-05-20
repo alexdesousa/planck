@@ -233,7 +233,7 @@ curl http://localhost:4000/api/models
 ```json
 [
   {"provider": "anthropic", "id": "claude-sonnet-4-6", "context_window": 200000, "base_url": null},
-  {"provider": "ollama",    "id": "llama3.2",          "context_window": 128000, "base_url": "http://localhost:11434"}
+  {"provider": "openai",    "id": "llama3.2",          "context_window": 128000, "base_url": "http://localhost:11434"}
 ]
 ```
 
