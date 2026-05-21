@@ -5,6 +5,7 @@ defmodule Sidecar.Application do
 
   @watcher if Mix.env() == :test, do: [], else: [Sidecar.Watcher]
   @indexer if Mix.env() == :test, do: [], else: [Sidecar.SessionIndexer]
+  @memory if Mix.env() == :test, do: [], else: [Sidecar.Memory]
   @reloader if Mix.env() == :dev, do: [Sidecar.Reloader], else: []
 
   @impl true
@@ -18,7 +19,7 @@ defmodule Sidecar.Application do
       end
 
     Supervisor.start_link(
-      connect_task ++ @watcher ++ @indexer ++ @reloader,
+      connect_task ++ @watcher ++ @indexer ++ @memory ++ @reloader,
       strategy: :one_for_one
     )
   end

@@ -84,6 +84,7 @@ defmodule Planck.Agent do
   - `id` — unique agent identifier
   - `name` / `description` / `type` — display metadata set at start time
   - `team_id` — registry namespace shared by all agents in the same team
+  - `team_name` — stable team alias (directory name); `"default"` for dynamic teams
   - `session_id` — SQLite session this agent persists messages to; `nil` for
     ephemeral agents
   - `delegator_id` — id of the orchestrator that spawned this worker; `nil` for
@@ -121,6 +122,7 @@ defmodule Planck.Agent do
           description: String.t() | nil,
           type: String.t() | nil,
           team_id: String.t() | nil,
+          team_name: String.t() | nil,
           session_id: String.t() | nil,
           delegator_id: String.t() | nil,
           role: :orchestrator | :worker,
@@ -152,6 +154,7 @@ defmodule Planck.Agent do
     :description,
     :type,
     :team_id,
+    :team_name,
     :session_id,
     :delegator_id,
     :role,
@@ -347,6 +350,7 @@ defmodule Planck.Agent do
       description: Keyword.get(opts, :description),
       type: Keyword.get(opts, :type),
       team_id: Keyword.get(opts, :team_id),
+      team_name: Keyword.get(opts, :team_name),
       session_id: Keyword.get(opts, :session_id),
       delegator_id: Keyword.get(opts, :delegator_id),
       role: role,
@@ -785,7 +789,11 @@ defmodule Planck.Agent do
   end
 
   @spec broadcast(t(), atom(), map()) :: :ok
-  defp broadcast(%{id: id, session_id: session_id, name: agent_name}, type, payload) do
+  defp broadcast(
+         %{id: id, session_id: session_id, name: agent_name, team_name: team_name},
+         type,
+         payload
+       ) do
     event = {:agent_event, type, payload}
     Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "agent:#{id}", event)
 
@@ -798,6 +806,7 @@ defmodule Planck.Agent do
           payload
           |> Map.put(:agent_id, id)
           |> Map.put(:agent_name, agent_name)
+          |> Map.put(:team_name, team_name)
           |> Map.put(:session_id, session_id)
 
         Phoenix.PubSub.broadcast(

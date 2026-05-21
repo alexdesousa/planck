@@ -621,6 +621,7 @@ defmodule Planck.Headless do
       |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
       |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
       |> Keyword.put(:sidecar_node, SidecarManager.node())
+      |> Keyword.put(:team_name, ctx.team_name)
       |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
       |> Keyword.put(:top_skills, skill_opts[:top_skills])
       |> Keyword.put(:skill_pool, skill_opts[:skill_pool])
@@ -684,6 +685,7 @@ defmodule Planck.Headless do
         |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
         |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
         |> Keyword.put(:sidecar_node, SidecarManager.node())
+        |> Keyword.put(:team_name, ctx.team_name)
         |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
         |> Keyword.put(:top_skills, skill_opts[:top_skills])
         |> Keyword.put(:skill_pool, skill_opts[:skill_pool])
@@ -717,12 +719,7 @@ defmodule Planck.Headless do
       skill_index_refresh_fn: fn ->
         current = ResourceStore.get().skills
 
-        new_ranked =
-          if team_name && agent_name do
-            SkillUsage.ranked_names(cwd, team_name, agent_name, current, top_n)
-          else
-            []
-          end
+        new_ranked = SkillUsage.ranked_names(cwd, team_name, agent_name, current, top_n)
 
         {current, new_ranked}
       end
@@ -909,6 +906,7 @@ defmodule Planck.Headless do
           |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
           |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
           |> Keyword.put(:sidecar_node, SidecarManager.node())
+          |> Keyword.put(:team_name, nil)
 
         case start_agent(opts) do
           {:ok, _} ->

@@ -97,23 +97,27 @@ turns.
 return `nil` for no injection. Both receive the `session_id` so a single
 module instance can serve all sessions.
 
-### Recommended ETS pattern
+### ETS-backed design
 
 An ETS table keyed by `session_id` gives non-blocking reads on every turn. The
-GenServer refreshes the cache on `:compacted` events — the cheapest point to
-reconsolidate memory since compaction already busts the LLM prefix cache.
+GenServer refreshes the cache lazily on `:turn_end` (first access) and eagerly
+on `:compacted` events — the cheapest point to reconsolidate memory since
+compaction already busts the LLM prefix cache.
+
+The planck_docker bundled sidecar ships `Sidecar.Memory` as a concrete,
+production-ready implementation of this pattern. It stores condensed agent
+memory in a `short_term_memory` Typesense collection keyed by
+`"team_name:agent_name"` (one record per agent, replaced on each write) and
+injects it via `before_prompt/1`.
 
 ```elixir
-defmodule MySidecar.Hooks.Memory do
+defmodule Sidecar.Memory do
+  use GenServer
   use Planck.Agent.Hooks.Prompt
 
-  @table :session_memory
+  @table :sidecar_memory
 
-  def child_spec(_opts) do
-    %{id: __MODULE__, start: {__MODULE__, :start_link, []}, type: :worker}
-  end
-
-  def start_link do
+  def start_link(_opts) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
     Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -121,35 +125,45 @@ defmodule MySidecar.Hooks.Memory do
 
   # Called by Planck before every LLM turn — fast ETS read, no blocking.
   @impl Planck.Agent.Hooks.Prompt
-  def after_prompt(session_id) do
+  def before_prompt(session_id) do
     case :ets.lookup(@table, session_id) do
       [{^session_id, content}] -> content
       [] -> nil
     end
   end
 
-  # Refresh cache after compaction.
-  def handle_info({:agent_event, :compacted, %{session_id: sid}}, state) do
-    :ets.insert(@table, {sid, load_memory(sid)})
+  # Lazy load on first turn_end for this session.
+  def handle_info({:agent_event, :turn_end,
+                   %{session_id: sid, agent_name: name, team_name: team}}, state) do
+    if :ets.lookup(@table, sid) == [] do
+      memory = Sidecar.Memory.current("#{team}:#{name}")
+      :ets.insert(@table, {sid, memory})
+    end
+    {:noreply, state}
+  end
+
+  # Refresh ETS after compaction — cheapest point to reconsolidate.
+  def handle_info({:agent_event, :compacted,
+                   %{session_id: sid, agent_name: name, team_name: team}}, state) do
+    memory = Sidecar.Memory.current("#{team}:#{name}")
+    :ets.insert(@table, {sid, memory})
     {:noreply, state}
   end
 
   def handle_info(_event, state), do: {:noreply, state}
-
-  defp load_memory(_session_id) do
-    # Load from your persistent store (Typesense, Postgres, etc.) and return
-    # a String.t() formatted as the memory section, or nil.
-    nil
-  end
 end
 ```
+
+Agents write new facts with the `update_memory` sidecar tool, which calls
+`Sidecar.Memory.write/3`. The tool enforces a 2 200-char limit and guides the
+agent to summarise when the limit is exceeded.
 
 ### TEAM.json
 
 ```json
 {
   "type":        "builder",
-  "prompt_hook": "MySidecar.Hooks.Memory"
+  "prompt_hook": "Sidecar.Memory"
 }
 ```
 

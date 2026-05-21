@@ -223,77 +223,84 @@ end
 If the sidecar node is unavailable, `Hooks.Compactor.compact/4` falls back to
 the local LLM-based compactor automatically.
 
+## Unified Typesense client
+
+`Sidecar.Typesense` is a shared HTTP client module used by all five sidecar
+modules (`Watcher`, `SessionIndexer`, `Memory`, `SearchWorkspace`, `SessionSearch`).
+It replaces the per-module private HTTP helpers that existed in earlier versions.
+
+Public API:
+
+| Function | Description |
+|---|---|
+| `ready?/0` | Health-check; returns `true` when Typesense is reachable |
+| `ensure_collection/1` | Create collection if it does not exist |
+| `upsert/2` | Insert or replace a document in a collection |
+| `get/2` | Fetch a document by id from a collection |
+| `delete/2` | Delete a document by id from a collection |
+| `search/2` | Full-text search in a collection |
+| `url/1` | Build a full URL for a Typesense path |
+| `headers/0` | Return auth headers for all requests |
+
 ## Per-agent memory
 
 Agent memory is implemented in the sidecar via the `Planck.Agent.Hooks.Prompt`
-behaviour. Declare the hook module in TEAM.json:
+behaviour. `Sidecar.Memory` is the concrete GenServer that implements this for
+the planck_docker bundled sidecar. Declare it in TEAM.json:
 
 ```json
 {
   "type":        "builder",
   "provider":    "anthropic",
   "model_id":    "claude-sonnet-4-6",
-  "prompt_hook": "MySidecar.Hooks.Memory"
+  "prompt_hook": "Sidecar.Memory"
 }
 ```
 
-planck_headless passes `prompt_hook: MySidecar.Hooks.Memory` (a module atom)
-directly at agent start time. Before every LLM turn, the agent calls
-`Hooks.Prompt.before_prompt(module, session_id, sidecar_node)` and
-`Hooks.Prompt.after_prompt(module, session_id, sidecar_node)` via RPC.
+planck_headless passes `prompt_hook: Sidecar.Memory` (a module atom) directly
+at agent start time. Before every LLM turn, the agent calls
+`Hooks.Prompt.before_prompt(module, session_id, sidecar_node)` via RPC.
 
-### Recommended ETS pattern
+### `Sidecar.Memory` design
 
-The `session_id` argument to `before_prompt/1` and `after_prompt/1` makes a
-single module instance suitable for all sessions — no per-session process
-needed. An ETS table keyed by session is the natural fit:
+`Sidecar.Memory` is an ETS-backed GenServer. Memory is stored in the
+`short_term_memory` Typesense collection keyed by `"#{team_name}:#{agent_name}"` —
+one record per agent, replaced on each write.
 
-```elixir
-defmodule MySidecar.Hooks.Memory do
-  use Planck.Agent.Hooks.Prompt
+| Callback / function | Behaviour |
+|---|---|
+| `before_prompt(session_id)` | Reads from ETS (`:sidecar_memory` table keyed by `session_id`); returns memory text or `nil` — fast, non-blocking, no RPC |
+| `:turn_end` event handler | Lazy load: if ETS miss, fetches from `short_term_memory` by `agent_key` and populates ETS |
+| `:compacted` event handler | Refreshes ETS from Typesense with the latest persisted memory |
+| `write/3` | Upserts to `short_term_memory` Typesense and updates ETS |
+| `current/1` | Reads current memory from Typesense by `agent_key` |
+| `flush/0` | Synchronization helper for tests |
 
-  @table :session_memory
+The `:turn_end` lazy-load means cold-start sessions populate their ETS entry on
+the first event rather than blocking the prompt path. The `:compacted` refresh
+ensures memory is re-consolidated after context compaction — the cheapest point
+to do so since compaction already busts the LLM prefix cache.
 
-  def child_spec(_opts) do
-    %{
-      id: __MODULE__,
-      start: {__MODULE__, :start_link, []},
-      type: :worker
-    }
-  end
+### `update_memory` tool
 
-  def start_link do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
-    GenServer.start_link(__MODULE__, [], name: __MODULE__)
-  end
+`Sidecar.Tools.UpdateMemory` provides the `update_memory` sidecar tool, added to
+`Sidecar.Planck.tools/0`. The agent calls this tool to record new facts.
 
-  # Called by Planck before every LLM turn — reads from ETS, no blocking.
-  @impl Planck.Agent.Hooks.Prompt
-  def after_prompt(session_id) do
-    case :ets.lookup(@table, session_id) do
-      [{^session_id, content}] -> content
-      [] -> nil
-    end
-  end
+Two actions:
 
-  # Refresh ETS on every compaction — cheapest point to reconsolidate memory.
-  def handle_info({:agent_event, :compacted, %{session_id: sid}}, state) do
-    :ets.insert(@table, {sid, load_memory(sid)})
-    {:noreply, state}
-  end
+- `"append"` (default) — loads existing memory, concatenates the new fact,
+  checks total `memory_size` (chars per line summed) against the 2 200-char limit.
+  If over limit, returns the full combined content with an instruction to
+  summarise and call again with `"overwrite"`.
+- `"overwrite"` — replaces memory entirely, no size check. Used after the agent
+  has produced a condensed summary.
 
-  defp load_memory(session_id) do
-    # read from your persistent store and return a String.t() | nil
-    nil
-  end
-end
-```
+### Collection naming
 
-The `after_prompt/1` callback reads directly from ETS — fast, non-blocking, and
-safe to call on every LLM turn. The GenServer only wakes up on `:compacted`
-events to refresh the cache. Planck has no knowledge of the storage or refresh
-logic.
+| Collection | Purpose |
+|---|---|
+| `long_term_memory` | Indexed turn history (append-only, queried by `session_search`) |
+| `short_term_memory` | Condensed agent memory keyed by `"team_name:agent_name"` (one record per agent, replace-on-write, injected via `before_prompt`) |
 
 ## Per-agent turn-end hook
 
@@ -383,9 +390,11 @@ app_env :sidecar, :planck, :sidecar,
   binding_order: @json
 ```
 
-| Env var          | Config key  | Default            |
-|------------------|-------------|-------------------|
-| `PLANCK_SIDECAR` | `:sidecar`  | `.planck/sidecar` |
+| Env var | Config key | Default |
+|---|---|---|
+| `PLANCK_SIDECAR` | `:sidecar` | `.planck/sidecar` |
+| `TYPESENSE_SESSIONS_COLLECTION` | `:sessions_collection` | `"long_term_memory"` |
+| `TYPESENSE_MEMORY_COLLECTION` | `:memory_collection` | `"short_term_memory"` |
 
 `PLANCK_SIDECAR` points to a Mix project directory. If the path does not exist
 on disk, `SidecarManager` skips startup entirely.

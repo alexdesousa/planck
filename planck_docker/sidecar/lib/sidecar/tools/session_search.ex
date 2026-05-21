@@ -33,21 +33,15 @@ defmodule Sidecar.Tools.SessionSearch do
   def search(query, agent_name \\ nil)
 
   def search(query, agent_name) when is_binary(query) do
-    base_url = Sidecar.Config.typesense_url!()
-    api_key = Sidecar.Config.typesense_api_key!()
     collection = Sidecar.Config.sessions_collection!()
 
     params =
       %{q: query, query_by: "content", per_page: 10, sort_by: "_text_match:desc,timestamp:desc"}
       |> maybe_add_filter(agent_name)
-      |> URI.encode_query()
 
-    url = "#{base_url}/collections/#{collection}/documents/search?#{params}"
-
-    case Req.get(url, headers: [{"X-TYPESENSE-API-KEY", api_key}]) do
-      {:ok, %{status: 200, body: body}} -> {:ok, format_results(body)}
-      {:ok, %{status: status}} -> {:error, "Typesense returned #{status}"}
-      {:error, reason} -> {:error, "session_search failed: #{inspect(reason)}"}
+    case Sidecar.Typesense.search(collection, params) do
+      {:ok, body} -> {:ok, format_results(body)}
+      {:error, reason} -> {:error, reason}
     end
   end
 

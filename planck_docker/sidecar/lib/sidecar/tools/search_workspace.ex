@@ -27,16 +27,12 @@ defmodule Sidecar.Tools.SearchWorkspace do
   def search(query)
 
   def search(query) when is_binary(query) do
-    base_url = Sidecar.Config.typesense_url!()
-    api_key = Sidecar.Config.typesense_api_key!()
     collection = Sidecar.Config.typesense_collection!()
-    params = URI.encode_query(%{q: query, query_by: "content,path", per_page: 10})
-    url = "#{base_url}/collections/#{collection}/documents/search?#{params}"
+    params = %{q: query, query_by: "content,path", per_page: 10}
 
-    case Req.get(url, headers: [{"X-TYPESENSE-API-KEY", api_key}]) do
-      {:ok, %{status: 200, body: body}} -> {:ok, format_results(body)}
-      {:ok, %{status: status}} -> {:error, "Typesense returned #{status}"}
-      {:error, reason} -> {:error, "search_workspace failed: #{inspect(reason)}"}
+    case Sidecar.Typesense.search(collection, params) do
+      {:ok, body} -> {:ok, format_results(body)}
+      {:error, reason} -> {:error, reason}
     end
   end
 

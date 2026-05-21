@@ -44,8 +44,17 @@ defmodule Sidecar.Watcher do
   def handle_continue(event, state)
 
   def handle_continue(:init_index, state) do
-    if typesense_ready?() do
-      ensure_collection()
+    if Sidecar.Typesense.ready?() do
+      schema = %{
+        name: Sidecar.Config.typesense_collection!(),
+        fields: [
+          %{name: "path", type: "string"},
+          %{name: "content", type: "string"},
+          %{name: "updated_at", type: "int64"}
+        ]
+      }
+
+      Sidecar.Typesense.ensure_collection(schema)
       index_all(state.workspace)
       {:ok, watcher} = FileSystem.start_link(dirs: [state.workspace])
       FileSystem.subscribe(watcher)
@@ -73,7 +82,8 @@ defmodule Sidecar.Watcher do
         :ok
 
       :removed in events or :deleted in events ->
-        delete_document(path)
+        id = Base.encode16(:crypto.hash(:sha256, path), case: :lower)
+        Sidecar.Typesense.delete(Sidecar.Config.typesense_collection!(), id)
 
       :created in events or :modified in events ->
         index_file(path, state.workspace)
@@ -119,7 +129,7 @@ defmodule Sidecar.Watcher do
         updated_at: System.system_time(:second)
       }
 
-      upsert_document(doc)
+      Sidecar.Typesense.upsert(Sidecar.Config.typesense_collection!(), doc)
     else
       _ -> :ok
     end
@@ -172,94 +182,7 @@ defmodule Sidecar.Watcher do
   end
 
   # ---------------------------------------------------------------------------
-  # Typesense HTTP
-
-  @spec typesense_ready?() :: boolean()
-  defp typesense_ready? do
-    options = [headers: typesense_headers()]
-
-    case Req.get(typesense_url("/health"), options) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
-    end
-  end
-
-  @spec ensure_collection() :: :ok
-  defp ensure_collection do
-    schema = %{
-      name: Sidecar.Config.typesense_collection!(),
-      fields: [
-        %{name: "path", type: "string"},
-        %{name: "content", type: "string"},
-        %{name: "updated_at", type: "int64"}
-      ]
-    }
-
-    options = [headers: typesense_headers(), json: schema]
-
-    case Req.post(typesense_url("/collections"), options) do
-      {:ok, %{status: status}} when status in [201, 409] ->
-        :ok
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("[Sidecar.Watcher] collection: #{status} #{inspect(body)}")
-
-      {:error, reason} ->
-        Logger.error("[Sidecar.Watcher] collection error: #{inspect(reason)}")
-    end
-  end
-
-  @spec upsert_document(map()) :: :ok
-  defp upsert_document(doc)
-
-  defp upsert_document(doc) when is_map(doc) do
-    collection = Sidecar.Config.typesense_collection!()
-    url = typesense_url("/collections/#{collection}/documents?action=upsert")
-    options = [headers: typesense_headers(), json: doc]
-
-    case Req.post(url, options) do
-      {:ok, %{status: status}} when status in [200, 201] ->
-        :ok
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("[Sidecar.Watcher] upsert #{doc.path}: #{status} #{inspect(body)}")
-
-      {:error, reason} ->
-        Logger.error("[Sidecar.Watcher] upsert error: #{inspect(reason)}")
-    end
-  end
-
-  @spec delete_document(Path.t()) :: :ok
-  defp delete_document(path)
-
-  defp delete_document(path) when is_binary(path) do
-    collection = Sidecar.Config.typesense_collection!()
-    id = Base.encode16(:crypto.hash(:sha256, path), case: :lower)
-    url = typesense_url("/collections/#{collection}/documents/#{id}")
-    options = [headers: typesense_headers()]
-
-    case Req.delete(url, options) do
-      {:ok, _} -> :ok
-      {:error, reason} -> Logger.warning("[Sidecar.Watcher] delete error: #{inspect(reason)}")
-    end
-  end
-
-  # ---------------------------------------------------------------------------
   # Helpers
-
-  @spec typesense_url(String.t()) :: String.t()
-  defp typesense_url(path)
-
-  defp typesense_url(path) when is_binary(path) do
-    base = Sidecar.Config.typesense_url!()
-    base <> path
-  end
-
-  @spec typesense_headers() :: [{String.t(), String.t()}]
-  defp typesense_headers do
-    key = Sidecar.Config.typesense_api_key!()
-    [{"X-TYPESENSE-API-KEY", key}]
-  end
 
   @spec excluded?(Path.t(), Path.t()) :: boolean()
   defp excluded?(path, workspace)

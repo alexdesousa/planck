@@ -21,6 +21,14 @@ defmodule Sidecar.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
+  defp local_or_hex(package, version) do
+    if System.get_env("PLANCK_LOCAL") == "true" do
+      {package, path: "../../#{package}"}
+    else
+      {package, version}
+    end
+  end
+
   defp aliases do
     [
       setup: ["deps.get", "cmd npm install --prefix assets"],
@@ -35,7 +43,7 @@ defmodule Sidecar.MixProject do
 
   defp deps do
     [
-      {:planck_agent, "~> 0.1"},
+      local_or_hex(:planck_agent, "~> 0.1"),
       {:skogsra, "~> 2.5"},
       {:req, "~> 0.5"},
       {:erlexec, "~> 2.0"},

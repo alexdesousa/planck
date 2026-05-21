@@ -6,13 +6,52 @@
 
 - `Sidecar.SessionIndexer` — new GenServer that subscribes to the
   `"planck:sessions"` global PubSub topic and indexes each turn into a
-  Typesense `memory` collection (configurable via `TYPESENSE_SESSIONS_COLLECTION`,
-  default `"memory"`). One document per turn combines the user/trigger message
-  and the agent response, labelled by agent name.
-- `session_search` sidecar tool — queries the `memory` Typesense collection for
-  relevant past turns; accepts an optional `agent_name` filter.
+  Typesense `long_term_memory` collection (configurable via
+  `TYPESENSE_SESSIONS_COLLECTION`, default `"long_term_memory"`). One document
+  per turn combines the user/trigger message and the agent response, labelled
+  by agent name.
+- `session_search` sidecar tool — queries the `long_term_memory` Typesense
+  collection for relevant past turns; accepts an optional `agent_name` filter.
 - `Sidecar.Config` — new `sessions_collection` key (`TYPESENSE_SESSIONS_COLLECTION`,
-  default `"memory"`).
+  default `"long_term_memory"`).
+
+### Per-agent memory (Phase 3)
+
+- `Sidecar.Typesense` — new unified Typesense HTTP client module used by all
+  five sidecar modules (`Watcher`, `SessionIndexer`, `Memory`, `SearchWorkspace`,
+  `SessionSearch`). Provides: `ready?/0`, `ensure_collection/1`, `upsert/2`,
+  `get/2`, `delete/2`, `search/2`, `url/1`, `headers/0`. Replaces per-module
+  private HTTP helpers.
+- `Sidecar.Memory` — new GenServer implementing `Planck.Agent.Hooks.Prompt`:
+  - ETS table `:sidecar_memory` keyed by `session_id` for fast non-blocking reads
+  - `before_prompt/1` reads from ETS and injects memory before the base system prompt
+  - On `:turn_end` event (lazy load): if ETS miss, fetches from
+    `short_term_memory` Typesense collection by `"#{team_name}:#{agent_name}"`
+  - On `:compacted` event: refreshes ETS from Typesense with the latest persisted memory
+  - `write/3` — upserts to `short_term_memory` Typesense and updates ETS
+  - `current/1` — reads current memory from Typesense by agent key
+  - `flush/0` — test synchronization helper
+  - Enabled per-agent via TEAM.json: `"prompt_hook": "Sidecar.Memory"`
+- `Sidecar.Tools.UpdateMemory` — new `update_memory` sidecar tool with two actions:
+  - `"append"` (default): loads existing memory, concatenates new fact, checks
+    `memory_size` (chars per line summed) against the 2 200-char limit; if over
+    limit, returns full combined content with instruction to summarize and call
+    with `"overwrite"`
+  - `"overwrite"`: replaces memory entirely, no size check — used after the
+    agent summarizes
+  - Added to `Sidecar.Planck.tools/0`
+- `Sidecar.Config` — new `memory_collection` key (`TYPESENSE_MEMORY_COLLECTION`,
+  default `"short_term_memory"`); `sessions_collection` default renamed from
+  `"memory"` to `"long_term_memory"`.
+- `sidecar/mix.exs` — `local_or_hex/2` helper so `PLANCK_LOCAL=true` uses local
+  `planck_agent` deps instead of Hex.
+
+### Collection naming convention
+
+| Collection | Purpose |
+|---|---|
+| `long_term_memory` | Indexed turn history (append-only, queried by `session_search`) |
+| `short_term_memory` | Condensed agent memory keyed by `"team_name:agent_name"` (one record per agent, replace-on-write, injected via `before_prompt`) |
 
 ### planck_setup bundled skill
 

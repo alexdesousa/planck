@@ -35,8 +35,19 @@ defmodule Sidecar.SessionIndexer do
 
   @impl true
   def handle_continue(:init_collection, state) do
-    if typesense_ready?() do
-      ensure_collection()
+    if Sidecar.Typesense.ready?() do
+      schema = %{
+        name: Sidecar.Config.sessions_collection!(),
+        fields: [
+          %{name: "session_id", type: "string", facet: true},
+          %{name: "agent_name", type: "string", facet: true},
+          %{name: "content", type: "string"},
+          %{name: "timestamp", type: "int64"}
+        ],
+        default_sorting_field: "timestamp"
+      }
+
+      Sidecar.Typesense.ensure_collection(schema)
       Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
       Logger.info("[Sidecar.SessionIndexer] subscribed to planck:sessions")
       {:noreply, state}
@@ -73,7 +84,7 @@ defmodule Sidecar.SessionIndexer do
         timestamp: DateTime.to_unix(assistant_msg.timestamp)
       }
 
-      upsert_document(doc)
+      Sidecar.Typesense.upsert(Sidecar.Config.sessions_collection!(), doc)
     end
 
     {:noreply, state}
@@ -130,65 +141,5 @@ defmodule Sidecar.SessionIndexer do
     end)
     |> IO.iodata_to_binary()
     |> String.trim()
-  end
-
-  @spec ensure_collection() :: :ok
-  defp ensure_collection do
-    schema = %{
-      name: collection(),
-      fields: [
-        %{name: "session_id", type: "string", facet: true},
-        %{name: "agent_name", type: "string", facet: true},
-        %{name: "content", type: "string"},
-        %{name: "timestamp", type: "int64"}
-      ],
-      default_sorting_field: "timestamp"
-    }
-
-    case Req.post(typesense_url("/collections"), headers: typesense_headers(), json: schema) do
-      {:ok, %{status: status}} when status in [201, 409] ->
-        :ok
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("[Sidecar.SessionIndexer] collection: #{status} #{inspect(body)}")
-
-      {:error, reason} ->
-        Logger.error("[Sidecar.SessionIndexer] collection error: #{inspect(reason)}")
-    end
-  end
-
-  @spec upsert_document(map()) :: :ok
-  defp upsert_document(doc) do
-    url = typesense_url("/collections/#{collection()}/documents?action=upsert")
-
-    case Req.post(url, headers: typesense_headers(), json: doc) do
-      {:ok, %{status: status}} when status in [200, 201] ->
-        :ok
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("[Sidecar.SessionIndexer] upsert: #{status} #{inspect(body)}")
-
-      {:error, reason} ->
-        Logger.error("[Sidecar.SessionIndexer] upsert error: #{inspect(reason)}")
-    end
-  end
-
-  @spec typesense_ready?() :: boolean()
-  defp typesense_ready? do
-    case Req.get(typesense_url("/health"), headers: typesense_headers()) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
-    end
-  end
-
-  @spec collection() :: String.t()
-  defp collection, do: Sidecar.Config.sessions_collection!()
-
-  @spec typesense_url(String.t()) :: String.t()
-  defp typesense_url(path), do: Sidecar.Config.typesense_url!() <> path
-
-  @spec typesense_headers() :: [{String.t(), String.t()}]
-  defp typesense_headers do
-    [{"X-TYPESENSE-API-KEY", Sidecar.Config.typesense_api_key!()}]
   end
 end

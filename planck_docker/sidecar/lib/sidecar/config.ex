@@ -15,7 +15,8 @@ defmodule Sidecar.Config do
   | `typesense_url` | `TYPESENSE_URL` | `http://typesense:8108` |
   | `typesense_api_key` | `TYPESENSE_API_KEY` | `planck-internal-key` |
   | `typesense_collection` | `TYPESENSE_COLLECTION` | `workspace` |
-  | `sessions_collection` | `TYPESENSE_SESSIONS_COLLECTION` | `memory` |
+  | `sessions_collection` | `TYPESENSE_SESSIONS_COLLECTION` | `long_term_memory` |
+  | `memory_collection` | `TYPESENSE_MEMORY_COLLECTION` | `short_term_memory` |
   """
   use Skogsra
 
@@ -44,10 +45,15 @@ defmodule Sidecar.Config do
     os_env: "TYPESENSE_COLLECTION",
     default: "workspace"
 
-  @envdoc "Name of the Typesense collection used for session turn indexing and memory."
+  @envdoc "Name of the Typesense collection used for long-term session turn indexing (session_search)."
   app_env :sessions_collection, :sidecar, :sessions_collection,
     os_env: "TYPESENSE_SESSIONS_COLLECTION",
-    default: "memory"
+    default: "long_term_memory"
+
+  @envdoc "Name of the Typesense collection used for short-term agent memory (prompt injection)."
+  app_env :memory_collection, :sidecar, :memory_collection,
+    os_env: "TYPESENSE_MEMORY_COLLECTION",
+    default: "short_term_memory"
 
   @envdoc "Base URL of the Apache Tika Server instance (internal Docker service)."
   app_env :tika_url, :sidecar, :tika_url,

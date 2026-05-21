@@ -187,18 +187,30 @@ allocation at the end — O(n) instead of O(n²) for long histories.
 `"planck:sessions"` topic in addition to the existing per-agent and per-session
 topics. Only persistent agents (those with a `session_id`) emit these events.
 
-The payload is the same as the per-session event plus two extra fields:
+The payload is the same as the per-session event plus four extra fields:
 
 - `agent_name` — stable agent name from TEAM.json (`spec.name || spec.type`)
+- `agent_id` — the agent's process identifier
 - `session_id` — the agent's SQLite session identifier
+- `team_name` — the stable team alias (`team.alias || "default"`)
+- `turn_messages` — messages from the user trigger onwards (sliced from
+  `stream_start - 1`), built by the private `readable_turn_messages/2` helper
 
 ```elixir
 Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
-# receives: {:agent_event, :turn_end | :compacted, %{agent_id:, agent_name:, session_id:, turn_messages:, ...}}
+# receives: {:agent_event, :turn_end | :compacted, %{agent_id:, agent_name:, session_id:, team_name:, turn_messages:, ...}}
 ```
 
 Sidecars subscribe to this single topic to receive events from all agents
 without needing to know individual agent IDs in advance.
+
+### `team_name` in agent state
+
+`%Planck.Agent{}` gains a `team_name: String.t() | nil` field — the stable
+team alias passed from planck_headless at start time (`team.alias || "default"`
+for the default dynamic team, `nil` for standalone agents). This is distinct
+from `team_id` (the runtime UUID) and is used as the stable key for per-team
+memory lookups in sidecars.
 
 ### `SkillUsage` — `team_name` nil bug fix
 

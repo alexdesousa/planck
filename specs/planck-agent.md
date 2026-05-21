@@ -38,8 +38,9 @@ has in its list.
   - `"agent:#{id}"` — all events for a specific agent
   - `"session:#{session_id}"` — all events scoped to a session (persistent agents only)
   - `"planck:sessions"` — `:turn_end` and `:compacted` events from all persistent agents;
-    payload enriched with `agent_name` and `session_id`; used by sidecars to subscribe to
-    all agents without knowing their IDs in advance
+    payload enriched with `agent_id`, `agent_name`, `session_id`, `team_name`, and
+    `turn_messages`; used by sidecars to subscribe to all agents without knowing their
+    IDs in advance
 - Team lifecycle: orchestrator owns a `team_id`; all agents with that `team_id` are
   terminated when the orchestrator exits (via process linking)
 - Token usage tracking across all LLM calls in a turn; broadcast in real-time and
@@ -156,6 +157,7 @@ Internal GenServer state — not part of the public API.
   description:               String.t() | nil,
   type:                      String.t() | nil,
   team_id:                   String.t() | nil,
+  team_name:                 String.t() | nil,
   session_id:                String.t() | nil,
   delegator_id:              String.t() | nil,
   role:                      :orchestrator | :worker,
@@ -183,6 +185,10 @@ Internal GenServer state — not part of the public API.
 ```
 
 `team_id` is `nil` for standalone agents.
+`team_name` is the stable team alias (`team.alias || "default"` for the default dynamic
+team); `nil` for standalone agents. Distinct from `team_id` (runtime UUID) — used as
+the stable key for per-team lookups in sidecars (e.g. `"#{team_name}:#{agent_name}"`
+as the memory key in Typesense).
 `role` is derived at start time from whether `spawn_agent` is present in the tool list.
 `delegator_id` is set automatically by `spawn_agent`; the LLM never addresses it.
 `turn_checkpoints` is a stack of message-list lengths at the start of each user turn,
@@ -503,7 +509,10 @@ three topics (see PubSub broadcasting above).
 | `:compacted` | — | Context compaction finished; summary checkpoint written |
 
 `:turn_end` and `:compacted` are additionally broadcast on `"planck:sessions"`
-with `agent_id`, `agent_name`, and `session_id` merged into the payload.
+with `agent_id`, `agent_name`, `session_id`, `team_name`, and `turn_messages`
+merged into the payload. `turn_messages` is the slice of messages from the user
+trigger onwards (the private `readable_turn_messages/2` helper slices from
+`stream_start - 1`).
 
 ## Supervision tree
 

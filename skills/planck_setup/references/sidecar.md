@@ -141,6 +141,14 @@ Each field is independent — declare only the ones your sidecar implements.
 Planck calls the hook module via RPC on the sidecar node; all three fall back
 gracefully when the sidecar is unavailable.
 
+The planck_docker bundled sidecar ships `Sidecar.Memory` as a ready-to-use
+`prompt_hook` implementation. It is an ETS-backed GenServer that stores condensed
+agent memory in the `short_term_memory` Typesense collection keyed by
+`"team_name:agent_name"`. Agents use the `update_memory` sidecar tool to record
+facts; memory is injected before the base system prompt on every turn via
+`before_prompt/1`. Enable it by adding `"prompt_hook": "Sidecar.Memory"` to any
+TEAM.json agent entry.
+
 See [Hooks guide](hooks.md) for full examples of each behaviour.
 
 ## Auto-reload in development
