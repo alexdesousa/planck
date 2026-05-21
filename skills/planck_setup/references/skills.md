@@ -160,4 +160,4 @@ New skills added to the pool after a session starts are loadable by name via
 - **Output templates** — instruct an agent to follow a specific output format
 
 For team configuration, see:
-https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/teams.md
+https://raw.githubusercontent.com/alexdesousa/planck/main/skills/planck_setup/references/teams.md

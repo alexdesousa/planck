@@ -98,7 +98,7 @@ and system prompts you used. The format is identical to the one above.
 ---
 
 For the full agent spec reference, see:
-https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/teams.md
+https://raw.githubusercontent.com/alexdesousa/planck/main/skills/planck_setup/references/teams.md
 
 For skill assignment, see:
-https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/skills.md
+https://raw.githubusercontent.com/alexdesousa/planck/main/skills/planck_setup/references/skills.md

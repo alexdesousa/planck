@@ -2,7 +2,7 @@
 set -e
 
 REPO="alexdesousa/planck"
-VERSION="0.1.6"
+VERSION="0.1.7"
 PLANCK_HOME="$HOME/planck"
 COMPOSE_URL="https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml"
 
@@ -96,6 +96,22 @@ if command -v curl >/dev/null 2>&1; then
   curl -fsSL -o "$COMPOSE_FILE" "$COMPOSE_URL"
 else
   wget -qO "$COMPOSE_FILE" "$COMPOSE_URL"
+fi
+
+# ── Install planck_setup skill ────────────────────────────────────────────────
+SKILL_BASE="$PLANCK_HOME/workspace/.planck/skills"
+TARBALL_URL="https://github.com/$REPO/archive/refs/tags/v${VERSION}.tar.gz"
+
+echo "Installing planck_setup skill..."
+mkdir -p "$SKILL_BASE"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$TARBALL_URL" | tar -xz --strip-components=2 \
+    -C "$SKILL_BASE" "planck-${VERSION}/skills/planck_setup" \
+    || echo "Warning: could not install planck_setup skill"
+else
+  wget -qO- "$TARBALL_URL" | tar -xz --strip-components=2 \
+    -C "$SKILL_BASE" "planck-${VERSION}/skills/planck_setup" \
+    || echo "Warning: could not install planck_setup skill"
 fi
 
 # ── Pull images ───────────────────────────────────────────────────────────────

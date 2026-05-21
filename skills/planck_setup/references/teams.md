@@ -195,4 +195,4 @@ planck --team build-team
 ```
 
 For full configuration options, see:
-https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/configuration.md
+https://raw.githubusercontent.com/alexdesousa/planck/main/skills/planck_setup/references/configuration.md

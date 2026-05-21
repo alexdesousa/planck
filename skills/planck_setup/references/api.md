@@ -294,5 +294,5 @@ http://localhost:4000/api. Key operations:
 ```
 
 For full team and skill configuration, see:
-https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/teams.md
-https://raw.githubusercontent.com/alexdesousa/planck/main/docs/guides/skills.md
+https://raw.githubusercontent.com/alexdesousa/planck/main/skills/planck_setup/references/teams.md
+https://raw.githubusercontent.com/alexdesousa/planck/main/skills/planck_setup/references/skills.md
