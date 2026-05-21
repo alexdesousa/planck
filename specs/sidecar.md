@@ -13,7 +13,7 @@ with a database.
 | Old | New |
 |---|---|
 | `tools_dirs` + `TOOL.json` files | `tools/0` callback + `Planck.Agent.Sidecar.list_tools/0` |
-| `compactor` config key + `.exs` file | `AgentSpec.compactor` string + `Planck.Agent.Compactor.build/2` remote opts |
+| `compactor` config key + `.exs` file | `AgentSpec.compactor` module name + `Planck.Agent.Hooks.Compactor.compact/4` remote dispatch |
 | Global `on_compact` in ResourceStore | Per-agent `compactor:` field in AgentSpec / TEAM.json |
 
 ## Sidecar behaviour
@@ -185,22 +185,28 @@ In TEAM.json:
 }
 ```
 
-`Compactor.build/2` accepts `sidecar_node:` and `compactor:` opts:
+planck_headless resolves the `"compactor"` string from TEAM.json to a module atom
+and passes it as `compactor:` in the agent start opts. No builder function is
+involved — the module is dispatched directly via `Planck.Agent.Hooks.Compactor.compact/4`.
+
+For example, given the TEAM.json entry above, headless starts the agent as:
 
 ```elixir
-on_compact = Compactor.build(model,
-  sidecar_node: SidecarManager.node(),
-  compactor: "MySidecar.Compactors.Builder"
+Planck.Agent.start_link(agent_spec,
+  compactor: MySidecar.Compactors.Builder,
+  sidecar_node: SidecarManager.node()
 )
 ```
 
-The `compactor:` string is the bare Elixir module name; it is converted to
-`:"Elixir.MySidecar.Compactors.Builder"` internally before the RPC call.
-The module must implement `Planck.Agent.Compactor`:
+The `compactor:` value is the resolved atom (`:"Elixir.MySidecar.Compactors.Builder"`);
+planck_headless performs the `String.to_existing_atom/1` conversion after ensuring the
+module is loaded via `:rpc.call(sidecar_node, :code, :ensure_loaded, [module])`.
+
+The module must implement `Planck.Agent.Hooks.Compactor`:
 
 ```elixir
 defmodule MySidecar.Compactors.Builder do
-  use Planck.Agent.Compactor
+  use Planck.Agent.Hooks.Compactor
 
   @impl true
   def compact(model, messages) do
@@ -214,12 +220,12 @@ defmodule MySidecar.Compactors.Builder do
 end
 ```
 
-If the sidecar node is unavailable, `Compactor.build/2` falls back to the
-local LLM-based compactor automatically.
+If the sidecar node is unavailable, `Hooks.Compactor.compact/4` falls back to
+the local LLM-based compactor automatically.
 
 ## Per-agent memory
 
-Agent memory is implemented in the sidecar via the `Planck.Agent.PromptHook`
+Agent memory is implemented in the sidecar via the `Planck.Agent.Hooks.Prompt`
 behaviour. Declare the hook module in TEAM.json:
 
 ```json
@@ -231,19 +237,20 @@ behaviour. Declare the hook module in TEAM.json:
 }
 ```
 
-planck_headless calls `PromptHook.build/2` with the session ID and sidecar node,
-and wires the resulting closures into the agent at start time. Planck calls the
-closures before every LLM turn via `SystemPrompt.build/1`.
+planck_headless passes `prompt_hook: MySidecar.Hooks.Memory` (a module atom)
+directly at agent start time. Before every LLM turn, the agent calls
+`Hooks.Prompt.before_prompt(module, session_id, sidecar_node)` and
+`Hooks.Prompt.after_prompt(module, session_id, sidecar_node)` via RPC.
 
 ### Recommended ETS pattern
 
-The `session_id` argument to `prepend/1` and `append/1` makes a single module
-instance suitable for all sessions — no per-session process needed. An ETS table
-keyed by session is the natural fit:
+The `session_id` argument to `before_prompt/1` and `after_prompt/1` makes a
+single module instance suitable for all sessions — no per-session process
+needed. An ETS table keyed by session is the natural fit:
 
 ```elixir
 defmodule MySidecar.Hooks.Memory do
-  use Planck.Agent.PromptHook
+  use Planck.Agent.Hooks.Prompt
 
   @table :session_memory
 
@@ -262,8 +269,8 @@ defmodule MySidecar.Hooks.Memory do
   end
 
   # Called by Planck before every LLM turn — reads from ETS, no blocking.
-  @impl Planck.Agent.PromptHook
-  def append(session_id) do
+  @impl Planck.Agent.Hooks.Prompt
+  def after_prompt(session_id) do
     case :ets.lookup(@table, session_id) do
       [{^session_id, content}] -> content
       [] -> nil
@@ -283,9 +290,89 @@ defmodule MySidecar.Hooks.Memory do
 end
 ```
 
-The `append/1` callback reads directly from ETS — fast, non-blocking, and safe
-to call on every LLM turn. The GenServer only wakes up on `:compacted` events to
-refresh the cache. Planck has no knowledge of the storage or refresh logic.
+The `after_prompt/1` callback reads directly from ETS — fast, non-blocking, and
+safe to call on every LLM turn. The GenServer only wakes up on `:compacted`
+events to refresh the cache. Planck has no knowledge of the storage or refresh
+logic.
+
+## Per-agent turn-end hook
+
+Post-turn reflection is implemented in the sidecar via the
+`Planck.Agent.Hooks.TurnEnd` behaviour. Declare the hook module in TEAM.json:
+
+```json
+{
+  "type":           "builder",
+  "provider":       "anthropic",
+  "model_id":       "claude-sonnet-4-6",
+  "turn_end_hook":  "MySidecar.Hooks.SkillReflector"
+}
+```
+
+planck_headless passes `turn_end_hook: MySidecar.Hooks.SkillReflector` (a module
+atom) at agent start time. After every LLM turn ends, the agent fires
+`Hooks.TurnEnd.reflect/4` in a background `Task` — non-blocking, the agent
+returns to idle immediately.
+
+### Threshold check
+
+`Hooks.TurnEnd.reflect/4` derives the tool call count from `turn_messages` and
+checks it against `module.reflect_threshold/0` **before dispatching**. The RPC
+call only happens when the threshold is met. On all other turns the cost is one
+local integer comparison.
+
+Default threshold: 5. Override `reflect_threshold/0` to tune sensitivity.
+
+### Behaviour
+
+```elixir
+@callback reflect(
+            agent_id :: String.t(),
+            turn_messages :: [Planck.Agent.Message.t()]
+          ) :: :ok
+
+@callback reflect_threshold() :: non_neg_integer()
+@callback reflect_timeout()   :: pos_integer()
+```
+
+### Example — SkillReflector
+
+```elixir
+defmodule MySidecar.Hooks.SkillReflector do
+  use Planck.Agent.Hooks.TurnEnd
+
+  @impl true
+  def reflect_threshold, do: 5
+
+  @impl true
+  def reflect(agent_id, turn_messages) do
+    tool_call_count =
+      turn_messages
+      |> Enum.flat_map(& &1.content)
+      |> Enum.count(&match?({:tool_call, _, _, _}, &1))
+
+    # Query existing skills, decide: new skill / update / skip.
+    case decide(turn_messages, tool_call_count) do
+      :skip ->
+        :ok
+
+      {:write, name, description, content} ->
+        write_skill(name, description, content)
+        # Signal back via a synthetic tool result visible to the LLM next turn.
+        Planck.Agent.inject_tool_result(agent_id, "skill_reflector",
+          "Skill '#{name}' written: #{description}")
+        :ok
+    end
+  end
+
+  defp decide(_messages, _count), do: :skip  # implement your logic here
+  defp write_skill(_name, _description, _content), do: :ok
+end
+```
+
+The synthetic tool name (`"skill_reflector"`) does **not** appear in the agent's
+callable tool list — it exists only as a history entry the LLM sees passively on
+the next turn.
 
 ## Config
 
@@ -310,10 +397,11 @@ and Mix must be installed on the system for sidecar support.
 ## Impact on existing APIs
 
 - `tools_dirs` / `ExternalTool` — removed.
-- `compactor` config key / `Planck.Agent.Compactor.load/1` — removed.
+- `compactor` config key / `.exs` file mechanism — removed.
 - `ResourceStore.tools` — now populated by `SidecarManager` from sidecar tools.
 - `ResourceStore.on_compact` — removed; compactors are per-agent via
-  `AgentSpec.compactor`.
-- `AgentSpec` gains `compactor: String.t() | nil`.
-- The default compactor (`Planck.Agent.Compactor.build/2`) remains as the
-  fallback when no sidecar compactor is configured.
+  `AgentSpec.compactor` (module name string in TEAM.json).
+- `AgentSpec` gains `compactor: String.t() | nil`, `prompt_hook: String.t() | nil`,
+  and `turn_end_hook: String.t() | nil`.
+- The built-in LLM-based compactor (`Hooks.Compactor.compact/4` with `module: nil`)
+  remains as the fallback when no sidecar compactor is configured.

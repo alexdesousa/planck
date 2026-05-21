@@ -13,7 +13,7 @@ defmodule Planck.Headless do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AgentSpec, BuiltinTools, Compactor, Message, Session, Skill, Team, Tools}
+  alias Planck.Agent.{AgentSpec, BuiltinTools, Message, Session, Skill, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
   alias Planck.Headless.Config.{EnvBinding, JsonBinding}
 
@@ -602,7 +602,10 @@ defmodule Planck.Headless do
       |> Keyword.put(:cwd, cwd)
       |> Keyword.put(:tools, full_tools)
       |> Keyword.put(:system_prompt, system_prompt)
-      |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
+      |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
+      |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
+      |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
+      |> Keyword.put(:sidecar_node, SidecarManager.node())
       |> Keyword.put(:usage, usage)
       |> Keyword.put(:cost, cost)
 
@@ -651,7 +654,10 @@ defmodule Planck.Headless do
         )
         |> Keyword.put(:system_prompt, system_prompt)
         |> Keyword.put(:delegator_id, orchestrator_id)
-        |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
+        |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
+        |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
+        |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
+        |> Keyword.put(:sidecar_node, SidecarManager.node())
         |> Keyword.put(:usage, usage)
         |> Keyword.put(:cost, cost)
 
@@ -662,15 +668,9 @@ defmodule Planck.Headless do
     end)
   end
 
-  @spec build_on_compact(AgentSpec.t(), Planck.AI.Model.t() | nil) :: function() | nil
-  defp build_on_compact(spec, model) when not is_nil(model) do
-    Compactor.build(model,
-      compactor: spec.compactor,
-      sidecar_node: SidecarManager.node()
-    )
-  end
-
-  defp build_on_compact(_spec, nil), do: nil
+  @spec resolve_hook_module(String.t() | nil) :: module() | nil
+  defp resolve_hook_module(nil), do: nil
+  defp resolve_hook_module(name), do: :"Elixir.#{name}"
 
   # list_skills is opt-in: agents declare "list_skills" in their TEAM.json tools
   # array to get autonomous skill discovery. load_skill is injected automatically
@@ -848,7 +848,10 @@ defmodule Planck.Headless do
               base_opts[:tools]
           )
           |> Keyword.put(:delegator_id, orchestrator_id)
-          |> Keyword.put(:on_compact, build_on_compact(spec, base_opts[:model]))
+          |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
+          |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
+          |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
+          |> Keyword.put(:sidecar_node, SidecarManager.node())
 
         case start_agent(opts) do
           {:ok, _} ->

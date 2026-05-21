@@ -211,13 +211,12 @@ escalate beyond what the orchestrator was given.
 ### Spawning a team manually
 
 ```elixir
-alias Planck.Agent.{Agent, AgentSpec, Compactor, Team}
+alias Planck.Agent.{Agent, AgentSpec, Team}
 
 {:ok, model} = Planck.AI.get_model(:anthropic, "claude-sonnet-4-6")
 
 team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 session_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-on_compact = Compactor.build(model)
 
 orchestrator_opts = [
   id: "orch-#{team_id}",
@@ -227,7 +226,7 @@ orchestrator_opts = [
   tools: orchestrator_tools,
   team_id: team_id,
   session_id: session_id,
-  on_compact: on_compact,
+  compactor: nil,
   available_models: Planck.AI.list_models(:anthropic)
 ]
 
@@ -280,14 +279,21 @@ Pass `agent_id:` to either function to filter to a specific agent.
 
 ## Context compaction
 
-`Planck.Agent.Compactor.build/2` returns an `on_compact` hook. When the
-estimated token count of the message history exceeds the threshold, it calls
-the LLM to produce a summary that preserves the active goal and recent context.
+`Planck.Agent.Hooks.Compactor` dispatches context compaction. When the estimated
+token count of the message history exceeds the threshold, it calls the LLM to
+produce a summary that preserves the active goal and recent context. Dispatch
+signature: `Hooks.Compactor.compact(module, model, messages, sidecar_node)`.
+
+When `module` is `nil`, the built-in LLM-based compactor runs locally. Pass a
+module atom to delegate to a sidecar compactor:
 
 ```elixir
-on_compact = Compactor.build(model,
-  ratio: 0.8,        # compact when history reaches 80% of context_window
-  keep_recent: 10    # keep the last 10 messages verbatim
+# Agent start opts — module atom or nil (use built-in)
+Planck.Agent.start_link(
+  id: "agent-1",
+  model: model,
+  compactor: MySidecar.Compactors.Builder,  # nil = built-in
+  sidecar_node: sidecar_node
 )
 ```
 
@@ -296,21 +302,30 @@ message in the agent's history and persisted to the session. Future LLM calls
 are built from the latest summary onward — the full history remains in the
 session for audit and UI pagination.
 
-Bring your own compaction strategy by implementing the `Planck.Agent.Compactor`
-behaviour in a sidecar module (see *Sidecars* below), then passing
-`sidecar_node:` and `compactor:` to `build/2`:
+Bring your own compaction strategy by implementing `Planck.Agent.Hooks.Compactor`
+in a sidecar module (see *Sidecars* below):
 
 ```elixir
-on_compact = Compactor.build(model,
-  sidecar_node: sidecar_node,
-  compactor: "MySidecar.Compactors.Builder"
-)
+defmodule MySidecar.Compactors.Builder do
+  use Planck.Agent.Hooks.Compactor
+
+  @impl true
+  def compact(model, messages) do
+    summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, summarise(messages)}])
+    kept    = Enum.take(messages, -5)
+    {:compact, summary, kept}
+  end
+
+  @impl true
+  def compact_timeout, do: 60_000
+end
 ```
 
-The remote compactor falls back to the local LLM-based compactor if the sidecar
-is unavailable.
+Reference it by name in TEAM.json (`"compactor": "MySidecar.Compactors.Builder"`);
+planck_headless resolves the string to a module atom and passes `compactor: module`
+at agent start time. The sidecar fallbacks to the built-in compactor if unavailable.
 
-The hook receives messages since the last summary checkpoint and must return
+The compactor receives messages since the last summary checkpoint and must return
 either `{:compact, summary_msg, kept_messages}` or `:skip`.
 
 ## Sidecars
@@ -402,7 +417,7 @@ Unknown names are silently ignored. When `spec.tools` is empty, `to_start_opts/2
 falls back to the `tools:` keyword — the behaviour before this feature was added.
 
 ```elixir
-alias Planck.Agent.{Agent, AgentSpec, Compactor, Team}
+alias Planck.Agent.{Agent, AgentSpec, Team}
 
 {:ok, team} = Team.load(".planck/teams/my-team")
 
@@ -415,15 +430,14 @@ team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 session_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
 Enum.each(team.members, fn spec ->
-  {:ok, model} = Planck.AI.get_model(spec.provider, spec.model_id)
+  {:ok, _model} = Planck.AI.get_model(spec.provider, spec.model_id)
   tools = Map.get(tools_by_type, spec.type, [])
 
   start_opts =
     AgentSpec.to_start_opts(spec,
       tools: tools,
       team_id: team_id,
-      session_id: session_id,
-      on_compact: Compactor.build(model)
+      session_id: session_id
     )
 
   DynamicSupervisor.start_child(Planck.Agent.AgentSupervisor, {Agent, start_opts})

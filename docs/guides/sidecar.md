@@ -117,28 +117,31 @@ defmodule MySidecar.SessionMonitor do
 end
 ```
 
-## Custom compactor
+## Hooks
 
-```elixir
-defmodule MySidecar.Compactors.Summary do
-  use Planck.Agent.Compactor
+The sidecar can extend per-agent behaviour through three hook behaviours, each
+declared in `TEAM.json` by module name:
 
-  @impl true
-  def compact(_model, messages) do
-    summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, summarise(messages)}])
-    {:compact, summary, Enum.take(messages, -5)}
-  end
-
-  @impl true
-  def compact_timeout, do: 60_000
-end
-```
-
-Assign it to an agent in `TEAM.json`:
+| Field | Behaviour | When it fires |
+|---|---|---|
+| `compactor` | `Planck.Agent.Hooks.Compactor` | Before every LLM turn — compact the message history when the context window is full |
+| `prompt_hook` | `Planck.Agent.Hooks.Prompt` | Before every LLM turn — inject dynamic content (e.g. memory) before or after the base system prompt |
+| `turn_end_hook` | `Planck.Agent.Hooks.TurnEnd` | After every LLM turn ends — inspect the completed turn and act (e.g. write a skill) |
 
 ```json
-{ "type": "builder", "compactor": "MySidecar.Compactors.Summary" }
+{
+  "type":          "builder",
+  "compactor":     "MySidecar.Compactors.Summary",
+  "prompt_hook":   "MySidecar.Hooks.Memory",
+  "turn_end_hook": "MySidecar.Hooks.SkillReflector"
+}
 ```
+
+Each field is independent — declare only the ones your sidecar implements.
+Planck calls the hook module via RPC on the sidecar node; all three fall back
+gracefully when the sidecar is unavailable.
+
+See [Hooks guide](hooks.md) for full examples of each behaviour.
 
 ## Auto-reload in development
 

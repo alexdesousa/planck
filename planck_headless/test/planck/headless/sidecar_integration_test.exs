@@ -4,7 +4,8 @@ defmodule Planck.Headless.SidecarIntegrationTest do
   @moduletag :integration
   @moduletag timeout: 120_000
 
-  alias Planck.Agent.{Compactor, Message}
+  alias Planck.Agent.Hooks.Compactor
+  alias Planck.Agent.Message
   alias Planck.AI.Model
   alias Planck.Headless.{Config, ResourceStore, SidecarManager}
 
@@ -123,17 +124,13 @@ defmodule Planck.Headless.SidecarIntegrationTest do
     }
 
     test "delegates compaction to the sidecar compactor" do
-      on_compact =
-        Compactor.build(@model,
-          sidecar_node: SidecarManager.node(),
-          compactor: "PlanckTestSidecar.Compactor"
-        )
+      module = :"Elixir.PlanckTestSidecar.Compactor"
 
       messages =
         Enum.map(1..20, &Message.new(:user, [{:text, String.duplicate("x", 200) <> " #{&1}"}]))
 
       assert {:compact, %Message{content: [{:text, "Test summary."}]}, kept} =
-               on_compact.(messages)
+               Compactor.compact(module, @model, messages, SidecarManager.node())
 
       assert length(kept) == 3
     end

@@ -102,11 +102,13 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:model] == @model
     end
 
-    test "applies on_compact override" do
+    test "does not include hook fields (set by headless, not AgentSpec)" do
       expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
-      fun = fn msgs -> msgs end
-      opts = AgentSpec.to_start_opts(@base_spec, on_compact: fun)
-      assert opts[:on_compact] == fun
+      opts = AgentSpec.to_start_opts(@base_spec)
+      refute Keyword.has_key?(opts, :compactor)
+      refute Keyword.has_key?(opts, :prompt_hook)
+      refute Keyword.has_key?(opts, :turn_end_hook)
+      refute Keyword.has_key?(opts, :sidecar_node)
     end
 
     test "resolves tools by name from tool_pool when spec.tools is set" do

@@ -50,7 +50,7 @@ has in its list.
   `system_prompt_section/1`
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination;
   caller supplies `dir:` explicitly (no built-in config; lives in `planck_headless`)
-- `Planck.Agent.Compactor` — default LLM-based compaction anchored on `model.context_window`;
+- `Planck.Agent.Hooks.Compactor` — default LLM-based compaction anchored on `model.context_window`;
   used as fallback when no per-agent compactor is configured
 - `Planck.Agent.Sidecar` — behaviour for sidecar applications; defines `list_tools/0`
   and `compactor_for/1`. See `specs/sidecar.md`.
@@ -131,14 +131,15 @@ TEAM.json. The caller merges tools in before spawning.
                                         # appended to system_prompt via system_prompt_section/1
   compactor:     String.t() | nil,      # sidecar module name for per-agent compaction,
                                         # e.g. "MySidecar.Compactors.Builder"; nil = default
-  prompt_hook:   String.t() | nil       # sidecar module implementing PromptHook behaviour,
+  prompt_hook:   String.t() | nil,      # sidecar module implementing Hooks.Prompt behaviour,
                                         # e.g. "MySidecar.Hooks.Memory"; nil = no injection
+  turn_end_hook: String.t() | nil       # sidecar module implementing Hooks.TurnEnd behaviour,
+                                        # e.g. "MySidecar.Hooks.Reflector"; nil = no reflection
 }
 ```
 
-Dynamic context (e.g. memory) is injected via `prompt_hook`. planck_headless resolves
-it via `Planck.Agent.PromptHook.build/2` and wires the resulting closures as
-`system_prompt_prepend_fn` / `system_prompt_append_fn` at agent start time.
+Dynamic context (e.g. memory) is injected via `prompt_hook`. planck_headless passes
+`prompt_hook: module_atom` directly at agent start time — no intermediate builder.
 
 ### Agent state
 
@@ -169,9 +170,10 @@ Internal GenServer state — not part of the public API.
   text_buffer:               String.t(),
   thinking_buffer:           String.t(),
   usage:                     Planck.Agent.Usage.t(),
-  on_compact:                (([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip)) | nil,
-  system_prompt_prepend_fn:  (-> String.t() | nil) | nil,
-  system_prompt_append_fn:   (-> String.t() | nil) | nil
+  compactor:                 module() | nil,
+  prompt_hook:               module() | nil,
+  turn_end_hook:             module() | nil,
+  sidecar_node:              atom() | nil
 }
 ```
 
@@ -182,9 +184,9 @@ Internal GenServer state — not part of the public API.
 used internally for context management.
 `usage` is a `%Planck.Agent.Usage{}` struct with `input_tokens`, `output_tokens`, and
 `cost` fields. `state.usage.cost` replaces the former top-level `state.cost` field.
-`system_prompt_prepend_fn` / `system_prompt_append_fn` are optional closures called
-before every LLM turn by `SystemPrompt.build/1`. The sidecar provides these; Planck
-calls them without knowing about caching or memory implementation details.
+`compactor` / `prompt_hook` / `turn_end_hook` hold module atoms dispatched via
+`Planck.Agent.Hooks.*`. `sidecar_node` is the distributed Erlang node to RPC into
+when a hook module is set; `nil` means local dispatch only.
 
 ## Public API
 
@@ -245,9 +247,10 @@ calls them without knowing about caching or memory implementation details.
 | `team_id` | `String.t()` | no | Joins a team; nil for standalone |
 | `session_id` | `String.t()` | no | Enables session persistence and session-topic broadcasting |
 | `delegator_id` | `String.t()` | no | Set by `spawn_agent`; rarely passed directly |
-| `on_compact` | function | no | Context compaction hook |
-| `system_prompt_prepend_fn` | `(-> String.t() \| nil) \| nil` | no | Called before every LLM turn; return value prepended to system prompt |
-| `system_prompt_append_fn` | `(-> String.t() \| nil) \| nil` | no | Called before every LLM turn; return value appended after all other sections |
+| `compactor` | `module() \| nil` | no | Module implementing `Hooks.Compactor`; `nil` = built-in LLM compactor |
+| `prompt_hook` | `module() \| nil` | no | Module implementing `Hooks.Prompt`; called before every LLM turn |
+| `turn_end_hook` | `module() \| nil` | no | Module implementing `Hooks.TurnEnd`; fires in background after each turn |
+| `sidecar_node` | `atom() \| nil` | no | Distributed Erlang node for hook RPC dispatch |
 
 ## Agent loop — state machine
 
@@ -347,7 +350,7 @@ is resolved correctly regardless of provider configuration.
 | `bash/0`  | `bash`    | `command` (required), `cwd`, `timeout` |
 
 Agent memory is not built into `BuiltinTools`. It is implemented in the sidecar
-via the `system_prompt_prepend_fn` / `system_prompt_append_fn` hooks.
+via the `Planck.Agent.Hooks.Prompt` behaviour (`prompt_hook:` agent start opt).
 
 **`read`** streams the file line-by-line with `File.stream!(:line)`. `offset` and
 `limit` select a window without loading the whole file into memory. Expands `~` in
@@ -443,9 +446,15 @@ Additional Session API:
 
 ## Compaction
 
-`Planck.Agent.Compactor.build/2` returns an `on_compact` function. It estimates token
-usage from message content (chars ÷ 4) and triggers when usage exceeds
+`Planck.Agent.Hooks.Compactor.compact/4` dispatches context compaction. It estimates
+token usage from message content (chars ÷ 4) and triggers when usage exceeds
 `ratio * model.context_window` (default ratio: 0.8).
+
+Signature: `Hooks.Compactor.compact(module, model, messages, sidecar_node)`
+
+When `module` is `nil`, the built-in LLM-based compactor runs locally. When a module
+is set, dispatch goes to the sidecar node via RPC, with the built-in compactor as
+fallback if the sidecar is unavailable.
 
 When triggered, it summarises older messages via an LLM call using a prompt that
 prioritises the active goal and recent requests. Returns `{:compact, summary_msg, kept}`
@@ -455,13 +464,9 @@ The agent inserts the summary as a `{:custom, :summary}` checkpoint in `state.me
 and persists it to the session. Future LLM calls are built from the latest checkpoint
 onward — full history is retained in the session for audit and UI pagination.
 
-Custom compactors implement the `Planck.Agent.Compactor` behaviour and are
+Custom compactors implement the `Planck.Agent.Hooks.Compactor` behaviour and are
 referenced by module name in `AgentSpec.compactor`; the module lives in the
 sidecar application (see `specs/sidecar.md`).
-
-```elixir
-on_compact = Planck.Agent.Compactor.build(model, ratio: 0.8, keep_recent: 10)
-```
 
 ## Pub/Sub events
 
@@ -509,21 +514,19 @@ scoping rules, and dynamic-vs-static model. The short form:
 
 ```elixir
 alias Planck.Agent
-alias Planck.Agent.{AgentSpec, Compactor, Team}
+alias Planck.Agent.{AgentSpec, Team}
 
 {:ok, team} = Team.load(".planck/teams/elixir-dev-workflow")
 
 team_id    = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 session_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-on_compact = Compactor.build(model)
 
 Enum.each(team.members, fn spec ->
   tools = Map.get(tools_by_type, spec.type, [])
   start_opts = AgentSpec.to_start_opts(spec,
     tools: tools,
     team_id: team_id,
-    session_id: session_id,
-    on_compact: on_compact
+    session_id: session_id
   )
   DynamicSupervisor.start_child(Planck.Agent.AgentSupervisor, {Agent, start_opts})
 end)
@@ -564,7 +567,7 @@ application config. Tests assert broadcast sequences and final `get_state/1` out
 - Tool call round-trip → tool executed → result appended → second LLM turn
 - Abort mid-stream → task terminated, status `:idle`, no `:turn_end`
 - Error path → `:error` event, agent returns to `:idle`
-- `on_compact` hook → called before LLM turn; hook output sent to LLM
+- `compactor` hook → called before LLM turn; hook output sent to LLM
 - Usage tracking → `:usage_delta` and `:turn_end` include correct token counts
 - `rewind/2` → messages trimmed, `:rewind` event broadcast
 

@@ -205,9 +205,9 @@ team-generation skill round-trip its output through `Team.load/1`.
 %Planck.Headless.ResourceStore{
   tools:            [Planck.Agent.Tool.t()],
   skills:           [Planck.Agent.Skill.t()],
-  on_compact:       function(),
   available_models: [Planck.AI.Model.t()],
-  teams:            %{String.t() => Planck.Agent.Team.t()}  # alias => team
+  teams:            %{String.t() => Planck.Agent.Team.t()},  # alias => team
+  sidecar_node:     atom() | nil
 }
 ```
 

@@ -14,6 +14,7 @@ defmodule Planck.Agent.SystemPrompt do
   4. Skills section (from `skill_refresh_fn` if present)
   """
 
+  alias Planck.Agent.Hooks
   alias Planck.Agent.{Skill, Tool}
 
   @typedoc "Fields extracted from the agent state needed to build the prompt."
@@ -24,8 +25,9 @@ defmodule Planck.Agent.SystemPrompt do
           tools: %{String.t() => Tool.t()},
           skill_names: [String.t()],
           skill_refresh_fn: (-> [Skill.t()]) | nil,
-          system_prompt_prepend_fn: (-> String.t() | nil) | nil,
-          system_prompt_append_fn: (-> String.t() | nil) | nil
+          prompt_hook: module() | nil,
+          session_id: String.t() | nil,
+          sidecar_node: atom() | nil
         }
 
   # Inter-agent tools in the order their sections should appear.
@@ -54,45 +56,34 @@ defmodule Planck.Agent.SystemPrompt do
         tools: tools,
         skill_names: names,
         skill_refresh_fn: refresh_fn,
-        system_prompt_prepend_fn: prepend_fn,
-        system_prompt_append_fn: append_fn
+        prompt_hook: hook,
+        session_id: session_id,
+        sidecar_node: sidecar_node
       }) do
     base
-    |> run_hook_prepend(prepend_fn)
+    |> run_prepend(hook, session_id, sidecar_node)
     |> prepend_identity_line(name, type)
     |> append_tool_sections(tools)
     |> append_skills(names, refresh_fn)
-    |> run_hook_append(append_fn)
+    |> run_append(hook, session_id, sidecar_node)
   end
 
   # ---------------------------------------------------------------------------
   # Hooks
   # ---------------------------------------------------------------------------
 
-  @spec run_hook_prepend(String.t(), (-> String.t() | nil) | nil) :: String.t()
-  defp run_hook_prepend(prompt, fun)
-
-  defp run_hook_prepend(prompt, nil) do
-    prompt
-  end
-
-  defp run_hook_prepend(prompt, fun) when is_function(fun) do
-    case fun.() do
+  @spec run_prepend(String.t(), module() | nil, String.t() | nil, atom() | nil) :: String.t()
+  defp run_prepend(prompt, hook, session_id, sidecar_node) do
+    case Hooks.Prompt.before_prompt(hook, session_id, sidecar_node) do
       nil -> prompt
       "" -> prompt
       section -> if prompt == "", do: section, else: section <> "\n\n" <> prompt
     end
   end
 
-  @spec run_hook_append(String.t(), (-> String.t() | nil) | nil) :: String.t()
-  defp run_hook_append(prompt, function)
-
-  defp run_hook_append(prompt, nil) do
-    prompt
-  end
-
-  defp run_hook_append(prompt, fun) when is_function(fun) do
-    case fun.() do
+  @spec run_append(String.t(), module() | nil, String.t() | nil, atom() | nil) :: String.t()
+  defp run_append(prompt, hook, session_id, sidecar_node) do
+    case Hooks.Prompt.after_prompt(hook, session_id, sidecar_node) do
       nil -> prompt
       "" -> prompt
       section -> append_section(prompt, section)

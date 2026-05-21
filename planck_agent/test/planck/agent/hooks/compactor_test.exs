@@ -1,10 +1,11 @@
-defmodule Planck.Agent.CompactorTest do
+defmodule Planck.Agent.Hooks.CompactorTest do
   use ExUnit.Case, async: false
 
   import Mox
 
   alias Planck.Agent
-  alias Planck.Agent.{Compactor, Message, MockAI}
+  alias Planck.Agent.Hooks.Compactor
+  alias Planck.Agent.{Message, MockAI}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global
@@ -27,18 +28,20 @@ defmodule Planck.Agent.CompactorTest do
     Enum.map(1..count, fn _ -> text_message(:user, text) end)
   end
 
-  # --- __using__ and compact_timeout/0 ---
+  # ---------------------------------------------------------------------------
+  # use Planck.Agent.Hooks.Compactor — behaviour defaults
+  # ---------------------------------------------------------------------------
 
-  describe "use Planck.Agent.Compactor" do
+  describe "use Planck.Agent.Hooks.Compactor" do
     defmodule DefaultTimeoutCompactor do
-      use Planck.Agent.Compactor
+      use Planck.Agent.Hooks.Compactor
 
       @impl true
       def compact(_model, messages), do: {:compact, hd(messages), []}
     end
 
     defmodule CustomTimeoutCompactor do
-      use Planck.Agent.Compactor
+      use Planck.Agent.Hooks.Compactor
 
       @impl true
       def compact(_model, messages), do: {:compact, hd(messages), []}
@@ -56,18 +59,14 @@ defmodule Planck.Agent.CompactorTest do
     end
   end
 
-  # --- build/2 (local) ---
+  # ---------------------------------------------------------------------------
+  # compact/4 — local dispatch (module: nil)
+  # ---------------------------------------------------------------------------
 
-  describe "build/2 local" do
-    test "returns a function" do
-      compact_fn = Compactor.build(@model)
-      assert is_function(compact_fn, 1)
-    end
-
+  describe "compact/4 local (module: nil)" do
     test "returns :skip when below threshold" do
-      compact_fn = Compactor.build(@model)
       messages = make_messages(5, 10)
-      assert compact_fn.(messages) == :skip
+      assert Compactor.compact(nil, @model, messages, nil) == :skip
     end
 
     test "returns {:compact, summary_msg, kept} when tokens exceed threshold" do
@@ -75,38 +74,11 @@ defmodule Planck.Agent.CompactorTest do
         [{:text_delta, "Summary of old messages."}, {:done, %{}}]
       end)
 
-      compact_fn = Compactor.build(@model, keep_recent: 1)
-      messages = make_messages(3, 4_000)
-
-      assert {:compact, summary_msg, kept} = compact_fn.(messages)
+      messages = make_messages(12, 400)
+      assert {:compact, summary_msg, kept} = Compactor.compact(nil, @model, messages, nil)
       assert summary_msg.role == {:custom, :summary}
       assert [{:text, "Summary of old messages."}] = summary_msg.content
-      assert length(kept) == 1
-    end
-
-    test "keeps the last keep_recent messages verbatim" do
-      stub(MockAI, :stream, fn _model, _context, _opts ->
-        [{:text_delta, "Summary."}, {:done, %{}}]
-      end)
-
-      compact_fn = Compactor.build(@model, keep_recent: 2)
-      messages = make_messages(5, 4_000)
-      [_a, _b, _c, d, e] = messages
-
-      assert {:compact, _summary, kept} = compact_fn.(messages)
-      assert d in kept
-      assert e in kept
-    end
-
-    test "respects custom ratio" do
-      stub(MockAI, :stream, fn _model, _context, _opts ->
-        [{:text_delta, "Compact."}, {:done, %{}}]
-      end)
-
-      compact_fn = Compactor.build(@model, ratio: 0.01, keep_recent: 1)
-      messages = make_messages(3, 100)
-
-      assert {:compact, _summary, _kept} = compact_fn.(messages)
+      assert length(kept) == 10
     end
 
     test "returns :skip on LLM error" do
@@ -114,10 +86,8 @@ defmodule Planck.Agent.CompactorTest do
         [{:error, :timeout}]
       end)
 
-      compact_fn = Compactor.build(@model, ratio: 0.01)
-      messages = make_messages(3, 100)
-
-      assert compact_fn.(messages) == :skip
+      messages = make_messages(12, 400)
+      assert Compactor.compact(nil, @model, messages, nil) == :skip
     end
 
     test "returns :skip on empty LLM response" do
@@ -125,13 +95,11 @@ defmodule Planck.Agent.CompactorTest do
         [{:done, %{}}]
       end)
 
-      compact_fn = Compactor.build(@model, ratio: 0.01)
-      messages = make_messages(3, 100)
-
-      assert compact_fn.(messages) == :skip
+      messages = make_messages(12, 400)
+      assert Compactor.compact(nil, @model, messages, nil) == :skip
     end
 
-    test "filters all summary checkpoints from old messages before summarizing" do
+    test "filters summary checkpoints from messages sent to LLM" do
       parent = self()
 
       stub(MockAI, :stream, fn _model,
@@ -143,15 +111,11 @@ defmodule Planck.Agent.CompactorTest do
 
       summary1 = Message.new({:custom, :summary}, [{:text, "First summary."}])
       summary2 = Message.new({:custom, :summary}, [{:text, "Second summary."}])
-      new_msgs = make_messages(3, 4_000)
-      # summaries mixed in with messages
-      messages = [summary1 | new_msgs] ++ [summary2]
+      large = make_messages(12, 400)
+      messages = [summary1 | large] ++ [summary2]
 
-      compact_fn = Compactor.build(@model, keep_recent: 1)
-      assert {:compact, summary_msg, _kept} = compact_fn.(messages)
-      assert summary_msg.role == {:custom, :summary}
+      assert {:compact, _, _} = Compactor.compact(nil, @model, messages, nil)
 
-      # Neither summary should appear in what's sent to the LLM
       assert_received {:summarize_input, history}
       refute history =~ "First summary."
       refute history =~ "Second summary."
@@ -172,39 +136,61 @@ defmodule Planck.Agent.CompactorTest do
       mixed_msg =
         Message.new(:assistant, [{:thinking, "More reasoning."}, {:text, "Visible reply."}])
 
-      messages = [thinking_msg, mixed_msg] ++ make_messages(1, 4_000)
+      messages = [thinking_msg, mixed_msg] ++ make_messages(12, 400)
 
-      compact_fn = Compactor.build(@model, keep_recent: 1)
-      compact_fn.(messages)
+      Compactor.compact(nil, @model, messages, nil)
 
       assert_received {:summarize_input, history}
       refute history =~ "Internal reasoning"
       refute history =~ "More reasoning"
       assert history =~ "Visible reply"
     end
+  end
 
-    test "tool_call content is counted toward token estimate" do
-      # A message with a large tool_call arg should push estimate over threshold
-      # even without text content.
-      large_args = %{"command" => String.duplicate("x", 3_200)}
-      tool_msg = Message.new(:assistant, [{:tool_call, "id1", "bash", large_args}])
+  # ---------------------------------------------------------------------------
+  # compact/4 — local module dispatch (module set, sidecar_node: nil)
+  # ---------------------------------------------------------------------------
 
-      compact_fn = Compactor.build(@model, ratio: 0.8, keep_recent: 1)
+  describe "compact/4 local module dispatch" do
+    defmodule LocalSkipCompactor do
+      use Planck.Agent.Hooks.Compactor
 
-      stub(MockAI, :stream, fn _model, _context, _opts ->
-        [{:text_delta, "Summary."}, {:done, %{}}]
-      end)
+      @impl true
+      def compact(_model, _messages), do: :skip
+    end
 
-      # Should compact (threshold = trunc(1000 * 0.8) = 800 tokens;
-      # tool_call args alone are ~3200/4 = 800 tokens, plus name)
-      assert {:compact, _summary, _kept} = compact_fn.([tool_msg, tool_msg])
+    defmodule LocalCompactCompactor do
+      use Planck.Agent.Hooks.Compactor
+
+      @impl true
+      def compact(_model, messages) do
+        summary = Message.new({:custom, :summary}, [{:text, "Local compact."}])
+        {:compact, summary, Enum.take(messages, -1)}
+      end
+    end
+
+    test "calls module.compact/2 directly" do
+      result = Compactor.compact(LocalSkipCompactor, @model, make_messages(3, 10), nil)
+      assert result == :skip
+    end
+
+    test "returns module's compact result" do
+      messages = make_messages(3, 10)
+
+      assert {:compact, summary, kept} =
+               Compactor.compact(LocalCompactCompactor, @model, messages, nil)
+
+      assert summary.role == {:custom, :summary}
+      assert length(kept) == 1
     end
   end
 
-  # --- build/2 (remote, same-node simulation) ---
+  # ---------------------------------------------------------------------------
+  # compact/4 — remote dispatch (same-node simulation)
+  # ---------------------------------------------------------------------------
 
-  defmodule FakeCompactor do
-    use Planck.Agent.Compactor
+  defmodule RemoteSkipCompactor do
+    use Planck.Agent.Hooks.Compactor
 
     @impl true
     def compact(_model, _messages), do: :skip
@@ -213,73 +199,68 @@ defmodule Planck.Agent.CompactorTest do
     def compact_timeout, do: 5_000
   end
 
-  defmodule FailingCompactor do
-    use Planck.Agent.Compactor
-
-    @impl true
-    def compact(_model, _messages), do: raise("boom")
-  end
-
-  describe "build/2 remote" do
-    test "sidecar_node: nil falls through to local" do
-      fun = Compactor.build(@model, sidecar_node: nil, compactor: "Some.Module")
-      assert is_function(fun, 1)
-      # local: below threshold so :skip
-      assert fun.(make_messages(1, 10)) == :skip
+  describe "compact/4 remote" do
+    test "sidecar_node: nil uses local dispatch" do
+      result = Compactor.compact(RemoteSkipCompactor, @model, make_messages(1, 10), nil)
+      assert result == :skip
     end
 
-    test "compactor: nil falls through to local" do
-      fun = Compactor.build(@model, sidecar_node: Node.self(), compactor: nil)
-      assert fun.(make_messages(1, 10)) == :skip
+    test "dispatches via RPC on the same node" do
+      result =
+        Compactor.compact(RemoteSkipCompactor, @model, make_messages(1, 10), Node.self())
+
+      assert result == :skip
     end
 
-    test "calls compact/2 on the remote module (same-node)" do
-      fun =
-        Compactor.build(@model,
-          sidecar_node: Node.self(),
-          compactor: "Planck.Agent.CompactorTest.FakeCompactor"
-        )
-
-      assert :skip = fun.(make_messages(1, 10))
-    end
-
-    test "falls back to local compactor when RPC fails" do
+    test "falls back to local LLM compactor when RPC fails" do
       stub(MockAI, :stream, fn _model, _context, _opts ->
         [{:text_delta, "fallback summary"}, {:done, %{}}]
       end)
 
-      # Use an atom node that doesn't exist — RPC will return {:badrpc, _}.
-      fun =
-        Compactor.build(@model,
-          sidecar_node: :nonexistent_node@localhost,
-          compactor: "Some.Remote.Compactor",
-          ratio: 0.01,
-          keep_recent: 1
-        )
+      messages = make_messages(12, 400)
 
-      # Should fall back to local, which triggers LLM summary (not :skip).
-      assert {:compact, _summary, _kept} = fun.(make_messages(3, 100))
+      assert {:compact, summary, _kept} =
+               Compactor.compact(RemoteSkipCompactor, @model, messages, :nonexistent@localhost)
+
+      assert [{:text, "fallback summary"}] = summary.content
     end
   end
 
-  # --- integration with Agent ---
+  # ---------------------------------------------------------------------------
+  # Integration with Agent
+  # ---------------------------------------------------------------------------
+
+  defmodule IntegrationCompactor do
+    use Planck.Agent.Hooks.Compactor
+
+    @impl true
+    def compact(_model, messages) do
+      summary = Message.new({:custom, :summary}, [{:text, "Compacted."}])
+      {:compact, summary, Enum.take(messages, -1)}
+    end
+  end
+
+  defmodule NeverCompactor do
+    use Planck.Agent.Hooks.Compactor
+
+    @impl true
+    def compact(_model, _messages), do: :skip
+  end
 
   defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
 
   defp compacting_agent do
-    compact_fn = fn messages ->
-      summary_msg = text_message({:custom, :summary}, "Compacted.")
-      {:compact, summary_msg, Enum.take(messages, -1)}
-    end
-
     stub(MockAI, :stream, fn _model, _context, _opts ->
       [{:text_delta, "ok"}, {:done, %{}}]
     end)
 
     agent =
       start_supervised!(
-        {Planck.Agent,
-         id: unique_id(), model: @model, system_prompt: "You are helpful.", on_compact: compact_fn}
+        {Agent,
+         id: unique_id(),
+         model: @model,
+         system_prompt: "You are helpful.",
+         compactor: IntegrationCompactor}
       )
 
     messages = Enum.map(1..5, fn i -> text_message(:user, "message #{i}") end)
@@ -321,7 +302,7 @@ defmodule Planck.Agent.CompactorTest do
            id: unique_id(),
            model: @model,
            system_prompt: "You are helpful.",
-           on_compact: fn _messages -> :skip end}
+           compactor: NeverCompactor}
         )
 
       Agent.subscribe(agent)
@@ -332,15 +313,8 @@ defmodule Planck.Agent.CompactorTest do
       refute_received {:agent_event, :compacted, _}
     end
 
-    test "compact hook is called and compacted messages are sent to LLM" do
+    test "compacted messages are sent to the LLM (fewer than original)" do
       parent = self()
-
-      compact_fn = fn messages ->
-        send(parent, {:compacted, length(messages)})
-        summary_msg = text_message({:custom, :summary}, "Compacted history.")
-        kept = Enum.take(messages, -1)
-        {:compact, summary_msg, kept}
-      end
 
       stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
         send(parent, {:llm_called_with, length(msgs)})
@@ -353,21 +327,18 @@ defmodule Planck.Agent.CompactorTest do
            id: unique_id(),
            model: @model,
            system_prompt: "You are helpful.",
-           on_compact: compact_fn}
+           compactor: IntegrationCompactor}
         )
 
       Agent.subscribe(agent)
 
-      messages =
-        Enum.map(1..5, fn i ->
-          Message.new(:user, [{:text, "message #{i}"}])
-        end)
-
+      messages = Enum.map(1..5, fn i -> Message.new(:user, [{:text, "message #{i}"}]) end)
       :sys.replace_state(agent, fn s -> %{s | messages: messages} end)
 
       Agent.prompt(agent, "go")
-      assert_receive {:compacted, 6}, 1_000
-      assert_receive {:llm_called_with, _}, 1_000
+      # IntegrationCompactor keeps last 1 message + summary → LLM sees 2 messages
+      assert_receive {:llm_called_with, n}, 1_000
+      assert n < 6
       assert_receive {:agent_event, :turn_end, _}, 1_000
     end
   end

@@ -1,10 +1,11 @@
-defmodule Planck.Agent.PromptHookTest do
+defmodule Planck.Agent.Hooks.PromptTest do
   use ExUnit.Case, async: false
 
   import Mox
 
   alias Planck.Agent
-  alias Planck.Agent.{MockAI, PromptHook}
+  alias Planck.Agent.Hooks.Prompt
+  alias Planck.Agent.{MockAI}
   alias Planck.AI.Model
 
   setup :set_mox_global
@@ -23,146 +24,128 @@ defmodule Planck.Agent.PromptHookTest do
   # ---------------------------------------------------------------------------
 
   defmodule BothHooks do
-    use PromptHook
+    use Planck.Agent.Hooks.Prompt
 
     @impl true
-    def prepend(_session_id), do: "prepended"
+    def before_prompt(_session_id), do: "prepended"
 
     @impl true
-    def append(_session_id), do: "appended"
+    def after_prompt(_session_id), do: "appended"
   end
 
-  defmodule PrependOnly do
-    use PromptHook
+  defmodule BeforeOnly do
+    use Planck.Agent.Hooks.Prompt
 
     @impl true
-    def prepend(_session_id), do: "only prepend"
+    def before_prompt(_session_id), do: "only before"
   end
 
   defmodule SessionAware do
-    use PromptHook
+    use Planck.Agent.Hooks.Prompt
 
     @impl true
-    def append(session_id), do: "memory for #{session_id}"
+    def after_prompt(session_id), do: "memory for #{session_id}"
   end
 
   defmodule NilHook do
-    use PromptHook
+    use Planck.Agent.Hooks.Prompt
   end
 
   defmodule CustomTimeout do
-    use PromptHook
+    use Planck.Agent.Hooks.Prompt
 
     @impl true
-    def append(_session_id), do: "custom timeout hook"
+    def after_prompt(_session_id), do: "custom timeout hook"
 
     @impl true
     def hook_timeout, do: 30_000
   end
 
   # ---------------------------------------------------------------------------
-  # __using__ / default implementations
+  # use Planck.Agent.Hooks.Prompt — behaviour defaults
   # ---------------------------------------------------------------------------
 
-  describe "use Planck.Agent.PromptHook" do
+  describe "use Planck.Agent.Hooks.Prompt" do
     test "provides default hook_timeout/0" do
-      assert NilHook.hook_timeout() == PromptHook.default_timeout()
+      assert NilHook.hook_timeout() == Prompt.default_timeout()
     end
 
     test "hook_timeout/0 can be overridden" do
       assert CustomTimeout.hook_timeout() == 30_000
     end
 
-    test "prepend/1 returns nil by default" do
-      assert NilHook.prepend("session") == nil
+    test "before_prompt/1 returns nil by default" do
+      assert NilHook.before_prompt("session") == nil
     end
 
-    test "append/1 returns nil by default" do
-      assert NilHook.append("session") == nil
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # build/2 — nil name
-  # ---------------------------------------------------------------------------
-
-  describe "build/2 with nil name" do
-    test "returns empty keyword list" do
-      assert PromptHook.build(nil, session_id: "s1") == []
+    test "after_prompt/1 returns nil by default" do
+      assert NilHook.after_prompt("session") == nil
     end
   end
 
   # ---------------------------------------------------------------------------
-  # build/2 — local dispatch
+  # prepend/3 and append/3 — nil module
   # ---------------------------------------------------------------------------
 
-  describe "build/2 local" do
-    test "returns prepend_fn and append_fn keys" do
-      opts = PromptHook.build(inspect(BothHooks), session_id: "s1")
-      assert Keyword.has_key?(opts, :system_prompt_prepend_fn)
-      assert Keyword.has_key?(opts, :system_prompt_append_fn)
+  describe "before_prompt/3 and after_prompt/3 with nil module" do
+    test "before_prompt returns nil" do
+      assert Prompt.before_prompt(nil, "s1", nil) == nil
     end
 
-    test "prepend_fn calls module's prepend/1" do
-      opts = PromptHook.build(inspect(BothHooks), session_id: "s1")
-      assert opts[:system_prompt_prepend_fn].() == "prepended"
+    test "after_prompt returns nil" do
+      assert Prompt.after_prompt(nil, "s1", nil) == nil
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # before_prompt/3 and after_prompt/3 — local dispatch
+  # ---------------------------------------------------------------------------
+
+  describe "before_prompt/3 and after_prompt/3 local" do
+    test "before_prompt calls module's before_prompt/1" do
+      assert Prompt.before_prompt(BothHooks, "s1", nil) == "prepended"
     end
 
-    test "append_fn calls module's append/1" do
-      opts = PromptHook.build(inspect(BothHooks), session_id: "s1")
-      assert opts[:system_prompt_append_fn].() == "appended"
+    test "after_prompt calls module's after_prompt/1" do
+      assert Prompt.after_prompt(BothHooks, "s1", nil) == "appended"
     end
 
-    test "nil-returning callback produces nil from the closure" do
-      opts = PromptHook.build(inspect(PrependOnly), session_id: "s1")
-      assert opts[:system_prompt_prepend_fn].() == "only prepend"
-      assert opts[:system_prompt_append_fn].() == nil
+    test "nil-returning callback returns nil" do
+      assert Prompt.before_prompt(BeforeOnly, "s1", nil) == "only before"
+      assert Prompt.after_prompt(BeforeOnly, "s1", nil) == nil
     end
 
     test "session_id is forwarded to the callback" do
-      opts = PromptHook.build(inspect(SessionAware), session_id: "abc-123")
-      assert opts[:system_prompt_append_fn].() == "memory for abc-123"
+      assert Prompt.after_prompt(SessionAware, "abc-123", nil) == "memory for abc-123"
     end
 
     test "nil session_id is forwarded as nil" do
-      opts = PromptHook.build(inspect(SessionAware), session_id: nil)
-      assert opts[:system_prompt_append_fn].() == "memory for "
+      assert Prompt.after_prompt(SessionAware, nil, nil) == "memory for "
     end
   end
 
   # ---------------------------------------------------------------------------
-  # build/2 — remote dispatch (same-node simulation)
+  # before_prompt/3 and after_prompt/3 — remote dispatch (same-node simulation)
   # ---------------------------------------------------------------------------
 
-  describe "build/2 remote" do
+  describe "before_prompt/3 and after_prompt/3 remote" do
     test "sidecar_node: nil uses local dispatch" do
-      opts = PromptHook.build(inspect(BothHooks), session_id: "s1", sidecar_node: nil)
-      assert opts[:system_prompt_prepend_fn].() == "prepended"
-      assert opts[:system_prompt_append_fn].() == "appended"
+      assert Prompt.before_prompt(BothHooks, "s1", nil) == "prepended"
+      assert Prompt.after_prompt(BothHooks, "s1", nil) == "appended"
     end
 
-    test "dispatches via rpc.call on the remote node (same-node)" do
-      opts = PromptHook.build(inspect(BothHooks), session_id: "s1", sidecar_node: Node.self())
-      assert opts[:system_prompt_prepend_fn].() == "prepended"
-      assert opts[:system_prompt_append_fn].() == "appended"
+    test "dispatches via RPC on the same node" do
+      assert Prompt.before_prompt(BothHooks, "s1", Node.self()) == "prepended"
+      assert Prompt.after_prompt(BothHooks, "s1", Node.self()) == "appended"
     end
 
-    test "session_id forwarded correctly over RPC (same-node)" do
-      opts =
-        PromptHook.build(inspect(SessionAware), session_id: "rpc-sess", sidecar_node: Node.self())
-
-      assert opts[:system_prompt_append_fn].() == "memory for rpc-sess"
+    test "session_id forwarded correctly over RPC" do
+      assert Prompt.after_prompt(SessionAware, "rpc-sess", Node.self()) == "memory for rpc-sess"
     end
 
-    test "closure returns nil when RPC fails (bad node)" do
-      opts =
-        PromptHook.build(inspect(BothHooks),
-          session_id: "s1",
-          sidecar_node: :nonexistent@localhost
-        )
-
-      assert opts[:system_prompt_prepend_fn].() == nil
-      assert opts[:system_prompt_append_fn].() == nil
+    test "returns nil when RPC fails (bad node)" do
+      assert Prompt.before_prompt(BothHooks, "s1", :nonexistent@localhost) == nil
+      assert Prompt.after_prompt(BothHooks, "s1", :nonexistent@localhost) == nil
     end
   end
 
@@ -184,16 +167,13 @@ defmodule Planck.Agent.PromptHookTest do
       agent =
         start_supervised!(
           {Agent,
-           id: unique_id(),
-           model: @model,
-           system_prompt: "base prompt",
-           system_prompt_prepend_fn: fn -> "PREPEND" end}
+           id: unique_id(), model: @model, system_prompt: "base prompt", prompt_hook: BothHooks}
         )
 
       Agent.prompt(agent, "hi")
       assert_receive {:system, prompt}, 1_000
 
-      prepend_pos = :binary.match(prompt, "PREPEND") |> elem(0)
+      prepend_pos = :binary.match(prompt, "prepended") |> elem(0)
       base_pos = :binary.match(prompt, "base prompt") |> elem(0)
       assert prepend_pos < base_pos
     end
@@ -209,17 +189,14 @@ defmodule Planck.Agent.PromptHookTest do
       agent =
         start_supervised!(
           {Agent,
-           id: unique_id(),
-           model: @model,
-           system_prompt: "base prompt",
-           system_prompt_append_fn: fn -> "APPEND" end}
+           id: unique_id(), model: @model, system_prompt: "base prompt", prompt_hook: BothHooks}
         )
 
       Agent.prompt(agent, "hi")
       assert_receive {:system, prompt}, 1_000
 
       base_pos = :binary.match(prompt, "base prompt") |> elem(0)
-      append_pos = :binary.match(prompt, "APPEND") |> elem(0)
+      append_pos = :binary.match(prompt, "appended") |> elem(0)
       assert base_pos < append_pos
     end
 
@@ -234,19 +211,15 @@ defmodule Planck.Agent.PromptHookTest do
       agent =
         start_supervised!(
           {Agent,
-           id: unique_id(),
-           model: @model,
-           system_prompt: "base prompt",
-           system_prompt_prepend_fn: fn -> "PREPEND" end,
-           system_prompt_append_fn: fn -> "APPEND" end}
+           id: unique_id(), model: @model, system_prompt: "base prompt", prompt_hook: BothHooks}
         )
 
       Agent.prompt(agent, "hi")
       assert_receive {:system, prompt}, 1_000
 
-      prepend_pos = :binary.match(prompt, "PREPEND") |> elem(0)
+      prepend_pos = :binary.match(prompt, "prepended") |> elem(0)
       base_pos = :binary.match(prompt, "base prompt") |> elem(0)
-      append_pos = :binary.match(prompt, "APPEND") |> elem(0)
+      append_pos = :binary.match(prompt, "appended") |> elem(0)
       assert prepend_pos < base_pos
       assert base_pos < append_pos
     end
@@ -262,11 +235,7 @@ defmodule Planck.Agent.PromptHookTest do
       agent =
         start_supervised!(
           {Agent,
-           id: unique_id(),
-           model: @model,
-           system_prompt: "base prompt",
-           system_prompt_prepend_fn: fn -> nil end,
-           system_prompt_append_fn: fn -> nil end}
+           id: unique_id(), model: @model, system_prompt: "base prompt", prompt_hook: NilHook}
         )
 
       Agent.prompt(agent, "hi")
@@ -276,24 +245,28 @@ defmodule Planck.Agent.PromptHookTest do
     end
 
     test "hooks are called on every turn" do
-      parent = self()
       counter = :counters.new(1, [])
 
       stub(MockAI, :stream, fn _model, _context, _opts ->
         [{:text_delta, "ok"}, {:done, %{}}]
       end)
 
+      defmodule CountingHook do
+        use Planck.Agent.Hooks.Prompt
+
+        @impl true
+        def after_prompt(_session_id) do
+          :counters.add(:persistent_term.get({__MODULE__, :counter}), 1, 1)
+          "injected"
+        end
+      end
+
+      :persistent_term.put({CountingHook, :counter}, counter)
+
       agent =
         start_supervised!(
           {Agent,
-           id: unique_id(),
-           model: @model,
-           system_prompt: "base",
-           system_prompt_append_fn: fn ->
-             :counters.add(counter, 1, 1)
-             send(parent, :hook_called)
-             "injected"
-           end}
+           id: unique_id(), model: @model, system_prompt: "base", prompt_hook: CountingHook}
         )
 
       Agent.subscribe(agent)

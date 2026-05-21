@@ -2,40 +2,44 @@
 
 ## v0.1.7
 
-### System prompt hooks
+### Unified `Planck.Agent.Hooks` namespace
 
-Two new optional `start_link` options (and matching agent state fields) allow the
-caller to inject dynamic content into the system prompt before every LLM turn:
+Three hook behaviours under `Planck.Agent.Hooks`:
 
-- `system_prompt_prepend_fn: (-> String.t() | nil) | nil` — return value is
-  prepended before the base system prompt
-- `system_prompt_append_fn: (-> String.t() | nil) | nil` — return value is
-  appended after all other sections (identity line, tool sections, skills)
+**`Planck.Agent.Hooks.Compactor`** — context compaction.
+- `compact/2` callback: `compact(model, messages)` → `{:compact, summary, kept} | :skip`
+- `compact_timeout/0` callback for custom RPC timeouts (default 30 000 ms)
+- Dispatch: `Hooks.Compactor.compact(module, model, messages, sidecar_node)`. When
+  `module` is `nil`, the built-in LLM-based compactor runs locally.
 
-Both are `(-> String.t() | nil)` closures called by `SystemPrompt.build/1` on every
-turn. `nil` fns and `nil`/`""` return values are no-ops. The sidecar typically
-provides these as closures over a caching GenServer (refreshed on the `:compacted`
-PubSub event), enabling agent memory and other context-injection patterns without
-any changes to the core.
-
-### `Planck.Agent.PromptHook` behaviour
-
-New behaviour for building system prompt injection hooks. Mirrors the
-`Planck.Agent.Compactor` pattern:
-
-- `prepend/1` and `append/1` callbacks receive `session_id` — enabling per-session
-  state lookups (e.g. an ETS table keyed by session)
+**`Planck.Agent.Hooks.Prompt`** — per-turn system prompt injection.
+- `before_prompt/1` and `after_prompt/1` callbacks receive `session_id` — enabling
+  per-session state lookups (e.g. an ETS table keyed by session)
 - `hook_timeout/0` callback for custom RPC timeouts (default 5 000 ms)
-- `use Planck.Agent.PromptHook` injects no-op defaults for all three
-- `build/2` converts a module name string and opts into
-  `[system_prompt_prepend_fn: fn, system_prompt_append_fn: fn]` — spread directly
-  into `AgentSpec.to_start_opts/2` overrides
-- `sidecar_node:` opt enables remote dispatch via `:rpc.call/5`; RPC failures
+- `use Planck.Agent.Hooks.Prompt` injects no-op defaults for all three
+- Dispatch: `Hooks.Prompt.before_prompt(module, session_id, sidecar_node)` /
+  `Hooks.Prompt.after_prompt(module, session_id, sidecar_node)`; RPC failures
   return `nil` (no injection) instead of raising
 
-`AgentSpec` gains a `prompt_hook: String.t() | nil` field (like `compactor`),
-declarable in TEAM.json. planck_headless resolves it via `PromptHook.build/2`
-when materialising an agent.
+**`Planck.Agent.Hooks.TurnEnd`** — post-turn reflection, fires in a background Task.
+- `reflect/2` callback: `reflect(agent_id, turn_messages)` — called after every turn
+- `reflect_threshold/0` and `reflect_timeout/0` for control
+- `use Planck.Agent.Hooks.TurnEnd` injects no-op defaults
+- Dispatch: `TurnEnd.reflect(module, agent_id, turn_messages, sidecar_node)`
+
+### Module-based dispatch (no closures)
+
+Agent state now holds module atoms directly — no closure wrapping:
+
+- `compactor: module() | nil` — replaces closure-based `on_compact`
+- `prompt_hook: module() | nil` — replaces `system_prompt_prepend_fn` / `system_prompt_append_fn`
+- `turn_end_hook: module() | nil` — new post-turn hook
+- `sidecar_node: atom() | nil` — shared across all three hooks
+
+`AgentSpec` gains a `turn_end_hook: String.t() | nil` field (alongside the
+existing `compactor` and `prompt_hook` fields), declarable in TEAM.json.
+planck_headless passes hook module names as atoms directly at agent start time —
+no intermediate builder functions.
 
 ### `Usage.from_opts/1`
 

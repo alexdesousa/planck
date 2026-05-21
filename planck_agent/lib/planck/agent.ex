@@ -51,6 +51,8 @@ defmodule Planck.Agent do
 
   require Logger
 
+  alias Planck.Agent.Hooks
+
   alias Planck.Agent.{
     AIBehaviour,
     Message,
@@ -101,13 +103,15 @@ defmodule Planck.Agent do
     detect messages appended *during* streaming that the LLM did not see
   - `stream_buffer` — accumulates text/thinking/tool-call deltas during streaming
   - `tool_runner` — tracks in-flight tool tasks and their accumulated results
-  - `on_compact` — optional compaction callback
+  - `compactor` — resolved module atom for context compaction; `nil` uses the
+    built-in LLM-based compactor
+  - `prompt_hook` — resolved module atom for per-turn system prompt injection
+    (prepend/append); `nil` means no injection
+  - `turn_end_hook` — resolved module atom called after every turn ends;
+    `nil` means no post-turn reflection
+  - `sidecar_node` — connected sidecar node; shared by all hook dispatch calls
   - `opts` — pass-through keyword options (e.g. `tool_timeout`)
   - `available_models` — model catalog used by `list_models` and `spawn_agent`
-  - `system_prompt_prepend_fn` — optional `(-> String.t() | nil)` called before
-    each LLM turn; result is prepended to the system prompt
-  - `system_prompt_append_fn` — optional `(-> String.t() | nil)` called before
-    each LLM turn; result is appended to the system prompt
   """
   @type t :: %__MODULE__{
           id: String.t(),
@@ -119,13 +123,14 @@ defmodule Planck.Agent do
           delegator_id: String.t() | nil,
           role: :orchestrator | :worker,
           model: Planck.AI.Model.t() | nil,
-          on_compact: ([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip) | nil,
+          compactor: module() | nil,
+          prompt_hook: module() | nil,
+          turn_end_hook: module() | nil,
+          sidecar_node: atom() | nil,
           skill_names: [String.t()],
           skill_refresh_fn: (-> [Planck.Agent.Skill.t()]) | nil,
           cwd: String.t(),
           system_prompt: String.t(),
-          system_prompt_prepend_fn: (-> String.t() | nil) | nil,
-          system_prompt_append_fn: (-> String.t() | nil) | nil,
           messages: [Message.t()],
           tools: %{String.t() => Tool.t()},
           opts: keyword(),
@@ -150,9 +155,10 @@ defmodule Planck.Agent do
     :delegator_id,
     :role,
     :model,
-    :on_compact,
-    system_prompt_prepend_fn: nil,
-    system_prompt_append_fn: nil,
+    compactor: nil,
+    prompt_hook: nil,
+    turn_end_hook: nil,
+    sidecar_node: nil,
     skill_names: [],
     skill_refresh_fn: nil,
     cwd: "",
@@ -331,12 +337,13 @@ defmodule Planck.Agent do
       model: Keyword.fetch!(opts, :model),
       cwd: Keyword.get(opts, :cwd, ""),
       system_prompt: Keyword.get(opts, :system_prompt, ""),
-      system_prompt_prepend_fn: Keyword.get(opts, :system_prompt_prepend_fn),
-      system_prompt_append_fn: Keyword.get(opts, :system_prompt_append_fn),
+      compactor: Keyword.get(opts, :compactor),
+      prompt_hook: Keyword.get(opts, :prompt_hook),
+      turn_end_hook: Keyword.get(opts, :turn_end_hook),
+      sidecar_node: Keyword.get(opts, :sidecar_node),
       tools: tool_map,
       opts: Keyword.get(opts, :opts, []),
       available_models: Keyword.get(opts, :available_models, []),
-      on_compact: Keyword.get(opts, :on_compact),
       skill_names: Keyword.get(opts, :skill_names, []),
       skill_refresh_fn: Keyword.get(opts, :skill_refresh_fn),
       usage: Usage.from_opts(opts)
@@ -682,6 +689,7 @@ defmodule Planck.Agent do
     case pending do
       [] ->
         broadcast(new_state, :turn_end, %{message: assistant_msg, usage: new_state.usage})
+        fire_turn_end_hook(new_state)
         maybe_turn_start(new_state)
 
       calls ->
@@ -835,17 +843,10 @@ defmodule Planck.Agent do
   defp process_event(state, _other), do: state
 
   @spec apply_compact(t()) :: {[Message.t()], t()}
-  defp apply_compact(state)
-
-  defp apply_compact(%__MODULE__{on_compact: nil, messages: messages} = state) do
-    {TurnContext.messages_since_last_summary(messages), state}
-  end
-
-  defp apply_compact(%__MODULE__{on_compact: fun, messages: messages} = state)
-       when is_function(fun) do
+  defp apply_compact(%__MODULE__{messages: messages} = state) do
     recent = TurnContext.messages_since_last_summary(messages)
 
-    case fun.(recent) do
+    case Hooks.Compactor.compact(state.compactor, state.model, recent, state.sidecar_node) do
       :skip ->
         {recent, state}
 
@@ -909,26 +910,36 @@ defmodule Planck.Agent do
   end
 
   @spec build_system_prompt(t()) :: String.t()
-  defp build_system_prompt(%__MODULE__{
-         skill_names: names,
-         skill_refresh_fn: refresh_fn,
-         system_prompt: base,
-         tools: tools,
-         name: name,
-         type: type,
-         system_prompt_prepend_fn: prepend_fn,
-         system_prompt_append_fn: append_fn
-       }) do
+  defp build_system_prompt(state) do
     Planck.Agent.SystemPrompt.build(%{
-      system_prompt: base,
-      name: name,
-      type: type,
-      tools: tools,
-      skill_names: names,
-      skill_refresh_fn: refresh_fn,
-      system_prompt_prepend_fn: prepend_fn,
-      system_prompt_append_fn: append_fn
+      system_prompt: state.system_prompt,
+      name: state.name,
+      type: state.type,
+      tools: state.tools,
+      skill_names: state.skill_names,
+      skill_refresh_fn: state.skill_refresh_fn,
+      prompt_hook: state.prompt_hook,
+      session_id: state.session_id,
+      sidecar_node: state.sidecar_node
     })
+  end
+
+  @spec fire_turn_end_hook(t()) :: :ok
+  defp fire_turn_end_hook(%{turn_end_hook: nil}), do: :ok
+
+  defp fire_turn_end_hook(state) do
+    turn_messages = Enum.drop(state.messages, state.stream_start)
+
+    Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
+      Hooks.TurnEnd.reflect(
+        state.turn_end_hook,
+        state.id,
+        turn_messages,
+        state.sidecar_node
+      )
+    end)
+
+    :ok
   end
 
   @spec presence(String.t()) :: String.t() | nil

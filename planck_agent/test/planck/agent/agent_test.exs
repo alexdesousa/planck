@@ -546,35 +546,22 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
-  # --- on_compact ---
+  # --- compactor hook ---
 
-  describe "on_compact hook" do
-    test "compact function is called before LLM turn" do
-      parent = self()
+  defmodule AlwaysCompact do
+    use Planck.Agent.Hooks.Compactor
 
-      compact_fn = fn messages ->
-        send(parent, {:compacted, length(messages)})
-        :skip
-      end
-
-      stream_events([{:text_delta, "ok"}, {:done, %{}}])
-      agent = start_agent(on_compact: compact_fn)
-      Agent.subscribe(agent)
-      Agent.prompt(agent, "hello")
-      assert_receive {:compacted, 1}, 1_000
-      assert_receive {:agent_event, :turn_end, _}, 1_000
+    @impl true
+    def compact(_model, messages) do
+      summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "Past summary."}])
+      {:compact, summary, Enum.take(messages, -1)}
     end
+  end
 
-    test "compacted summary is inserted into messages and sent to LLM" do
-      summary_msg = Message.new({:custom, :summary}, [{:text, "Past summary."}])
-
-      compact_fn = fn messages ->
-        kept = Enum.take(messages, -1)
-        {:compact, summary_msg, kept}
-      end
-
+  describe "compactor hook" do
+    test "compacted summary is inserted into messages" do
       stream_events([{:text_delta, "ok"}, {:done, %{}}])
-      agent = start_agent(on_compact: compact_fn)
+      agent = start_agent(compactor: AlwaysCompact)
       Agent.subscribe(agent)
       Agent.prompt(agent, "hello")
       assert_receive {:agent_event, :turn_end, _}, 1_000

@@ -67,15 +67,14 @@ defmodule Planck.Agent.AgentSpec do
       instances (e.g. `"http://localhost:11434"` for a specific Ollama server). When
       `nil`, the provider's default URL is used.
     - `:compactor` — fully-qualified module name of a sidecar compactor for this agent,
-      e.g. `"MySidecar.Compactors.Builder"`. The module must implement `compact/2`.
-      planck_headless resolves this via `Planck.Agent.Compactor.build/2` when
-      materialising the agent. `nil` means the default compactor is used.
+      e.g. `"MySidecar.Compactors.Builder"`. The module must implement
+      `Planck.Agent.Hooks.Compactor`. `nil` uses the built-in LLM-based compactor.
     - `:prompt_hook` — fully-qualified module name of a sidecar prompt hook,
       e.g. `"MySidecar.Hooks.Memory"`. The module must implement
-      `Planck.Agent.PromptHook`. planck_headless resolves this via
-      `Planck.Agent.PromptHook.build/2` and passes the resulting closures as
-      `system_prompt_prepend_fn` / `system_prompt_append_fn` overrides when
-      materialising the agent. `nil` means no hook injection.
+      `Planck.Agent.Hooks.Prompt`. `nil` means no system prompt injection.
+    - `:turn_end_hook` — fully-qualified module name of a sidecar turn-end hook,
+      e.g. `"MySidecar.Hooks.SkillReflector"`. The module must implement
+      `Planck.Agent.Hooks.TurnEnd`. `nil` means no post-turn reflection.
   """
   @type t :: %__MODULE__{
           type: String.t(),
@@ -89,7 +88,8 @@ defmodule Planck.Agent.AgentSpec do
           tools: [String.t()],
           skills: [String.t()],
           compactor: String.t() | nil,
-          prompt_hook: String.t() | nil
+          prompt_hook: String.t() | nil,
+          turn_end_hook: String.t() | nil
         }
 
   @enforce_keys [:type, :provider, :model_id, :system_prompt]
@@ -105,7 +105,8 @@ defmodule Planck.Agent.AgentSpec do
     tools: [],
     skills: [],
     compactor: nil,
-    prompt_hook: nil
+    prompt_hook: nil,
+    turn_end_hook: nil
   ]
 
   @provider_atoms Map.new(Planck.AI.Model.providers(), fn p -> {Atom.to_string(p), p} end)
@@ -133,7 +134,8 @@ defmodule Planck.Agent.AgentSpec do
       tools: Keyword.get(fields, :tools, []),
       skills: Keyword.get(fields, :skills, []),
       compactor: Keyword.get(fields, :compactor),
-      prompt_hook: Keyword.get(fields, :prompt_hook)
+      prompt_hook: Keyword.get(fields, :prompt_hook),
+      turn_end_hook: Keyword.get(fields, :turn_end_hook)
     }
   end
 
@@ -197,7 +199,8 @@ defmodule Planck.Agent.AgentSpec do
          tools: parse_string_list(entry["tools"]),
          skills: parse_string_list(entry["skills"]),
          compactor: entry["compactor"],
-         prompt_hook: entry["prompt_hook"]
+         prompt_hook: entry["prompt_hook"],
+         turn_end_hook: entry["turn_end_hook"]
        )}
     end
   end
@@ -213,7 +216,7 @@ defmodule Planck.Agent.AgentSpec do
   Convert an `AgentSpec` to keyword options suitable for `Planck.Agent.start_link/1`.
 
   Accepts optional overrides: `tools:`, `tool_pool:`, `skill_pool:`, `team_id:`,
-  `session_id:`, `available_models:`, `on_compact:`.
+  `session_id:`, `available_models:`.
 
   ## Tool resolution
 
@@ -255,8 +258,7 @@ defmodule Planck.Agent.AgentSpec do
       skill_refresh_fn: Keyword.get(overrides, :skill_refresh_fn),
       team_id: Keyword.get(overrides, :team_id),
       session_id: Keyword.get(overrides, :session_id),
-      available_models: Keyword.get(overrides, :available_models, []),
-      on_compact: Keyword.get(overrides, :on_compact)
+      available_models: Keyword.get(overrides, :available_models, [])
     ]
   end
 

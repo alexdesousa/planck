@@ -1,72 +1,61 @@
 # Compactors
 
-> **Deprecated.** The `.exs` file / `compactor` config key mechanism is replaced
-> by the sidecar. Per-agent compactors are now defined as modules in a sidecar
-> application and referenced by name in `AgentSpec.compactor` / TEAM.json.
-> See `specs/sidecar.md`. The content below is kept for historical reference.
-
 A compactor is an optional hook that `Planck.Agent` calls before each LLM turn
 to manage context length. When context grows too long, the compactor summarises
 older messages into a single checkpoint, keeping only recent messages verbatim.
 
-## The `on_compact` hook protocol
-
-Any function with arity 1 is a valid `on_compact` value. The
-`Planck.Agent.Compactor` behaviour formalises this contract for module-based
-compactors:
+## The `Planck.Agent.Hooks.Compactor` behaviour
 
 ```elixir
-@type on_compact ::
-  ([Planck.Agent.Message.t()] ->
-    {:compact,
-      summary_msg :: Planck.Agent.Message.t(),
-      kept :: [Planck.Agent.Message.t()]}
-    | :skip)
+@callback compact(model :: Planck.AI.Model.t(), messages :: [Message.t()]) ::
+            {:compact,
+              summary_msg :: Planck.Agent.Message.t(),
+              kept :: [Planck.Agent.Message.t()]}
+            | :skip
+
+@callback compact_timeout() :: pos_integer()
 ```
 
-- **Input**: the messages since the last summary checkpoint (the "active window").
+- **Input**: the model (for cost-aware strategies) and the messages since the
+  last summary checkpoint (the "active window").
 - **`:skip`**: leave messages unchanged and proceed.
 - **`{:compact, summary_msg, kept}`**: replace the active window with `summary_msg`
   followed by `kept`. `summary_msg` should have role `{:custom, :summary}` to be
   stored as a checkpoint in the session and recognized by future compaction passes.
 
-The hook runs inside `handle_continue(:run_llm, state)` — it is synchronous and
-must return promptly.
+`use Planck.Agent.Hooks.Compactor` injects a default 30 000 ms `compact_timeout/0`.
 
-## Default compactor
+## Dispatch
 
-`Planck.Agent.Compactor.build/2` returns a ready-to-use `on_compact` function:
+`Hooks.Compactor.compact/4` is the single dispatch entry point:
 
 ```elixir
-on_compact = Planck.Agent.Compactor.build(model,
-  ratio:       0.8,   # compact when history reaches 80% of context_window
-  keep_recent: 10     # keep last 10 messages verbatim, outside the summary
-)
+Planck.Agent.Hooks.Compactor.compact(module, model, messages, sidecar_node)
 ```
 
-Token count is estimated as `chars ÷ 4`. When the threshold is exceeded, the
-compactor calls the LLM with a structured prompt to produce the summary. On LLM
-failure it returns `:skip` — original messages are left unchanged.
+- `module: nil` → runs the built-in LLM-based compactor locally.
+- `module: MyMod` + `sidecar_node: nil` → calls `MyMod.compact/2` locally.
+- `module: MyMod` + `sidecar_node: node` → `:rpc.call` to the sidecar node;
+  falls back to the built-in compactor if the RPC fails.
 
-The summary prompt instructs the LLM to:
-- Describe completed work and resolved decisions briefly
-- State clearly what is currently being worked on and the most recent requests
-- Preserve key facts, file paths, decisions, and constraints still relevant
+## Built-in compactor
 
-## Custom compactors via `.exs` files
+When `module` is `nil`, the built-in strategy runs. It estimates token count as
+`chars ÷ 4` and triggers when usage exceeds `ratio * model.context_window`
+(default ratio: 0.8). On trigger it calls the LLM with a structured prompt to
+produce the summary; returns `:skip` on LLM failure.
 
-Place a `.exs` file anywhere on the filesystem. The file must define a module
-that implements the `Planck.Agent.Compactor` behaviour. Using a module (rather
-than a bare function) lets you define private helper functions alongside the
-main callback:
+## Custom compactors (sidecar)
+
+Custom compactors live in the sidecar application. Implement the behaviour with
+`use Planck.Agent.Hooks.Compactor`:
 
 ```elixir
-# .planck/compactors/my_compactor.exs
-defmodule MyApp.Compactor do
-  @behaviour Planck.Agent.Compactor
+defmodule MySidecar.Compactors.Builder do
+  use Planck.Agent.Hooks.Compactor
 
   @impl true
-  def compact(messages) do
+  def compact(_model, messages) do
     case summarise(messages) do
       {:ok, text} ->
         summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
@@ -78,8 +67,10 @@ defmodule MyApp.Compactor do
     end
   end
 
+  @impl true
+  def compact_timeout, do: 60_000
+
   defp summarise(messages) do
-    # your summarisation logic
     text = Enum.map_join(messages, "\n", &extract_text/1)
     {:ok, text}
   end
@@ -93,58 +84,43 @@ defmodule MyApp.Compactor do
 end
 ```
 
-Load it with `Planck.Agent.Compactor.load/1`:
+Declare the module by name in TEAM.json:
 
-```elixir
-{:ok, on_compact} = Planck.Agent.Compactor.load(".planck/compactors/my_compactor.exs")
+```json
+{
+  "type": "builder",
+  "compactor": "MySidecar.Compactors.Builder"
+}
 ```
 
-Or configure it globally via environment variable so the runtime loads it at
-startup:
+planck_headless resolves the string to a module atom (after `:code.ensure_loaded`
+on the sidecar node) and passes `compactor: MySidecar.Compactors.Builder` at
+agent start time. No builder function is involved.
 
-```
-PLANCK_AGENT_COMPACTOR=/path/to/my_compactor.exs
-```
-
-When `PLANCK_AGENT_COMPACTOR` is set, it replaces the default `Compactor`
-entirely — there is no merging.
-
-## Custom compactors passed directly
-
-Pass any function directly at agent start time to override on a per-agent basis:
+## Agent start opts
 
 ```elixir
 Planck.Agent.start_link(
   id: "agent-1",
   model: model,
-  on_compact: fn messages -> ... end
+  compactor: MySidecar.Compactors.Builder,  # module atom, or nil for built-in
+  sidecar_node: :"planck_sidecar@hostname"  # nil = local dispatch only
 )
 ```
 
-## API
+## API summary
 
 ```elixir
-# Behaviour callback — implement this in your custom compactor module.
-@callback compact(messages :: [Message.t()]) ::
+# Behaviour callbacks — implement in your custom compactor module.
+@callback compact(model :: Model.t(), messages :: [Message.t()]) ::
             {:compact, summary :: Message.t(), kept :: [Message.t()]} | :skip
+@callback compact_timeout() :: pos_integer()
 
-# Build the default token-count-based compactor.
-@spec build(Planck.AI.Model.t(), opts()) ::
-        ([Message.t()] -> :skip | {:compact, Message.t(), [Message.t()]})
-
-# Load a custom compactor from a .exs file defining a module with compact/1.
-@spec load(Path.t()) :: {:ok, on_compact()} | {:error, String.t()}
+# Dispatch — called by the agent runtime; not called directly by user code.
+@spec Planck.Agent.Hooks.Compactor.compact(
+        module  :: module() | nil,
+        model   :: Planck.AI.Model.t(),
+        messages :: [Message.t()],
+        sidecar_node :: atom() | nil
+      ) :: {:compact, Message.t(), [Message.t()]} | :skip
 ```
-
-## Configuration
-
-| Env var                  | Config key    | Default | Description                             |
-|--------------------------|---------------|---------|-----------------------------------------|
-| `PLANCK_AGENT_COMPACTOR` | `:compactor`  | `nil`   | Path to a custom `.exs` compactor file  |
-
-```elixir
-config :planck_agent, :compactor, "/path/to/my_compactor.exs"
-```
-
-When `nil`, agents without an explicit `on_compact:` option do not compact at
-all. Use `Planck.Agent.Compactor.build/2` to attach the default strategy.

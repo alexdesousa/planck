@@ -209,7 +209,7 @@ per-session filesystem scanning.
    - `skill_pool:` from `ResourceStore.skills`
    - `team_id:` and `session_id:` for this session
    - `available_models:` from `ResourceStore`
-   - `on_compact:` from `ResourceStore.on_compact`
+   - `compactor:` and `prompt_hook:` from `AgentSpec` (resolved module atoms)
 6. Start each agent under `Planck.Agent.AgentSupervisor`.
 7. Record `session_id → team_id` in `SessionRegistry`.
 8. Return `{:ok, session_id}`.
@@ -359,7 +359,7 @@ holds the loaded resources — the single source of truth.
   tools:             [Planck.Agent.Tool.t()],           # builtin + external
   skills:            [Planck.Agent.Skill.t()],
   teams:             %{String.t() => Planck.Agent.Team.t()},  # alias => team
-  on_compact:        function() | nil,
+  sidecar_node:      atom() | nil,
   available_models:  [Planck.AI.Model.t()]
 }
 ```
