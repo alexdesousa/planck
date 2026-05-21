@@ -70,6 +70,12 @@ defmodule Planck.Agent.AgentSpec do
       e.g. `"MySidecar.Compactors.Builder"`. The module must implement `compact/2`.
       planck_headless resolves this via `Planck.Agent.Compactor.build/2` when
       materialising the agent. `nil` means the default compactor is used.
+    - `:prompt_hook` — fully-qualified module name of a sidecar prompt hook,
+      e.g. `"MySidecar.Hooks.Memory"`. The module must implement
+      `Planck.Agent.PromptHook`. planck_headless resolves this via
+      `Planck.Agent.PromptHook.build/2` and passes the resulting closures as
+      `system_prompt_prepend_fn` / `system_prompt_append_fn` overrides when
+      materialising the agent. `nil` means no hook injection.
   """
   @type t :: %__MODULE__{
           type: String.t(),
@@ -82,7 +88,8 @@ defmodule Planck.Agent.AgentSpec do
           opts: keyword(),
           tools: [String.t()],
           skills: [String.t()],
-          compactor: String.t() | nil
+          compactor: String.t() | nil,
+          prompt_hook: String.t() | nil
         }
 
   @enforce_keys [:type, :provider, :model_id, :system_prompt]
@@ -97,7 +104,8 @@ defmodule Planck.Agent.AgentSpec do
     opts: [],
     tools: [],
     skills: [],
-    compactor: nil
+    compactor: nil,
+    prompt_hook: nil
   ]
 
   @provider_atoms Map.new(Planck.AI.Model.providers(), fn p -> {Atom.to_string(p), p} end)
@@ -124,7 +132,8 @@ defmodule Planck.Agent.AgentSpec do
       opts: Keyword.get(fields, :opts, []),
       tools: Keyword.get(fields, :tools, []),
       skills: Keyword.get(fields, :skills, []),
-      compactor: Keyword.get(fields, :compactor)
+      compactor: Keyword.get(fields, :compactor),
+      prompt_hook: Keyword.get(fields, :prompt_hook)
     }
   end
 
@@ -187,7 +196,8 @@ defmodule Planck.Agent.AgentSpec do
          opts: parse_opts(entry["opts"]),
          tools: parse_string_list(entry["tools"]),
          skills: parse_string_list(entry["skills"]),
-         compactor: entry["compactor"]
+         compactor: entry["compactor"],
+         prompt_hook: entry["prompt_hook"]
        )}
     end
   end

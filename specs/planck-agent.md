@@ -129,14 +129,16 @@ TEAM.json. The caller merges tools in before spawning.
   tools:         [String.t()],          # tool names resolved from tool_pool: at start time
   skills:        [String.t()],          # skill names resolved from skill_pool: at start time;
                                         # appended to system_prompt via system_prompt_section/1
-  compactor:     String.t() | nil       # sidecar module name for per-agent compaction,
+  compactor:     String.t() | nil,      # sidecar module name for per-agent compaction,
                                         # e.g. "MySidecar.Compactors.Builder"; nil = default
+  prompt_hook:   String.t() | nil       # sidecar module implementing PromptHook behaviour,
+                                        # e.g. "MySidecar.Hooks.Memory"; nil = no injection
 }
 ```
 
-`AgentSpec` has no memory-related fields. Memory is implemented at the sidecar
-level via the `system_prompt_prepend_fn` / `system_prompt_append_fn` hooks passed
-to `to_start_opts/2` or directly to `start_link/1`.
+Dynamic context (e.g. memory) is injected via `prompt_hook`. planck_headless resolves
+it via `Planck.Agent.PromptHook.build/2` and wires the resulting closures as
+`system_prompt_prepend_fn` / `system_prompt_append_fn` at agent start time.
 
 ### Agent state
 

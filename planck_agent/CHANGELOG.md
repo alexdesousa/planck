@@ -18,6 +18,25 @@ provides these as closures over a caching GenServer (refreshed on the `:compacte
 PubSub event), enabling agent memory and other context-injection patterns without
 any changes to the core.
 
+### `Planck.Agent.PromptHook` behaviour
+
+New behaviour for building system prompt injection hooks. Mirrors the
+`Planck.Agent.Compactor` pattern:
+
+- `prepend/1` and `append/1` callbacks receive `session_id` — enabling per-session
+  state lookups (e.g. an ETS table keyed by session)
+- `hook_timeout/0` callback for custom RPC timeouts (default 5 000 ms)
+- `use Planck.Agent.PromptHook` injects no-op defaults for all three
+- `build/2` converts a module name string and opts into
+  `[system_prompt_prepend_fn: fn, system_prompt_append_fn: fn]` — spread directly
+  into `AgentSpec.to_start_opts/2` overrides
+- `sidecar_node:` opt enables remote dispatch via `:rpc.call/5`; RPC failures
+  return `nil` (no injection) instead of raising
+
+`AgentSpec` gains a `prompt_hook: String.t() | nil` field (like `compactor`),
+declarable in TEAM.json. planck_headless resolves it via `PromptHook.build/2`
+when materialising an agent.
+
 ### `Usage.from_opts/1`
 
 New public function that builds a `%Usage{}` struct from agent start opts.

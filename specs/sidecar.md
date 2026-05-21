@@ -219,74 +219,73 @@ local LLM-based compactor automatically.
 
 ## Per-agent memory
 
-Agent memory is no longer built into `planck_agent`. Instead, the sidecar
-provides `system_prompt_prepend_fn` / `system_prompt_append_fn` closures when
-building the agent's start opts. Planck calls these closures before every LLM
-turn; the sidecar controls when the returned string is live or cached.
+Agent memory is implemented in the sidecar via the `Planck.Agent.PromptHook`
+behaviour. Declare the hook module in TEAM.json:
 
-### Recommended pattern
+```json
+{
+  "type":        "builder",
+  "provider":    "anthropic",
+  "model_id":    "claude-sonnet-4-6",
+  "prompt_hook": "MySidecar.Hooks.Memory"
+}
+```
 
-1. A `GenServer` in the sidecar holds the cached memory string.
-2. The GenServer subscribes to the `"session:#{session_id}"` PubSub topic and
-   refreshes its cache on every `:compacted` event (the natural point where
-   memory should be reconsolidated).
-3. The closures passed to `start_link` call the GenServer via a local function
-   that reads from its cache without triggering an LLM call.
+planck_headless calls `PromptHook.build/2` with the session ID and sidecar node,
+and wires the resulting closures into the agent at start time. Planck calls the
+closures before every LLM turn via `SystemPrompt.build/1`.
+
+### Recommended ETS pattern
+
+The `session_id` argument to `prepend/1` and `append/1` makes a single module
+instance suitable for all sessions — no per-session process needed. An ETS table
+keyed by session is the natural fit:
 
 ```elixir
-defmodule MySidecar.Memory do
-  use GenServer
+defmodule MySidecar.Hooks.Memory do
+  use Planck.Agent.PromptHook
 
-  def start_link(session_id) do
-    GenServer.start_link(__MODULE__, session_id, name: via(session_id))
+  @table :session_memory
+
+  def child_spec(_opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, []},
+      type: :worker
+    }
   end
 
-  def prepend_fn(session_id) do
-    fn -> GenServer.call(via(session_id), :get_prepend) end
+  def start_link do
+    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  def append_fn(session_id) do
-    fn -> GenServer.call(via(session_id), :get_append) end
+  # Called by Planck before every LLM turn — reads from ETS, no blocking.
+  @impl Planck.Agent.PromptHook
+  def append(session_id) do
+    case :ets.lookup(@table, session_id) do
+      [{^session_id, content}] -> content
+      [] -> nil
+    end
   end
 
-  @impl true
-  def init(session_id) do
-    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
-    {:ok, %{prepend: nil, append: nil, session_id: session_id}}
+  # Refresh ETS on every compaction — cheapest point to reconsolidate memory.
+  def handle_info({:agent_event, :compacted, %{session_id: sid}}, state) do
+    :ets.insert(@table, {sid, load_memory(sid)})
+    {:noreply, state}
   end
 
-  @impl true
-  def handle_info({:agent_event, :compacted, _}, state) do
-    {:noreply, %{state | append: reload_memory(state.session_id)}}
+  defp load_memory(session_id) do
+    # read from your persistent store and return a String.t() | nil
+    nil
   end
-
-  @impl true
-  def handle_call(:get_prepend, _from, state), do: {:reply, state.prepend, state}
-  def handle_call(:get_append, _from, state),  do: {:reply, state.append, state}
-
-  defp via(session_id), do: {:via, Registry, {MySidecar.Registry, {:memory, session_id}}}
-  defp reload_memory(_session_id), do: nil  # replace with actual storage read
 end
 ```
 
-Wire the closures into `planck_headless`:
-
-```elixir
-prepend = MySidecar.Memory.prepend_fn(session_id)
-append  = MySidecar.Memory.append_fn(session_id)
-
-start_opts = AgentSpec.to_start_opts(spec,
-  team_id:                  team_id,
-  session_id:               session_id,
-  on_compact:               on_compact,
-  system_prompt_prepend_fn: prepend,
-  system_prompt_append_fn:  append
-)
-```
-
-Planck passes both fns into the agent state and calls them at the start of every
-LLM turn via `SystemPrompt.build/1`. The sidecar's GenServer absorbs the caching
-concern; Planck has no knowledge of storage or refresh logic.
+The `append/1` callback reads directly from ETS — fast, non-blocking, and safe
+to call on every LLM turn. The GenServer only wakes up on `:compacted` events to
+refresh the cache. Planck has no knowledge of the storage or refresh logic.
 
 ## Config
 
