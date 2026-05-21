@@ -47,7 +47,7 @@ has in its list.
 - `Planck.Agent.BuiltinTools` — `read`, `write`, `edit`, `bash` tool factories; `bash`
   is backed by `erlexec` with `Task.yield/shutdown` timeout handling
 - `Planck.Agent.Skill` — filesystem-based skill loader; `load_all/1`, `from_file/1`,
-  `system_prompt_section/1`
+  `system_prompt_section/3`
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination;
   caller supplies `dir:` explicitly (no built-in config; lives in `planck_headless`)
 - `Planck.Agent.Hooks.Compactor` — default LLM-based compaction anchored on `model.context_window`;
@@ -127,8 +127,8 @@ TEAM.json. The caller merges tools in before spawning.
   system_prompt: String.t(),            # already resolved from file path if applicable
   opts:          keyword(),
   tools:         [String.t()],          # tool names resolved from tool_pool: at start time
-  skills:        [String.t()],          # skill names resolved from skill_pool: at start time;
-                                        # appended to system_prompt via system_prompt_section/1
+  skills:        [String.t()],          # skill names resolved from the SkillIndex at start time;
+                                        # used to build the system prompt index via system_prompt_section/3
   compactor:     String.t() | nil,      # sidecar module name for per-agent compaction,
                                         # e.g. "MySidecar.Compactors.Builder"; nil = default
   prompt_hook:   String.t() | nil,      # sidecar module implementing Hooks.Prompt behaviour,
@@ -170,6 +170,7 @@ Internal GenServer state — not part of the public API.
   text_buffer:               String.t(),
   thinking_buffer:           String.t(),
   usage:                     Planck.Agent.Usage.t(),
+  skills:                    Planck.Agent.SkillIndex.t(),
   compactor:                 module() | nil,
   prompt_hook:               module() | nil,
   turn_end_hook:             module() | nil,
@@ -184,6 +185,10 @@ Internal GenServer state — not part of the public API.
 used internally for context management.
 `usage` is a `%Planck.Agent.Usage{}` struct with `input_tokens`, `output_tokens`, and
 `cost` fields. `state.usage.cost` replaces the former top-level `state.cost` field.
+`skills` is a `%Planck.Agent.SkillIndex{}` struct that consolidates all skill-related
+state (pool, ranked names, top_n limit, declared names, and refresh functions). The
+`pool` is frozen at session start and rebuilt only after compaction; `refresh_fn` is
+used exclusively by the `load_skill` / `list_skills` tools to access a live pool.
 `compactor` / `prompt_hook` / `turn_end_hook` hold module atoms dispatched via
 `Planck.Agent.Hooks.*`. `sidecar_node` is the distributed Erlang node to RPC into
 when a hook module is set; `nil` means local dispatch only.
@@ -395,9 +400,14 @@ API:
 # Load a single skill from its SKILL.md path.
 @spec from_file(Path.t()) :: {:ok, Skill.t()} | {:error, String.t()}
 
-# Build a system-prompt snippet listing skills with file and resources paths.
-# Returns nil when the list is empty.
-@spec system_prompt_section([Skill.t()]) :: String.t() | nil
+# Build a three-part system-prompt skill index: pinned (always_present: true) +
+# last-used (from ranked_names, up to top_n) + discovery line.
+# Returns nil when nothing would be shown.
+@spec system_prompt_section(
+        all_skills   :: [Skill.t()],
+        ranked_names :: [String.t()],
+        top_n        :: pos_integer()
+      ) :: String.t() | nil
 ```
 
 Configured via `PLANCK_SKILLS_DIRS` env var or `config :planck, :skills_dirs, [...]`
@@ -555,8 +565,8 @@ internally, so any code that needs to build an `AgentSpec` from a decoded map
   - `write`: creates, overwrites, missing parents, error when parent is a file
   - `edit`: replaces, not found, more than once, missing file
   - `bash`: stdout, stderr, non-zero exit, `cwd` arg, timeout
-- `Skill` — `from_file/1`, `load_all/1`, `system_prompt_section/1`; checks `resources dir:`
-  label in prompt output
+- `Skill` — `from_file/1`, `load_all/1`, `system_prompt_section/3`; checks pinned +
+  ranked + discovery sections in prompt output; cold-start mtime fallback
 
 ### Integration tests (Mox)
 

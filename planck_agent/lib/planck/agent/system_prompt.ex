@@ -23,8 +23,9 @@ defmodule Planck.Agent.SystemPrompt do
           name: String.t() | nil,
           type: String.t() | nil,
           tools: %{String.t() => Tool.t()},
-          skill_names: [String.t()],
-          skill_refresh_fn: (-> [Skill.t()]) | nil,
+          skill_pool: [Skill.t()],
+          ranked_skill_names: [String.t()],
+          top_skills: pos_integer(),
           prompt_hook: module() | nil,
           session_id: String.t() | nil,
           sidecar_node: atom() | nil
@@ -54,8 +55,9 @@ defmodule Planck.Agent.SystemPrompt do
         name: name,
         type: type,
         tools: tools,
-        skill_names: names,
-        skill_refresh_fn: refresh_fn,
+        skill_pool: skill_pool,
+        ranked_skill_names: ranked_names,
+        top_skills: top_skills,
         prompt_hook: hook,
         session_id: session_id,
         sidecar_node: sidecar_node
@@ -64,7 +66,7 @@ defmodule Planck.Agent.SystemPrompt do
     |> run_prepend(hook, session_id, sidecar_node)
     |> prepend_identity_line(name, type)
     |> append_tool_sections(tools)
-    |> append_skills(names, refresh_fn)
+    |> append_skills(skill_pool, ranked_names, top_skills)
     |> run_append(hook, session_id, sidecar_node)
   end
 
@@ -222,7 +224,8 @@ defmodule Planck.Agent.SystemPrompt do
 
     Always grant the tools the worker needs via the `tools` parameter (e.g.
     `["read", "bash", "edit"]`). A worker spawned without tools cannot do useful work.
-    Use `skills` to attach skill context — call `list_skills` first to see what is available.
+    Use `skills` to inject relevant skill context — the worker will not see the skill
+    index otherwise. Call `list_skills` first if you are unsure which skills apply.
 
     Multiple agents of the same type are allowed — e.g. two developers working on
     different features in parallel. Save the returned ID; you will need it to
@@ -309,16 +312,11 @@ defmodule Planck.Agent.SystemPrompt do
   # Skills
   # ---------------------------------------------------------------------------
 
-  @spec append_skills(String.t(), [String.t()], (-> [Skill.t()]) | nil) :: String.t()
-  defp append_skills(prompt, [], _), do: prompt
-  defp append_skills(prompt, _, nil), do: prompt
+  @spec append_skills(String.t(), [Skill.t()], [String.t()], pos_integer()) :: String.t()
+  defp append_skills(prompt, [], _ranked, _top_n), do: prompt
 
-  defp append_skills(prompt, names, refresh_fn) do
-    pool = refresh_fn.()
-    pool_map = Map.new(pool, &{&1.name, &1})
-    resolved = Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
-
-    case Skill.system_prompt_section(resolved) do
+  defp append_skills(prompt, skill_pool, ranked_names, top_n) do
+    case Skill.system_prompt_section(skill_pool, ranked_names, top_n) do
       nil -> prompt
       section -> append_section(prompt, section)
     end

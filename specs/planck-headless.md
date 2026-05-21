@@ -186,7 +186,7 @@ per-session filesystem scanning.
    - `template: path` → `Team.load(path)` on the fly
    - `template: nil` → build a dynamic team of one from config
      (`default_provider`, `default_model`, default system prompt; full
-     `tool_pool` and `skill_pool` attached to the lone orchestrator)
+     `tool_pool` and a `%SkillIndex{}` attached to the lone orchestrator)
 2. Generate a `session_id` (random hex) and resolve the session name:
    - Use `opts[:name]` if provided, sanitized to `[a-z0-9-]+`.
    - Otherwise auto-generate via `Planck.Headless.SessionName.generate/1`,
@@ -206,7 +206,12 @@ per-session filesystem scanning.
      used to preserve agent IDs across subsequent resumes.
 5. For each member in the team, call `AgentSpec.to_start_opts/2` with:
    - `tool_pool:` from `ResourceStore.tools`
-   - `skill_pool:` from `ResourceStore.skills`
+   - `skills:` — a `%Planck.Agent.SkillIndex{}` built per-agent:
+     - `pool` frozen from `ResourceStore.skills` at this moment
+     - `ranked` from `SkillUsage.ranked_names/5` (SQLite ranking with mtime cold-start fallback)
+     - `top_n` from `Config.top_skills!()` (default `5`)
+     - `refresh_fn: fn -> ResourceStore.get().skills end` (live pool for tools)
+     - `index_refresh_fn` for pool+ranked rebuild after compaction
    - `team_id:` and `session_id:` for this session
    - `available_models:` from `ResourceStore`
    - `compactor:` and `prompt_hook:` from `AgentSpec` (resolved module atoms)
@@ -216,8 +221,11 @@ per-session filesystem scanning.
 
 The system-prompt assembly has two layers:
 
-1. **Skills** — `AgentSpec.to_start_opts/2` appends the skill descriptions via
-   `skill_pool:`. This happens for every agent.
+1. **Skills** — `planck_headless` builds a `%SkillIndex{}` per agent and passes
+   it as `skills:` to `AgentSpec.to_start_opts/2`. The index contains a frozen
+   pool (used for the system prompt section) and a live `refresh_fn` (used by
+   tools). SQLite usage history (`SkillUsage`) drives the ranking of the last-used
+   skills shown in each agent's system prompt.
 2. **AGENTS.md** — `planck_headless` calls `Tools.prepend_agents_md/2` for both
    the orchestrator and every static worker, walking up from `cwd` to the nearest
    `.git` root to find the file. If found, its content is prepended to the
@@ -417,6 +425,7 @@ Call `JsonBinding.invalidate/0` to bust the JSON file cache before reloading.
   "skills_dirs":    ["~/.planck/skills"],
   "teams_dirs":     ["~/.planck/teams"],
   "sidecar":        ".planck/sidecar",
+  "top_skills":     5,
   "providers": {
     "anthropic": { "type": "anthropic" },
     "nvidia": {
@@ -464,6 +473,7 @@ project-local ones. Neither key has a `PLANCK_*` env var equivalent.
   skills_dirs:       [Path.t()],
   teams_dirs:        [Path.t()],
   sidecar:           Path.t(),           # defaults to ".planck/sidecar"; skipped if absent on disk
+  top_skills:        pos_integer(),      # max last-used skills shown per agent in system prompt (default 5)
   providers:         %{String.t() => map()},   # raw provider map from config; parsed by planck_ai
   models:            [map()]             # raw model list from config; parsed by planck_ai
 }
@@ -481,6 +491,7 @@ project-local ones. Neither key has a `PLANCK_*` env var equivalent.
 | `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
 | `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`   |
 | `PLANCK_SIDECAR`          | `:sidecar`           | `.planck/sidecar`                 |
+| `PLANCK_TOP_SKILLS`       | `:top_skills`        | `5`                               |
 | `PLANCK_CONFIG_FILES`     | `:config_files`      | `~/.planck/config.json:.planck/config.json` |
 
 `*_DIRS` env vars take a colon-separated list, parsed via an inline

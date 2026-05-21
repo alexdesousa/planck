@@ -13,7 +13,7 @@ defmodule Planck.Headless do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AgentSpec, BuiltinTools, Message, Session, Skill, Team, Tools}
+  alias Planck.Agent.{AgentSpec, BuiltinTools, Message, Session, Skill, SkillUsage, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
   alias Planck.Headless.Config.{EnvBinding, JsonBinding}
 
@@ -535,7 +535,13 @@ defmodule Planck.Headless do
     prev_ids = Keyword.get(opts, :prev_ids, %{})
     metadata = Keyword.get(opts, :metadata, %{})
     session_tools = Keyword.get(opts, :session_tools, [])
-    ctx = %{prev_ids: prev_ids, metadata: metadata, session_tools: session_tools}
+
+    ctx = %{
+      prev_ids: prev_ids,
+      metadata: metadata,
+      session_tools: session_tools,
+      team_name: team.alias
+    }
 
     store = ResourceStore.get()
     team_id = generate_id()
@@ -558,10 +564,18 @@ defmodule Planck.Headless do
           AgentSpec.t(),
           ResourceStore.t(),
           Path.t(),
-          %{metadata: map(), session_tools: [Planck.Agent.Tool.t()], prev_ids: map()}
+          %{
+            metadata: map(),
+            session_tools: [Planck.Agent.Tool.t()],
+            prev_ids: map(),
+            team_name: String.t() | nil
+          }
         ) :: {:ok, pid()} | {:error, term()}
   defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
     %{metadata: metadata, session_tools: session_tools} = ctx
+
+    skill_opts =
+      build_skill_opts(ctx.team_name, spec.name, spec.type, store.skills, cwd)
 
     base_opts =
       AgentSpec.to_start_opts(spec,
@@ -571,6 +585,7 @@ defmodule Planck.Headless do
             store.registered_tools ++ skill_discovery_tools(store.skills),
         skill_pool: store.skills,
         skill_refresh_fn: fn -> ResourceStore.get().skills end,
+        on_skill_use: skill_opts[:on_skill_use],
         team_id: team_id,
         session_id: session_id,
         available_models: store.available_models
@@ -606,6 +621,9 @@ defmodule Planck.Headless do
       |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
       |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
       |> Keyword.put(:sidecar_node, SidecarManager.node())
+      |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
+      |> Keyword.put(:top_skills, skill_opts[:top_skills])
+      |> Keyword.put(:skill_pool, skill_opts[:skill_pool])
       |> Keyword.put(:usage, usage)
       |> Keyword.put(:cost, cost)
 
@@ -619,7 +637,12 @@ defmodule Planck.Headless do
           [AgentSpec.t()],
           ResourceStore.t(),
           Path.t(),
-          %{prev_ids: map(), metadata: map(), session_tools: [Planck.Agent.Tool.t()]}
+          %{
+            prev_ids: map(),
+            metadata: map(),
+            session_tools: [Planck.Agent.Tool.t()],
+            team_name: String.t() | nil
+          }
         ) :: :ok | {:error, term()}
   defp start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx) do
     %{prev_ids: prev_ids, metadata: metadata, session_tools: session_tools} = ctx
@@ -643,6 +666,9 @@ defmodule Planck.Headless do
       {usage, cost} = load_agent_usage(metadata, worker_id)
       system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
 
+      skill_opts =
+        build_skill_opts(ctx.team_name, spec.name, spec.type, store.skills, cwd)
+
       opts =
         base_opts
         |> Keyword.put(:id, worker_id)
@@ -658,6 +684,9 @@ defmodule Planck.Headless do
         |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
         |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
         |> Keyword.put(:sidecar_node, SidecarManager.node())
+        |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
+        |> Keyword.put(:top_skills, skill_opts[:top_skills])
+        |> Keyword.put(:skill_pool, skill_opts[:skill_pool])
         |> Keyword.put(:usage, usage)
         |> Keyword.put(:cost, cost)
 
@@ -671,6 +700,48 @@ defmodule Planck.Headless do
   @spec resolve_hook_module(String.t() | nil) :: module() | nil
   defp resolve_hook_module(nil), do: nil
   defp resolve_hook_module(name), do: :"Elixir.#{name}"
+
+  @spec build_skill_opts(
+          String.t() | nil,
+          String.t() | nil,
+          String.t() | nil,
+          [Skill.t()],
+          Path.t()
+        ) ::
+          keyword()
+  defp build_skill_opts(team_name, agent_name, agent_type, skills, cwd) do
+    top_n = Config.top_skills!()
+
+    ranked =
+      if team_name && agent_name do
+        SkillUsage.ranked_names(cwd, team_name, agent_name, skills, top_n)
+      else
+        []
+      end
+
+    [
+      ranked_skill_names: ranked,
+      top_skills: top_n,
+      skill_pool: skills,
+      on_skill_use: fn _agent_id, skill_name ->
+        if team_name && agent_name && agent_type do
+          SkillUsage.record_use(cwd, team_name, agent_name, agent_type, skill_name)
+        end
+      end,
+      skill_index_refresh_fn: fn ->
+        current = ResourceStore.get().skills
+
+        new_ranked =
+          if team_name && agent_name do
+            SkillUsage.ranked_names(cwd, team_name, agent_name, current, top_n)
+          else
+            []
+          end
+
+        {current, new_ranked}
+      end
+    ]
+  end
 
   # list_skills is opt-in: agents declare "list_skills" in their TEAM.json tools
   # array to get autonomous skill discovery. load_skill is injected automatically

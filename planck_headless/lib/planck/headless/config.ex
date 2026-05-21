@@ -199,6 +199,12 @@ defmodule Planck.Headless.Config do
     default: [".planck/skills", "~/.planck/skills"],
     binding_order: @json
 
+  @envdoc "Maximum number of recently-used skills shown in the agent skill index."
+  app_env :top_skills, :planck, :top_skills,
+    type: :integer,
+    default: 5,
+    binding_order: @json
+
   @envdoc "Colon-separated list of team directories."
   app_env :teams_dirs, :planck, :teams_dirs,
     type: PathList,

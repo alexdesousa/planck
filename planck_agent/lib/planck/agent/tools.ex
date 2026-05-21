@@ -394,7 +394,10 @@ defmodule Planck.Agent.Tools do
   defp build_system_prompt(base, []), do: base
 
   defp build_system_prompt(base, skills) do
-    case Skill.system_prompt_section(skills) do
+    # Dynamic agents: orchestrator explicitly granted these skills — show all of them.
+    names = Enum.map(skills, & &1.name)
+
+    case Skill.system_prompt_section(skills, names, length(skills)) do
       nil -> base
       section -> base <> "\n\n" <> section
     end

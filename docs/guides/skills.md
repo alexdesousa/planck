@@ -1,8 +1,8 @@
 # Planck Skills
 
-A skill is a reusable system prompt section stored on the filesystem. When an
-agent has a skill assigned, its content is appended to the agent's system prompt
-at session start.
+A skill is a reusable capability stored on the filesystem. Agents discover and
+load skills on demand via the `load_skill` tool. A concise index of the agent's
+most-used skills is shown in its system prompt so it knows what to reach for.
 
 Skills are useful for injecting domain knowledge, coding conventions, or
 project-specific context that applies to multiple agents or sessions.
@@ -23,6 +23,8 @@ project-specific context that applies to multiple agents or sessions.
 ---
 name: code_review
 description: Reviews code for correctness, style, and performance.
+always_present: false
+planck_version: "0.1.7"
 ---
 
 You are an expert code reviewer. When reviewing code:
@@ -34,14 +36,15 @@ You are an expert code reviewer. When reviewing code:
 Reference the rubric at resources/rubric.md for scoring criteria.
 ```
 
-The frontmatter `name` and `description` fields are required. Everything after
-the `---` separator is the skill body injected into the system prompt.
+The frontmatter `name` and `description` fields are required. The optional
+`always_present` flag (default `false`) pins the skill to the system prompt index
+regardless of usage ranking. The optional `planck_version` field is informational.
+Everything after the closing `---` is the skill body loaded by `load_skill`.
 
 ## Assigning skills in TEAM.json
 
 Add a `"skills"` array to any agent spec. The skill names are stored in the
-agent's state and resolved to fresh descriptions from `ResourceStore` before
-each LLM turn — not baked into the system prompt at session start:
+agent's `SkillIndex` and used to build the system prompt index at session start:
 
 ```json
 {
@@ -49,6 +52,11 @@ each LLM turn — not baked into the system prompt at session start:
   "skills":  ["code_review", "elixir_style"]
 }
 ```
+
+The system prompt index shows pinned skills (`always_present: true`) plus the
+agent's most-recently-used skills (up to `top_skills`, default 5) ranked from the
+per-project SQLite usage DB (`.planck/skills.db`). On first run (no history), the
+index falls back to skills sorted by mtime of their `SKILL.md` file.
 
 Skill names are resolved from the configured `skills_dirs`
 (default: `.planck/skills` and `~/.planck/skills`).
@@ -73,6 +81,10 @@ are only needed for specific tasks, or to inspect a skill's contents.
 load_skill("code_review")
 → returns the full skill body as a string
 ```
+
+Each successful `load_skill` call records the use in `.planck/skills.db` (the
+per-project SQLite usage DB). This drives the last-used ranking that determines
+which skills appear in the system prompt index on subsequent sessions.
 
 ### `list_skills` — discovery
 
@@ -106,15 +118,17 @@ Only skills the orchestrator itself has access to can be granted.
 
 ## Dynamic loading — live updates without restart
 
-Skill descriptions are resolved fresh from `ResourceStore` before each LLM
-turn. When you edit a `SKILL.md` file on disk, the running `Watcher` GenServer
+When you edit a `SKILL.md` file on disk, the running `Watcher` GenServer
 detects the change (300 ms debounce) and calls `ResourceStore.reload/0`.
-On the agent's next turn, `build_system_prompt` picks up the new content
-automatically — no agent restart needed.
 
-The same applies to new skills added to the pool after a session has started:
-any agent that declares the skill name in its `"skills"` array will see the
-updated description on its next turn.
+- **`load_skill` tool** — always reads from the live pool, so edited skill
+  content is available immediately on the agent's next `load_skill` call.
+- **System prompt index** — built from a frozen pool captured at session start
+  and refreshed only after context compaction. Edits to descriptions of already-indexed
+  skills become visible after the next compaction.
+
+New skills added to the pool after a session starts are loadable by name via
+`load_skill` even if they do not appear in the current system prompt index.
 
 ## Example use cases
 

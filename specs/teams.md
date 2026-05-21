@@ -156,11 +156,11 @@ at agent-start time (in `AgentSpec.to_start_opts/2`).
   full instructions by name.
 - **`list_skills`** is opt-in: add `"list_skills"` to an agent's `"tools"` array
   to enable autonomous skill discovery. Typically given to the orchestrator.
-- Declared `"skills"` have their names and descriptions appended to
-  `system_prompt` via `Planck.Agent.Skill.system_prompt_section/1`, instructing
-  the agent to use `load_skill`. If `"skills"` is empty, the prompt passes
-  through unchanged — but the agent can still call `load_skill` if the
-  orchestrator tells it which skill to use.
+- Declared `"skills"` drive the system prompt index built by
+  `Planck.Agent.Skill.system_prompt_section/3` (pinned + last-used + discovery),
+  instructing the agent to use `load_skill`. If `"skills"` is empty, no index
+  section is added — but the agent can still call `load_skill` if the
+  orchestrator tells it which skill to use by name.
 - There is no filesystem scoping — per-member skill/tool folders do not exist.
   The scoping lives in the TEAM.json declaration alone.
 
@@ -328,9 +328,9 @@ now accepts an alias in addition to a path.
 - `Team.load/1` — happy path for a valid directory; rejects missing TEAM.json;
   skips malformed member entries with warnings; resolves `system_prompt`
   paths; parses member `skills` and `tools` arrays.
-- `AgentSpec.to_start_opts/2` — resolves `spec.skills` against `skill_pool:`;
-  appends the skill section to the system prompt when non-empty; passes
-  through unchanged when empty.
+- `AgentSpec.to_start_opts/2` — resolves `spec.skills` against `skills:` (`%SkillIndex{}`);
+  builds the system prompt skill index via `system_prompt_section/3` when non-empty;
+  passes through unchanged when empty.
 - `ResourceStore` — scans both roots at boot; project-local overrides global
   on collision; reload picks up new/removed teams; in-flight sessions keep
   their original team.
@@ -343,5 +343,5 @@ now accepts an alias in addition to a path.
   tool pool.
 - Dynamic team growth — orchestrator spawns a worker via `spawn_agent`;
   `list_team` includes the new member under the same `team_id`.
-- `spawn_agent` skills — granted skills are appended to the spawned agent's
-  system prompt; unknown names are silently ignored.
+- `spawn_agent` skills — granted skills are included in the spawned agent's
+  `SkillIndex` and shown in its system prompt index; unknown names are silently ignored.

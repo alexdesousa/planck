@@ -31,7 +31,7 @@ defmodule Planck.Agent.AgentSpec do
   resolved relative to a caller-provided `base_dir`. `tools` and `skills`
   are lists of names resolved against caller-provided pools at start time
   (see `to_start_opts/2`). When `skills` is non-empty, their descriptions
-  are appended to the system prompt via `Planck.Agent.Skill.system_prompt_section/1`.
+  are appended to the system prompt via `Planck.Agent.Skill.system_prompt_section/3`.
 
   ## Construction
 
@@ -229,7 +229,7 @@ defmodule Planck.Agent.AgentSpec do
 
   When `spec.skills` is non-empty, skill names are resolved against `skill_pool:` (a
   list of `Skill.t()` structs). The resolved skills' descriptions are appended to
-  `spec.system_prompt` via `Planck.Agent.Skill.system_prompt_section/1`. Unknown
+  `spec.system_prompt` via `Planck.Agent.Skill.system_prompt_section/3`. Unknown
   names are silently ignored. When `spec.skills` is empty, `system_prompt` passes
   through unchanged.
 
@@ -281,10 +281,15 @@ defmodule Planck.Agent.AgentSpec do
     # load_skill is automatically available to every agent when skills exist —
     # agents do not need to declare it in their TEAM.json.
     skill_refresh_fn = Keyword.get(overrides, :skill_refresh_fn)
+    on_use = Keyword.get(overrides, :on_skill_use)
 
     case skill_pool do
-      [] -> declared
-      pool -> declared ++ [Skill.load_skill_tool(pool, skill_refresh_fn)]
+      [] ->
+        declared
+
+      pool ->
+        declared ++
+          [Skill.load_skill_tool(pool, skill_refresh_fn: skill_refresh_fn, on_use: on_use)]
     end
   end
 

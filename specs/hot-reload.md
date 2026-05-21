@@ -18,59 +18,48 @@ without restarting.
 
 ## 1. Dynamic skill injection
 
-### Current behaviour
+### Behaviour
 
-`AgentSpec.to_start_opts/2` calls `assemble_system_prompt/2`, which resolves
-the agent's declared skills and appends their descriptions to
-`state.system_prompt`. The skill section is a static string — changes to
-skill files on disk have no effect on running agents.
+`AgentSpec` stores the resolved skill **names** rather than baking descriptions
+into `state.system_prompt`. At session start, `planck_headless` builds a
+`%Planck.Agent.SkillIndex{}` and passes it to the agent as `skills:` in start opts.
 
-### New behaviour
+#### System prompt — frozen pool
 
-`AgentSpec` stores the resolved skill **names** rather than their descriptions.
-A new field `state.skill_names` (list of strings) replaces the baked-in skill
-section in `state.system_prompt`.
+The skill section shown in the system prompt is built from `SkillIndex.pool`,
+which is **frozen at session start**. It is only rebuilt after context compaction
+(via `SkillIndex.index_refresh_fn`). This design keeps system prompt tokens stable
+and predictable across turns — the LLM sees the same index every call within a
+compaction window, which is cache-friendly.
 
-At the start of each `do_run_llm` call, the private `build_system_prompt/1`
-invokes `state.skill_refresh_fn.()` to get the current skill pool and appends
-a fresh skill section to the base system prompt before building the `Context`:
+`SkillIndex.pool` is **not** updated when `ResourceStore.reload/0` fires during
+a live session. In-flight sessions see the skill pool they were started with in
+their system prompt.
 
-```elixir
-defp do_run_llm(state, turn_type) do
-  system = build_system_prompt(state)   # calls skill_refresh_fn.() internally
+#### Tools — live pool
 
-  context = %Context{
-    system: presence(system),
-    messages: ...,
-    tools: ...
-  }
-  ...
-end
-```
+`SkillIndex.refresh_fn` (`(-> [Skill.t()]) | nil`) is used exclusively by the
+`load_skill` and `list_skills` tools. It calls `fn -> ResourceStore.get().skills end`
+at tool-call time, so agents always access the current, live pool when loading a
+skill on demand — even if a skill was added after the session started.
 
-`build_system_prompt/1` resolves `state.skill_names` against the pool returned
-by `skill_refresh_fn` and appends their descriptions, the same way
-`assemble_system_prompt` did previously.
+#### Effect summary
 
-`skill_refresh_fn` is a `(-> [Skill.t()]) | nil` closure injected by the
-caller (e.g. `planck_headless` passes `fn -> ResourceStore.get().skills end`).
-This keeps `planck_agent` free of any dependency on `ResourceStore`.
-
-### Effect
-
-- If a skill file is updated on disk and `ResourceStore` is reloaded, the
-  agent picks up the new description on its next turn with no restart.
-- New skills added to the pool are available to agents that declare them by
-  name, even if they were started before the skill existed.
-- `state.system_prompt` becomes the *base* prompt only (identity line +
-  user-written prompt). It no longer contains the skill section.
+- Skill file edits on disk are picked up by the `Watcher`, which calls
+  `ResourceStore.reload/0`. The live pool (used by tools) is updated immediately.
+  The system prompt index (frozen pool) is updated only on the next compaction.
+- New skills added to the pool after a session starts are loadable via `load_skill`
+  by name, even without appearing in the system prompt index.
+- `state.system_prompt` is the *base* prompt only (identity line + user-written
+  prompt). The skill index is assembled separately and prepended each LLM call.
 
 ### Migration
 
 `assemble_system_prompt` no longer appends skills. It returns the base prompt
-only. `AgentSpec.to_start_opts/2` stores skill names in a `skill_names:` start
-opt and accepts a `skill_refresh_fn:` override from callers. `Agent` state
-gains `skill_names: [String.t()]` and `skill_refresh_fn: (-> [Skill.t()]) | nil`.
+only. `AgentSpec.to_start_opts/2` accepts a `skills:` start opt (`%SkillIndex{}`
+or keyword-compatible opts) built by `planck_headless`. `Agent` state gains
+`skills: %SkillIndex{}` replacing the former `skill_names`, `skill_pool`,
+`skill_refresh_fn`, and related fields.
 
 ---
 
@@ -161,13 +150,17 @@ any manual action.
 
 ## Package ownership
 
-- `Planck.Agent` — adds `skill_names` and `skill_refresh_fn` fields;
-  `do_run_llm` calls `build_system_prompt/1` which invokes `skill_refresh_fn`
-  for a fresh skill section each turn
+- `Planck.Agent` — `do_run_llm` calls `build_system_prompt/1` which reads
+  `state.skills.pool` (frozen) for the system prompt section each turn;
+  `load_skill` / `list_skills` tools read `state.skills.refresh_fn` (live)
+- `Planck.Agent.SkillIndex` — new struct consolidating all skill state; holds
+  `pool` (frozen), `ranked` (SQLite order), `top_n`, `names`, `refresh_fn`,
+  and `index_refresh_fn`; `refresh/1` rebuilds pool and ranked after compaction
 - `Planck.Agent.AgentSpec` — `assemble_system_prompt` returns base prompt only;
-  `to_start_opts` returns `skill_names:` in start opts; accepts `skill_refresh_fn:`
-  from callers
-- `Planck.Headless` — passes `skill_refresh_fn: fn -> ResourceStore.get().skills end`
-  to all `AgentSpec.to_start_opts/2` call sites
-- `Planck.Headless.Watcher` — new GenServer; started by `AppSupervisor`
+  `to_start_opts` accepts `skills: %SkillIndex{}` from callers
+- `Planck.Headless` — builds `%SkillIndex{}` at session start:
+  sets `pool` from the current `ResourceStore.skills`, `ranked` from
+  `SkillUsage.ranked_names/5`, `top_n` from `Config.top_skills!()`, and
+  `refresh_fn: fn -> ResourceStore.get().skills end`
+- `Planck.Headless.Watcher` — GenServer; started by `AppSupervisor`
 - `Planck.Headless.AppSupervisor` — starts `Watcher` under supervision

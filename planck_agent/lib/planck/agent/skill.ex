@@ -68,16 +68,22 @@ defmodule Planck.Agent.Skill do
   - `:description` — one-line summary shown to the agent
   - `:path` — absolute path to the skill directory
   - `:skill_file` — absolute path to `SKILL.md`
+  - `:always_present` — when `true`, always included in the system prompt index
+    regardless of usage ranking. Set by users; agents always write `false`.
+  - `:planck_version` — semver string set on Planck-bundled skills; `nil` on
+    user- and agent-created skills. Used for upgrade detection.
   """
   @type t :: %__MODULE__{
           name: String.t(),
           description: String.t(),
           path: Path.t(),
-          skill_file: Path.t()
+          skill_file: Path.t(),
+          always_present: boolean(),
+          planck_version: String.t() | nil
         }
 
   @enforce_keys [:name, :description, :path, :skill_file]
-  defstruct [:name, :description, :path, :skill_file]
+  defstruct [:name, :description, :path, :skill_file, always_present: false, planck_version: nil]
 
   @doc """
   Load all skills from a list of directories.
@@ -102,42 +108,80 @@ defmodule Planck.Agent.Skill do
   @spec from_file(Path.t()) :: {:ok, t()} | {:error, String.t()}
   def from_file(skill_file) do
     with {:ok, content} <- read_file(skill_file),
-         {:ok, name, description} <- parse_frontmatter(content, skill_file) do
+         {:ok, fields} <- parse_frontmatter(content, skill_file) do
       {:ok,
        %__MODULE__{
-         name: name,
-         description: description,
+         name: fields.name,
+         description: fields.description,
          path: Path.dirname(skill_file),
-         skill_file: skill_file
+         skill_file: skill_file,
+         always_present: fields.always_present,
+         planck_version: fields.planck_version
        }}
     end
   end
 
   @doc """
-  Generate a skills section for injection into an agent's system prompt.
+  Build the skill index section for the system prompt.
 
-  Produces a compact index of skill names and descriptions, followed by an
-  instruction to load skills via the `load_skill` tool. Returns `nil` when
-  the list is empty.
+  Accepts the full pool of available skills, the ordered list of ranked skill
+  names (from SQLite usage history), and the maximum number of ranked skills to
+  show. Returns `nil` when there are no skills at all.
+
+  ## Structure
+
+  1. **Pinned** (`always_present: true`) — always included, listed first.
+  2. **Last used** — up to `top_n` skills from `ranked_names`, excluding pinned.
+  3. **Discovery line** — appended when there are more skills than shown.
   """
-  @spec system_prompt_section([t()]) :: String.t() | nil
-  def system_prompt_section([]), do: nil
+  @spec system_prompt_section([t()], [String.t()], pos_integer()) :: String.t() | nil
+  def system_prompt_section(all_skills, ranked_names, top_n)
 
-  def system_prompt_section(skills) do
-    entries =
-      Enum.map_join(skills, "\n", fn %__MODULE__{name: name, description: desc} ->
-        "- **#{name}** — #{desc}"
-      end)
+  def system_prompt_section([], _ranked_names, _top_n), do: nil
 
-    """
-    ## Available skills
+  def system_prompt_section(all_skills, ranked_names, top_n) do
+    skill_map = Map.new(all_skills, &{&1.name, &1})
 
-    #{entries}
+    pinned = Enum.filter(all_skills, & &1.always_present)
+    pinned_names = MapSet.new(pinned, & &1.name)
 
-    Use `load_skill` tool with the skill name to load its full instructions when relevant.
-    Resource files referenced inside a skill are loaded via the `read` tool using
-    the absolute paths provided in the skill's content.
-    """
+    ranked =
+      ranked_names
+      |> Enum.reject(&MapSet.member?(pinned_names, &1))
+      |> Enum.flat_map(&List.wrap(Map.get(skill_map, &1)))
+      |> Enum.take(top_n)
+
+    shown = pinned ++ ranked
+    shown_names = MapSet.new(shown, & &1.name)
+    remaining = Enum.count(all_skills) - MapSet.size(shown_names)
+
+    case shown do
+      [] ->
+        nil
+
+      _ ->
+        sections = []
+
+        sections =
+          if pinned != [] do
+            entries = Enum.map_join(pinned, "\n", &skill_entry/1)
+            ["\n## Skills\n\n#{entries}" | sections]
+          else
+            sections
+          end
+
+        sections =
+          if ranked != [] do
+            entries = Enum.map_join(ranked, "\n", &skill_entry/1)
+            ["\n## Last used skills\n\n#{entries}" | sections]
+          else
+            sections
+          end
+
+        body = sections |> Enum.reverse() |> Enum.join("")
+
+        String.trim_leading(body) <> discovery_line(remaining)
+    end
   end
 
   @doc """
@@ -148,8 +192,11 @@ defmodule Planck.Agent.Skill do
   their TEAM.json `"tools"` array.
   """
   @spec load_skill_tool([t()]) :: Tool.t()
-  @spec load_skill_tool([t()], (-> [t()]) | nil) :: Tool.t()
-  def load_skill_tool(skills, skill_refresh_fn \\ nil) do
+  @spec load_skill_tool([t()], keyword()) :: Tool.t()
+  def load_skill_tool(skills, opts \\ []) do
+    skill_refresh_fn = Keyword.get(opts, :skill_refresh_fn)
+    on_use = Keyword.get(opts, :on_use)
+
     Tool.new(
       name: "load_skill",
       description:
@@ -161,7 +208,7 @@ defmodule Planck.Agent.Skill do
         },
         "required" => ["name"]
       },
-      execute_fn: fn _agent_id, _id, %{"name" => name} ->
+      execute_fn: fn agent_id, _id, %{"name" => name} ->
         current = if skill_refresh_fn, do: skill_refresh_fn.(), else: skills
         skill_map = Map.new(current, &{&1.name, &1})
 
@@ -171,7 +218,12 @@ defmodule Planck.Agent.Skill do
             {:error, "Unknown skill: #{name}. Available: #{available}"}
 
           skill ->
-            File.read(skill.skill_file)
+            if on_use, do: on_use.(agent_id, name)
+
+            case File.read(skill.skill_file) do
+              {:ok, content} -> {:ok, "Skill directory: #{skill.path}\n\n" <> content}
+              error -> error
+            end
         end
       end
     )
@@ -206,6 +258,21 @@ defmodule Planck.Agent.Skill do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  @spec skill_entry(t()) :: String.t()
+  defp skill_entry(%__MODULE__{name: name, description: desc}) do
+    "- **#{name}** — #{desc}"
+  end
+
+  @spec discovery_line(non_neg_integer()) :: String.t()
+  defp discovery_line(0), do: ""
+  defp discovery_line(1), do: "\n\nCall `list_skills` to discover 1 more skill."
+  defp discovery_line(n), do: "\n\nCall `list_skills` to discover #{n} more skills."
+
+  @spec yaml_field([{charlist(), term()}], String.t()) :: term()
+  defp yaml_field(pairs, key) do
+    Enum.find_value(pairs, fn {k, v} -> k == String.to_charlist(key) && v end)
+  end
 
   @spec load_dir(Path.t()) :: [t()]
   defp load_dir(dir) do
@@ -246,7 +313,7 @@ defmodule Planck.Agent.Skill do
   end
 
   @spec parse_frontmatter(String.t(), Path.t()) ::
-          {:ok, String.t(), String.t()} | {:error, String.t()}
+          {:ok, map()} | {:error, String.t()}
   defp parse_frontmatter(content, path) do
     content = String.replace(content, "\r\n", "\n")
 
@@ -257,19 +324,33 @@ defmodule Planck.Agent.Skill do
   end
 
   @spec parse_yaml_fields(String.t(), Path.t()) ::
-          {:ok, String.t(), String.t()} | {:error, String.t()}
+          {:ok, map()} | {:error, String.t()}
   defp parse_yaml_fields(yaml, path) do
     Application.ensure_all_started(:yamerl)
 
     case :yamerl_constr.string(String.to_charlist(yaml)) do
       [[_ | _] = pairs] ->
-        name = Enum.find_value(pairs, fn {k, v} -> k == ~c"name" && v end)
-        desc = Enum.find_value(pairs, fn {k, v} -> k == ~c"description" && v end)
+        name = yaml_field(pairs, "name")
+        desc = yaml_field(pairs, "description")
+        always_present = yaml_field(pairs, "always_present")
+        planck_version = yaml_field(pairs, "planck_version")
 
         cond do
-          is_nil(name) -> {:error, "#{path}: missing required frontmatter field 'name'"}
-          is_nil(desc) -> {:error, "#{path}: missing required frontmatter field 'description'"}
-          true -> {:ok, to_string(name), to_string(desc)}
+          is_nil(name) ->
+            {:error, "#{path}: missing required frontmatter field 'name'"}
+
+          is_nil(desc) ->
+            {:error, "#{path}: missing required frontmatter field 'description'"}
+
+          true ->
+            {:ok,
+             %{
+               name: to_string(name),
+               description: to_string(desc),
+               always_present: always_present == true,
+               planck_version:
+                 if(is_nil(planck_version), do: nil, else: to_string(planck_version))
+             }}
         end
 
       _ ->

@@ -54,6 +54,92 @@ in `agent.ex`.
 `state.cost` no longer exists; use `state.usage.cost` instead.
 `SessionStore.persist_usage/3` now serialises `usage.cost` from the struct directly.
 
+### `SkillUsage` — per-project SQLite skill usage tracking
+
+New module `Planck.Agent.SkillUsage` records how often each agent uses each
+skill, persisting counts to a per-project SQLite DB at `.planck/skills.db`.
+
+- Schema: `(team_name, agent_name, agent_type, skill_name, use_count, last_used)`
+  — primary key is `(team_name, agent_name, skill_name)`.
+- `record_use/5` — upserts a row on each successful `load_skill` call.
+- `top_n/4` — per-agent ranking by `use_count`.
+- `top_n_for_orchestrators/3` — union of all orchestrators by `agent_type`.
+- `ranked_names/5` — returns `top_n` results with mtime-sorted cold-start
+  fallback when no SQLite history exists yet.
+
+### `SkillIndex` — consolidated skill state
+
+New struct `Planck.Agent.SkillIndex` replaces the five separate skill-related
+fields that previously lived in `%Planck.Agent{}` state:
+
+```elixir
+%Planck.Agent.SkillIndex{
+  pool:              [Skill.t()],              # frozen at session start
+  ranked:            [String.t()],             # ordered names from SQLite
+  top_n:             pos_integer(),            # max ranked skills (default 5)
+  names:             [String.t()],             # from TEAM.json skills array
+  refresh_fn:        (-> [Skill.t()]) | nil,   # for tools only
+  index_refresh_fn:  (-> {[Skill.t()], [String.t()]}) | nil  # called after compaction
+}
+```
+
+Agent state field `skills: %SkillIndex{}` replaces the five separate skill
+fields. `SkillIndex.new/0`, `SkillIndex.from_opts/1`, and `SkillIndex.refresh/1`
+are the public constructors and mutators.
+
+### `Skill.t` — new frontmatter fields
+
+`Planck.Agent.Skill.t` gains two new optional frontmatter fields:
+
+- `always_present: boolean()` (default `false`) — when `true`, the skill is
+  always included in the system prompt index regardless of ranking.
+- `planck_version: String.t() | nil` (default `nil`) — optional minimum Planck
+  version constraint for the skill.
+
+### `Skill.system_prompt_section/3` — three-part index
+
+`system_prompt_section/1` is replaced by `system_prompt_section/3`:
+
+```elixir
+@spec system_prompt_section(
+        all_skills    :: [Skill.t()],
+        ranked_names  :: [String.t()],
+        top_n         :: pos_integer()
+      ) :: String.t() | nil
+```
+
+The returned section has three parts:
+
+1. **Pinned** — skills with `always_present: true` (always shown).
+2. **Last-used** — up to `top_n` skills from `ranked_names` (SQLite-ranked).
+3. **Discovery line** — guides the agent to call `load_skill` or `list_skills`
+   when it needs a skill not listed.
+
+Returns `nil` when nothing would be shown.
+
+### `load_skill` tool — records usage to SQLite
+
+`Skill.load_skill_tool/1` now accepts an `opts` keyword list:
+
+- `skill_refresh_fn:` — resolves the skill pool at call time (for tools; NOT
+  used by the system prompt).
+- `on_use:` — callback fired on each successful `load_skill` call; used by
+  `planck_headless` to call `SkillUsage.record_use/5`.
+
+### Skill index frozen at session start
+
+The system prompt skill section is built from a **frozen** `skill_pool` captured
+at session start (`SkillIndex.pool`). It is refreshed only after compaction
+(via `index_refresh_fn`), keeping system prompt tokens stable across turns.
+`skill_refresh_fn` is used exclusively by the `load_skill` and `list_skills`
+tools to access a live pool.
+
+### `top_skills` config key
+
+`Planck.Headless.Config` gains a new `top_skills` key (default `5`) settable in
+`config.json`. Controls how many last-used skills appear in the system prompt
+index per agent.
+
 ### `SessionStore` — `load_messages/3` return type
 
 `SessionStore.load_messages/3` now returns `{:ok, [Message.t()]}` (was

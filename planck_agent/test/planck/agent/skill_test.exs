@@ -156,6 +156,16 @@ defmodule Planck.Agent.SkillTest do
       assert content =~ "Elixir expert"
     end
 
+    test "loaded content is prefaced with the skill's absolute directory path", %{tmp_dir: dir} do
+      write_skill(dir, "my-skill", valid_md("my-skill", "Has references."))
+      [skill] = Skill.load_all([dir])
+      tool = Skill.load_skill_tool([skill])
+      {:ok, loaded} = tool.execute_fn.("agent", "id", %{"name" => "my-skill"})
+
+      skill_dir = Path.join(dir, "my-skill")
+      assert String.starts_with?(loaded, "Skill directory: #{skill_dir}")
+    end
+
     test "loading an unknown skill returns an error listing available names", %{tmp_dir: dir} do
       write_skill(dir, "elixir-dev", valid_md("elixir-dev", "Elixir expert"))
       [skill] = Skill.load_all([dir])
@@ -184,7 +194,7 @@ defmodule Planck.Agent.SkillTest do
         skills
       end
 
-      tool = Skill.load_skill_tool([skill], refresh_fn)
+      tool = Skill.load_skill_tool([skill], skill_refresh_fn: refresh_fn)
 
       # Initially only elixir-dev is available
       assert {:ok, _} = tool.execute_fn.("agent", "id", %{"name" => "elixir-dev"})
@@ -232,31 +242,75 @@ defmodule Planck.Agent.SkillTest do
 
   # --- system_prompt_section/1 ---
 
-  describe "system_prompt_section/1" do
-    test "returns nil for an empty list" do
-      assert Skill.system_prompt_section([]) == nil
+  describe "system_prompt_section/3" do
+    test "returns nil for an empty pool" do
+      assert Skill.system_prompt_section([], [], 5) == nil
     end
 
-    test "includes name and description for each skill", %{tmp_dir: dir} do
+    test "includes name and description for a ranked skill", %{tmp_dir: dir} do
       write_skill(dir, "n8n-expert", valid_md("n8n-expert", "n8n automation expert"))
       [skill] = Skill.load_all([dir])
 
-      section = Skill.system_prompt_section([skill])
+      section = Skill.system_prompt_section([skill], ["n8n-expert"], 5)
       assert section =~ "n8n-expert"
       assert section =~ "n8n automation expert"
-      assert section =~ "load_skill"
       refute section =~ "SKILL.md"
-      refute section =~ "resources dir"
     end
 
-    test "includes all skills in the listing", %{tmp_dir: dir} do
+    test "shows all skills when ranked list is empty (cold start)", %{tmp_dir: dir} do
       write_skill(dir, "skill-a", valid_md("skill-a", "Desc A"))
       write_skill(dir, "skill-b", valid_md("skill-b", "Desc B"))
       skills = Skill.load_all([dir])
 
-      section = Skill.system_prompt_section(skills)
+      # No ranking — no ranked skills shown, no pinned skills, nothing
+      section = Skill.system_prompt_section(skills, [], 5)
+      assert section == nil
+    end
+
+    test "pinned skills always appear regardless of ranking", %{tmp_dir: dir} do
+      write_skill(
+        dir,
+        "pinned",
+        "---\nname: pinned\ndescription: Always here.\nalways_present: true\n---\n"
+      )
+
+      write_skill(dir, "regular", valid_md("regular", "Desc"))
+      skills = Skill.load_all([dir])
+
+      section = Skill.system_prompt_section(skills, [], 5)
+      assert section =~ "pinned"
+      assert section =~ "Always here."
+      refute section =~ "regular"
+    end
+
+    test "ranked skills appear in last-used section", %{tmp_dir: dir} do
+      write_skill(dir, "skill-a", valid_md("skill-a", "Desc A"))
+      write_skill(dir, "skill-b", valid_md("skill-b", "Desc B"))
+      skills = Skill.load_all([dir])
+
+      section = Skill.system_prompt_section(skills, ["skill-a"], 5)
       assert section =~ "skill-a"
-      assert section =~ "skill-b"
+      refute section =~ "skill-b"
+    end
+
+    test "discovery line appears when more skills exist", %{tmp_dir: dir} do
+      Enum.each(1..3, fn i ->
+        write_skill(dir, "skill-#{i}", valid_md("skill-#{i}", "Desc #{i}"))
+      end)
+
+      skills = Skill.load_all([dir])
+
+      section = Skill.system_prompt_section(skills, ["skill-1"], 1)
+      assert section =~ "list_skills"
+      assert section =~ "more skill"
+    end
+
+    test "no discovery line when all skills are shown", %{tmp_dir: dir} do
+      write_skill(dir, "only", valid_md("only", "The only skill"))
+      [skill] = Skill.load_all([dir])
+
+      section = Skill.system_prompt_section([skill], ["only"], 5)
+      refute section =~ "list_skills"
     end
   end
 end

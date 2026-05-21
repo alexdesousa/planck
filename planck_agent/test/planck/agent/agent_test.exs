@@ -453,9 +453,9 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
-  # --- dynamic skill injection ---
+  # --- skill pool injection ---
 
-  describe "dynamic skill injection via skill_refresh_fn" do
+  describe "skill pool injection" do
     defp make_skill(name, description) do
       %Planck.Agent.Skill{
         name: name,
@@ -465,18 +465,16 @@ defmodule Planck.Agent.AgentTest do
       }
     end
 
-    test "no skill_refresh_fn — system prompt is returned unchanged" do
+    test "no skill_pool — system prompt is returned unchanged" do
       stream_events([{:text_delta, "ok"}, {:done, %{}}])
       agent = start_agent(system_prompt: "Base prompt.")
       Agent.subscribe(agent)
       Agent.prompt(agent, "go")
       assert_receive {:agent_event, :turn_end, _}, 1_000
-
-      # system_prompt in state is the base prompt only
       assert Agent.get_state(agent).system_prompt == "Base prompt."
     end
 
-    test "skill descriptions are injected into the LLM context on each turn" do
+    test "ranked skills are injected into the LLM context" do
       parent = self()
 
       stub(MockAI, :stream, fn _model, %{system: system}, _opts ->
@@ -485,13 +483,13 @@ defmodule Planck.Agent.AgentTest do
       end)
 
       skill = make_skill("elixir-dev", "Expert Elixir patterns.")
-      refresh_fn = fn -> [skill] end
 
       agent =
         start_agent(
           system_prompt: "You are helpful.",
-          skill_names: ["elixir-dev"],
-          skill_refresh_fn: refresh_fn
+          skill_pool: [skill],
+          ranked_skill_names: ["elixir-dev"],
+          top_skills: 5
         )
 
       Agent.subscribe(agent)
@@ -504,45 +502,36 @@ defmodule Planck.Agent.AgentTest do
       assert system =~ "Expert Elixir patterns."
     end
 
-    test "updated skill pool is picked up on the next turn (hot reload)" do
+    test "system prompt is frozen — skill_pool does not change mid-session" do
       parent = self()
-      skill_pool = :ets.new(:skill_pool, [:set, :public])
-      :ets.insert(skill_pool, {:skills, [make_skill("helper", "Original description.")]})
-
-      refresh_fn = fn ->
-        [{:skills, skills}] = :ets.lookup(skill_pool, :skills)
-        skills
-      end
 
       stub(MockAI, :stream, fn _model, %{system: system}, _opts ->
         send(parent, {:system_prompt, system})
         [{:text_delta, "ok"}, {:done, %{}}]
       end)
 
+      skill = make_skill("helper", "Original description.")
+
       agent =
         start_agent(
           system_prompt: "Base.",
-          skill_names: ["helper"],
-          skill_refresh_fn: refresh_fn
+          skill_pool: [skill],
+          ranked_skill_names: ["helper"],
+          top_skills: 5
         )
 
       Agent.subscribe(agent)
 
-      # First turn — original skill description
       Agent.prompt(agent, "first")
       assert_receive {:agent_event, :turn_end, _}, 1_000
       assert_received {:system_prompt, system1}
       assert system1 =~ "Original description."
 
-      # Simulate hot reload — update the skill pool
-      :ets.insert(skill_pool, {:skills, [make_skill("helper", "Updated description.")]})
-
-      # Second turn — picks up the new description
       Agent.prompt(agent, "second")
       assert_receive {:agent_event, :turn_end, _}, 1_000
       assert_received {:system_prompt, system2}
-      assert system2 =~ "Updated description."
-      refute system2 =~ "Original description."
+      # Same frozen pool on second turn
+      assert system2 =~ "Original description."
     end
   end
 

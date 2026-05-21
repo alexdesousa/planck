@@ -26,6 +26,8 @@ Agents load skills on demand via the `load_skill` built-in tool.
 ---
 name: code_review
 description: Reviews code for correctness, style, and performance.
+always_present: false
+planck_version: "0.1.7"
 ---
 
 # Code Review
@@ -38,34 +40,46 @@ Full instructions for this skill go here. The agent loads this file via
 - `resources/rubric.md` — review rubric (load via `read` with the absolute path)
 ```
 
-Frontmatter is YAML-style (one `key: value` per line). Both `name` and
-`description` are required. Windows line endings (CRLF) are normalized before
-parsing.
+Frontmatter is YAML-style (one `key: value` per line). `name` and `description`
+are required. Windows line endings (CRLF) are normalized before parsing.
+
+### Frontmatter fields
+
+| Field           | Type      | Required | Default | Description |
+|-----------------|-----------|----------|---------|-------------|
+| `name`          | string    | yes      | —       | Unique skill identifier used in TEAM.json and `load_skill` calls |
+| `description`   | string    | yes      | —       | One-line summary shown in the system prompt index |
+| `always_present`| boolean   | no       | `false` | When `true`, the skill is always included in the system prompt index regardless of ranking |
+| `planck_version`| string    | no       | `nil`   | Optional minimum Planck version constraint (informational only) |
 
 ## How agents use skills
 
 ### Declared skills (predictable, pre-configured)
 
 Skills can be declared per-agent in TEAM.json. Skill names are stored in
-`AgentSpec` and passed to the agent as `skill_names` at start time.
-`AgentSpec.to_start_opts/2` **no longer** bakes skill descriptions into
-`state.system_prompt`; instead it stores them as names only.
+`AgentSpec` and resolved into a `SkillIndex` at session start.
 
-At the start of each LLM turn, `do_run_llm` calls `build_system_prompt/1`
-which invokes `skill_refresh_fn.()` to get the current pool from
-`ResourceStore` and resolves fresh descriptions from it. This means skill
-content changes on disk (picked up by `Watcher` → `ResourceStore.reload/0`)
-take effect on the agent's next turn with no restart.
+The system prompt skill section is built from a **frozen** `SkillIndex.pool`
+captured when the session starts. It is rebuilt only after context compaction
+(via `index_refresh_fn`) — keeping token counts stable and predictable across
+turns. The live `skill_refresh_fn` is used exclusively by the `load_skill` and
+`list_skills` tools so agents can access the current pool on demand.
 
-The section appended to the system prompt each turn looks like:
+The section appended to the system prompt has three parts:
+
+1. **Pinned** — skills with `always_present: true` in their frontmatter (always shown).
+2. **Last-used** — up to `top_n` skills ordered by SQLite usage ranking for this agent.
+3. **Discovery line** — guides the agent to call `list_skills` or `load_skill` by name.
+
+Example output:
 
 ```
 ## Available skills
 
+- **elixir-style** — Enforces Elixir style and formatting conventions.
 - **code_review** — Reviews code for correctness, style, and performance.
-- **elixir-dev** — Expert Elixir development patterns and best practices.
 
-Use `load_skill` with the skill name to load its full instructions when relevant.
+Call `list_skills` to see all available skills, or `load_skill` with a name to load one.
 ```
 
 When the orchestrator delegates a task that requires a skill the worker doesn't
@@ -84,6 +98,15 @@ content by name:
 ```
 
 Returns the full SKILL.md text, or an error listing available names if not found.
+
+On each successful call, `load_skill` fires the `on_use:` callback (supplied by
+`planck_headless`), which records the use in the per-project SQLite DB via
+`SkillUsage.record_use/5`. This drives the last-used ranking shown in subsequent
+system prompt sections.
+
+`load_skill_tool/1` accepts an `opts` keyword list:
+- `skill_refresh_fn:` — resolves the skill pool at call time (live pool access).
+- `on_use:` — callback `(skill_name -> :ok)` fired on each successful load.
 
 ### `list_skills` tool (orchestrator: automatic; workers: opt-in)
 
@@ -128,23 +151,69 @@ In this setup:
 
 ## Typical usage (via `AgentSpec.to_start_opts/2`)
 
+`planck_headless` builds a `%SkillIndex{}` per agent and passes it as `skills:`:
+
 ```elixir
-skills = Planck.Agent.Skill.load_all(["~/.planck/skills", ".planck/skills"])
+all_skills = Planck.Agent.Skill.load_all(["~/.planck/skills", ".planck/skills"])
+
+skill_index = %Planck.Agent.SkillIndex{
+  pool:      all_skills,   # frozen at session start
+  ranked:    SkillUsage.ranked_names(project_dir, team_name, agent_name, all_skills, top_n),
+  top_n:     top_n,
+  names:     spec.skills,
+  refresh_fn: fn -> ResourceStore.get().skills end
+}
 
 start_opts = AgentSpec.to_start_opts(spec,
-  tool_pool:  builtins ++ custom_tools,
-  skill_pool: skills,
-  team_id:    team_id
+  tool_pool: builtins ++ custom_tools,
+  skills:    skill_index,
+  team_id:   team_id
 )
 ```
 
 `load_skill` is **not** resolved from `tool_pool` — it is injected directly by
-`AgentSpec.resolve_tools/2` after pool resolution, whenever `skill_pool:` is
-non-empty. Every agent gets it automatically regardless of what it declares.
+`AgentSpec.resolve_tools/2` whenever a `skills:` index is present.
+Every agent gets it automatically regardless of what it declares.
 
 `list_skills` is added to `tool_pool` by `planck_headless` when skills exist.
 Like any other tool, it only reaches an agent if the agent declares
 `"list_skills"` in its TEAM.json `"tools"` array.
+
+## Skill usage ranking (SkillUsage)
+
+`Planck.Agent.SkillUsage` tracks how often each agent calls `load_skill` and
+uses that history to rank the skills shown in the system prompt index.
+
+### Storage
+
+A per-project SQLite DB is kept at `.planck/skills.db`. Schema:
+
+```
+(team_name, agent_name, agent_type, skill_name, use_count, last_used)
+PRIMARY KEY (team_name, agent_name, skill_name)
+```
+
+`agent_name` is `spec.name || spec.type` — stable across restarts.
+`team_name` is `team.alias` — stable across restarts.
+Dynamic workers receive no ranking. Dynamic orchestrators share a combined
+ranking via `top_n_for_orchestrators/3` (union over `agent_type`).
+
+### Cold-start fallback
+
+When no SQLite history exists yet (first run, or the DB was deleted), `ranked_names/5`
+falls back to sorting skills by mtime of their `SKILL.md` file (most recently
+modified first). This ensures the system prompt index is populated from the start
+without requiring prior usage data.
+
+### `top_skills` config key
+
+`Planck.Headless.Config` exposes a `top_skills` key (default `5`) that controls
+how many last-used skills appear in the system prompt index per agent. Settable
+in `config.json`:
+
+```json
+{ "top_skills": 8 }
+```
 
 ## Configuration
 
@@ -161,6 +230,8 @@ config :planck_agent, :skills_dirs, [".planck/skills", "~/.planck/skills"]
 
 ## API
 
+### `Planck.Agent.Skill`
+
 ```elixir
 # Load all skills from a list of directories; missing or malformed entries skipped.
 @spec load_all([Path.t()]) :: [Skill.t()]
@@ -168,13 +239,68 @@ config :planck_agent, :skills_dirs, [".planck/skills", "~/.planck/skills"]
 # Load a single skill from a SKILL.md file path.
 @spec from_file(Path.t()) :: {:ok, Skill.t()} | {:error, String.t()}
 
-# Build a system-prompt snippet listing declared skill names and descriptions.
-# Returns nil when the list is empty.
-@spec system_prompt_section([Skill.t()]) :: String.t() | nil
+# Build a three-part system-prompt skill index (pinned + last-used + discovery).
+# Returns nil when nothing would be shown.
+@spec system_prompt_section(
+        all_skills   :: [Skill.t()],
+        ranked_names :: [String.t()],
+        top_n        :: pos_integer()
+      ) :: String.t() | nil
 
 # Build the load_skill tool (auto-injected when skill_pool is non-empty).
-@spec load_skill_tool([Skill.t()]) :: Tool.t()
+# opts: skill_refresh_fn: (-> [Skill.t()]) | nil, on_use: (String.t() -> :ok) | nil
+@spec load_skill_tool(opts :: keyword()) :: Tool.t()
 
 # Build the list_skills tool (opt-in via TEAM.json "tools" array).
 @spec list_skills_tool([Skill.t()]) :: Tool.t()
+```
+
+### `Planck.Agent.SkillIndex`
+
+```elixir
+# Build an empty SkillIndex.
+@spec new() :: SkillIndex.t()
+
+# Build a SkillIndex from agent start opts.
+@spec from_opts(keyword()) :: SkillIndex.t()
+
+# Rebuild pool and ranked from index_refresh_fn (called after compaction).
+@spec refresh(SkillIndex.t()) :: SkillIndex.t()
+```
+
+### `Planck.Agent.SkillUsage`
+
+```elixir
+# Record a skill use in the per-project SQLite DB (upsert).
+@spec record_use(
+        project_dir :: Path.t(),
+        team_name   :: String.t(),
+        agent_name  :: String.t(),
+        agent_type  :: String.t(),
+        skill_name  :: String.t()
+      ) :: :ok
+
+# Top-n skills for a specific agent by use_count.
+@spec top_n(
+        project_dir :: Path.t(),
+        team_name   :: String.t(),
+        agent_name  :: String.t(),
+        n           :: pos_integer()
+      ) :: [String.t()]
+
+# Union ranking across all orchestrators by agent_type.
+@spec top_n_for_orchestrators(
+        project_dir :: Path.t(),
+        team_name   :: String.t(),
+        n           :: pos_integer()
+      ) :: [String.t()]
+
+# Top-n with mtime cold-start fallback when no DB history exists.
+@spec ranked_names(
+        project_dir :: Path.t(),
+        team_name   :: String.t(),
+        agent_name  :: String.t(),
+        skills      :: [Skill.t()],
+        n           :: pos_integer()
+      ) :: [String.t()]
 ```

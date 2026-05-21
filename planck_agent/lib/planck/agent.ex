@@ -59,6 +59,7 @@ defmodule Planck.Agent do
     MessageBuilder,
     Session,
     SessionStore,
+    SkillIndex,
     StreamBuffer,
     Tool,
     ToolRunner,
@@ -110,6 +111,7 @@ defmodule Planck.Agent do
   - `turn_end_hook` — resolved module atom called after every turn ends;
     `nil` means no post-turn reflection
   - `sidecar_node` — connected sidecar node; shared by all hook dispatch calls
+  - `skills` — frozen skill index for system prompt building and tool dispatch
   - `opts` — pass-through keyword options (e.g. `tool_timeout`)
   - `available_models` — model catalog used by `list_models` and `spawn_agent`
   """
@@ -127,8 +129,7 @@ defmodule Planck.Agent do
           prompt_hook: module() | nil,
           turn_end_hook: module() | nil,
           sidecar_node: atom() | nil,
-          skill_names: [String.t()],
-          skill_refresh_fn: (-> [Planck.Agent.Skill.t()]) | nil,
+          skills: SkillIndex.t(),
           cwd: String.t(),
           system_prompt: String.t(),
           messages: [Message.t()],
@@ -159,8 +160,7 @@ defmodule Planck.Agent do
     prompt_hook: nil,
     turn_end_hook: nil,
     sidecar_node: nil,
-    skill_names: [],
-    skill_refresh_fn: nil,
+    skills: %SkillIndex{},
     cwd: "",
     system_prompt: "",
     messages: [],
@@ -341,11 +341,10 @@ defmodule Planck.Agent do
       prompt_hook: Keyword.get(opts, :prompt_hook),
       turn_end_hook: Keyword.get(opts, :turn_end_hook),
       sidecar_node: Keyword.get(opts, :sidecar_node),
+      skills: SkillIndex.from_opts(opts),
       tools: tool_map,
       opts: Keyword.get(opts, :opts, []),
       available_models: Keyword.get(opts, :available_models, []),
-      skill_names: Keyword.get(opts, :skill_names, []),
-      skill_refresh_fn: Keyword.get(opts, :skill_refresh_fn),
       usage: Usage.from_opts(opts)
     }
 
@@ -861,8 +860,9 @@ defmodule Planck.Agent do
 
         new_state = %{state | messages: new_messages}
 
-        broadcast(new_state, :compacted, %{})
-        {[summary_msg | kept], new_state}
+        refreshed = %{new_state | skills: SkillIndex.refresh(new_state.skills)}
+        broadcast(refreshed, :compacted, %{})
+        {[summary_msg | kept], refreshed}
     end
   end
 
@@ -916,8 +916,9 @@ defmodule Planck.Agent do
       name: state.name,
       type: state.type,
       tools: state.tools,
-      skill_names: state.skill_names,
-      skill_refresh_fn: state.skill_refresh_fn,
+      skill_pool: state.skills.pool,
+      ranked_skill_names: state.skills.ranked,
+      top_skills: state.skills.top_n,
       prompt_hook: state.prompt_hook,
       session_id: state.session_id,
       sidecar_node: state.sidecar_node
