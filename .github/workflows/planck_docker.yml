@@ -13,6 +13,7 @@ on:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   sidecar:
@@ -38,7 +39,7 @@ jobs:
       - uses: actions/setup-node@v4
         name: Setup Node.js
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Setup (deps.get + npm install --prefix assets)
         run: mix do local.rebar --force + local.hex --force + setup
       - name: Compile dependencies

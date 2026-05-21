@@ -7,6 +7,7 @@ on:
 
 env:
   HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # ── Hex.pm publish ────────────────────────────────────────────────────────────
 # Published in dependency order so each package is available on Hex before the
