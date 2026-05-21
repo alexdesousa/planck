@@ -175,6 +175,33 @@ tools to access a live pool.
 `config.json`. Controls how many last-used skills appear in the system prompt
 index per agent.
 
+### `"planck:sessions"` global PubSub topic
+
+`Planck.Agent` now broadcasts `:turn_end` and `:compacted` events to a global
+`"planck:sessions"` topic in addition to the existing per-agent and per-session
+topics. Only persistent agents (those with a `session_id`) emit these events.
+
+The payload is the same as the per-session event plus two extra fields:
+
+- `agent_name` — stable agent name from TEAM.json (`spec.name || spec.type`)
+- `session_id` — the agent's SQLite session identifier
+
+```elixir
+Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
+# receives: {:agent_event, :turn_end | :compacted, %{agent_id:, agent_name:, session_id:, ...}}
+```
+
+Sidecars subscribe to this single topic to receive events from all agents
+without needing to know individual agent IDs in advance.
+
+### `SkillUsage` — `team_name` nil bug fix
+
+`SkillUsage.record_use/5` and `top_n/4` now always receive a non-nil
+`team_name`. The default dynamic team (no `template:` in `start_session/1`)
+previously passed `nil` for `team_name`, causing the SQLite `ON CONFLICT`
+clause to silently malfunction. `planck_headless` now falls back to
+`"default"` when `team.alias` is nil.
+
 ### `SessionStore` — `load_messages/3` return type
 
 `SessionStore.load_messages/3` now returns `{:ok, [Message.t()]}` (was

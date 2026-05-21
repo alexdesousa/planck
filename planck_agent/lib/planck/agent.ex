@@ -778,13 +778,27 @@ defmodule Planck.Agent do
   end
 
   @spec broadcast(t(), atom(), map()) :: :ok
-  defp broadcast(%{id: id, session_id: session_id}, type, payload) do
+  defp broadcast(%{id: id, session_id: session_id, name: agent_name}, type, payload) do
     event = {:agent_event, type, payload}
     Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "agent:#{id}", event)
 
     if session_id do
       session_event = {:agent_event, type, Map.put(payload, :agent_id, id)}
       Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "session:#{session_id}", session_event)
+
+      if type in [:turn_end, :compacted] do
+        global_payload =
+          payload
+          |> Map.put(:agent_id, id)
+          |> Map.put(:agent_name, agent_name)
+          |> Map.put(:session_id, session_id)
+
+        Phoenix.PubSub.broadcast(
+          Planck.Agent.PubSub,
+          "planck:sessions",
+          {:agent_event, type, global_payload}
+        )
+      end
     end
   end
 

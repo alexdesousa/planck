@@ -34,8 +34,12 @@ has in its list.
 
 - `GenServer` per agent with a typed state machine (`idle → streaming → executing_tools`)
 - Parallel tool execution via `Task.async_stream` under a named `Task.Supervisor`
-- Phoenix.PubSub broadcasting: `{:agent_event, type, payload}` on `"agent:#{id}"` and
-  `"session:#{session_id}"` topics
+- Phoenix.PubSub broadcasting: `{:agent_event, type, payload}` on three topics:
+  - `"agent:#{id}"` — all events for a specific agent
+  - `"session:#{session_id}"` — all events scoped to a session (persistent agents only)
+  - `"planck:sessions"` — `:turn_end` and `:compacted` events from all persistent agents;
+    payload enriched with `agent_name` and `session_id`; used by sidecars to subscribe to
+    all agents without knowing their IDs in advance
 - Team lifecycle: orchestrator owns a `team_id`; all agents with that `team_id` are
   terminated when the orchestrator exits (via process linking)
 - Token usage tracking across all LLM calls in a turn; broadcast in real-time and
@@ -480,7 +484,8 @@ sidecar application (see `specs/sidecar.md`).
 
 ## Pub/Sub events
 
-All events are `{:agent_event, type, payload}` broadcast via Phoenix.PubSub.
+All events are `{:agent_event, type, payload}` broadcast via Phoenix.PubSub on
+three topics (see PubSub broadcasting above).
 
 | Event | Payload keys | When |
 |---|---|---|
@@ -496,6 +501,9 @@ All events are `{:agent_event, type, payload}` broadcast via Phoenix.PubSub.
 | `:error` | `reason` | Stream or tool error; agent returns to `:idle` |
 | `:compacting` | — | Context compaction started (before LLM summary call) |
 | `:compacted` | — | Context compaction finished; summary checkpoint written |
+
+`:turn_end` and `:compacted` are additionally broadcast on `"planck:sessions"`
+with `agent_id`, `agent_name`, and `session_id` merged into the payload.
 
 ## Supervision tree
 

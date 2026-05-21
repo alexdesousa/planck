@@ -540,7 +540,7 @@ defmodule Planck.Headless do
       prev_ids: prev_ids,
       metadata: metadata,
       session_tools: session_tools,
-      team_name: team.alias
+      team_name: team.alias || "default"
     }
 
     store = ResourceStore.get()
@@ -701,32 +701,18 @@ defmodule Planck.Headless do
   defp resolve_hook_module(nil), do: nil
   defp resolve_hook_module(name), do: :"Elixir.#{name}"
 
-  @spec build_skill_opts(
-          String.t() | nil,
-          String.t() | nil,
-          String.t() | nil,
-          [Skill.t()],
-          Path.t()
-        ) ::
-          keyword()
+  @spec build_skill_opts(String.t(), String.t(), String.t(), [Skill.t()], Path.t()) :: keyword()
   defp build_skill_opts(team_name, agent_name, agent_type, skills, cwd) do
     top_n = Config.top_skills!()
 
-    ranked =
-      if team_name && agent_name do
-        SkillUsage.ranked_names(cwd, team_name, agent_name, skills, top_n)
-      else
-        []
-      end
+    ranked = SkillUsage.ranked_names(cwd, team_name, agent_name, skills, top_n)
 
     [
       ranked_skill_names: ranked,
       top_skills: top_n,
       skill_pool: skills,
       on_skill_use: fn _agent_id, skill_name ->
-        if team_name && agent_name && agent_type do
-          SkillUsage.record_use(cwd, team_name, agent_name, agent_type, skill_name)
-        end
+        SkillUsage.record_use(cwd, team_name, agent_name, agent_type, skill_name)
       end,
       skill_index_refresh_fn: fn ->
         current = ResourceStore.get().skills

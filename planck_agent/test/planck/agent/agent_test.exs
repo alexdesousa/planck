@@ -562,6 +562,46 @@ defmodule Planck.Agent.AgentTest do
 
   # --- inject_tool_result ---
 
+  # --- planck:sessions global broadcast ---
+
+  describe "planck:sessions broadcast" do
+    test "turn_end is broadcast to planck:sessions with agent_name and session_id" do
+      {agent, session_id} = start_agent_with_session(name: "builder")
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      assert_receive {:agent_event, :turn_end, payload}, 1_000
+      assert payload.agent_name == "builder"
+      assert payload.session_id == session_id
+      assert is_binary(payload.agent_id)
+    end
+
+    test "turn_end is not broadcast to planck:sessions for ephemeral agents" do
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      agent = start_agent(name: "ephemeral")
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "go")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      refute_received {:agent_event, :turn_end, _}
+    end
+
+    test "non-turn events are not broadcast to planck:sessions" do
+      {agent, _session_id} = start_agent_with_session()
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      Agent.prompt(agent, "go")
+
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      refute_received {:agent_event, :turn_start, _}
+      refute_received {:agent_event, :text_delta, _}
+    end
+  end
+
   describe "inject_tool_result/3" do
     test "appends a synthetic tool-call + tool-result message pair" do
       stream_events([{:text_delta, "ok"}, {:done, %{}}])
