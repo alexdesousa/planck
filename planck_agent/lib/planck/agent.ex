@@ -248,6 +248,22 @@ defmodule Planck.Agent do
     GenServer.call(agent, {:checkpoint, summary_text})
   end
 
+  @doc """
+  Inject a synthetic tool use + tool result pair into the agent's message history.
+
+  Appends an assistant message containing a `{:tool_call, id, name, %{}}` content
+  part followed by a `:tool_result` message with `result`. Both are persisted.
+  No new turn is triggered.
+
+  The `name` does not need to be in the agent's callable tool list — it appears
+  only as a history entry. Used by the sidecar SkillReflector to signal skill
+  creation/update back to the parent agent so the LLM and UI see it passively.
+  """
+  @spec inject_tool_result(agent(), String.t(), String.t()) :: :ok
+  def inject_tool_result(agent, name, result) do
+    GenServer.call(agent, {:inject_tool_result, name, result})
+  end
+
   @doc "Stop the agent. Cancels any in-flight work and removes it from the supervisor."
   @spec stop(agent()) :: :ok
   def stop(agent) do
@@ -429,6 +445,21 @@ defmodule Planck.Agent do
     msg = Message.new({:custom, :summary}, [{:text, summary_text}])
     msg = persist_message(state, msg)
     {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  def handle_call({:inject_tool_result, name, result}, _from, state) do
+    call_id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    tool_call_msg =
+      Message.new(:assistant, [{:tool_call, call_id, name, %{}}])
+      |> then(&persist_message(state, &1))
+
+    tool_result_msg =
+      Message.new(:tool_result, [{:tool_result, call_id, result}])
+      |> then(&persist_message(state, &1))
+
+    new_messages = state.messages ++ [tool_call_msg, tool_result_msg]
+    {:reply, :ok, %{state | messages: new_messages}}
   end
 
   @impl true

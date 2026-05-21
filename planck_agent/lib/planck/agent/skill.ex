@@ -72,6 +72,9 @@ defmodule Planck.Agent.Skill do
     regardless of usage ranking. Set by users; agents always write `false`.
   - `:planck_version` — semver string set on Planck-bundled skills; `nil` on
     user- and agent-created skills. Used for upgrade detection.
+  - `:creator` — `"agent"` for skills written by the SkillReflector; `nil` for
+    user-created skills. Used to filter the reflector's `list_skills` view so
+    agents only see and manage their own skills.
   """
   @type t :: %__MODULE__{
           name: String.t(),
@@ -79,11 +82,20 @@ defmodule Planck.Agent.Skill do
           path: Path.t(),
           skill_file: Path.t(),
           always_present: boolean(),
-          planck_version: String.t() | nil
+          planck_version: String.t() | nil,
+          creator: String.t() | nil
         }
 
   @enforce_keys [:name, :description, :path, :skill_file]
-  defstruct [:name, :description, :path, :skill_file, always_present: false, planck_version: nil]
+  defstruct [
+    :name,
+    :description,
+    :path,
+    :skill_file,
+    always_present: false,
+    planck_version: nil,
+    creator: nil
+  ]
 
   @doc """
   Load all skills from a list of directories.
@@ -116,7 +128,8 @@ defmodule Planck.Agent.Skill do
          path: Path.dirname(skill_file),
          skill_file: skill_file,
          always_present: fields.always_present,
-         planck_version: fields.planck_version
+         planck_version: fields.planck_version,
+         creator: fields.creator
        }}
     end
   end
@@ -334,6 +347,7 @@ defmodule Planck.Agent.Skill do
         desc = yaml_field(pairs, "description")
         always_present = yaml_field(pairs, "always_present")
         planck_version = yaml_field(pairs, "planck_version")
+        creator = yaml_field(pairs, "creator")
 
         cond do
           is_nil(name) ->
@@ -349,7 +363,8 @@ defmodule Planck.Agent.Skill do
                description: to_string(desc),
                always_present: always_present == true,
                planck_version:
-                 if(is_nil(planck_version), do: nil, else: to_string(planck_version))
+                 if(is_nil(planck_version), do: nil, else: to_string(planck_version)),
+               creator: if(is_nil(creator), do: nil, else: to_string(creator))
              }}
         end
 

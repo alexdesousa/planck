@@ -12,10 +12,18 @@ project-specific context that applies to multiple agents or sessions.
 ```
 .planck/skills/<name>/
   SKILL.md
-  resources/        (optional — any reference files)
+  references/       (optional — docs loaded into context via `read`)
+    guide.md
     rubric.md
-    style-guide.md
+  scripts/          (optional — executable helpers run via `bash`)
+    validate.sh
+  assets/           (optional — templates, icons, or other output files)
+    template.md
 ```
+
+All subdirectory content is loaded on demand. When `load_skill` returns a
+skill's content, it prepends `Skill directory: <path>` so the agent can
+construct absolute paths for any files it needs to `read` or `bash`.
 
 ## SKILL.md format
 
@@ -23,8 +31,6 @@ project-specific context that applies to multiple agents or sessions.
 ---
 name: code_review
 description: Reviews code for correctness, style, and performance.
-always_present: false
-planck_version: "0.1.7"
 ---
 
 You are an expert code reviewer. When reviewing code:
@@ -33,13 +39,22 @@ You are an expert code reviewer. When reviewing code:
 - Flag style issues only if they impact readability
 - Suggest performance improvements only when material
 
-Reference the rubric at resources/rubric.md for scoring criteria.
+See `references/rubric.md` for scoring criteria.
 ```
 
-The frontmatter `name` and `description` fields are required. The optional
-`always_present` flag (default `false`) pins the skill to the system prompt index
-regardless of usage ranking. The optional `planck_version` field is informational.
-Everything after the closing `---` is the skill body loaded by `load_skill`.
+Frontmatter fields:
+
+| Field | Required | Default | Notes |
+|---|---|---|---|
+| `name` | ✅ | — | Identifier used in the index and `load_skill` calls |
+| `description` | ✅ | — | One-line summary shown in the skill index |
+| `always_present` | | `false` | Pin to system prompt index regardless of usage ranking |
+| `planck_version` | | `null` | Set by Planck on bundled skills; used for upgrade detection |
+| `creator` | | `null` | `"agent"` for SkillReflector-created skills; `null` for user-created |
+
+Everything after the closing `---` is the skill body returned by `load_skill`.
+The `creator` field is set automatically by the SkillReflector — do not set it
+manually unless you want the skill to be treated as agent-managed.
 
 ## Assigning skills in TEAM.json
 
@@ -79,8 +94,15 @@ are only needed for specific tasks, or to inspect a skill's contents.
 
 ```
 load_skill("code_review")
-→ returns the full skill body as a string
+→ Skill directory: /path/to/.planck/skills/code_review
+
+  ---
+  name: code_review
+  ...
 ```
+
+The response is prefixed with `Skill directory: <path>` so the agent can resolve
+relative paths (e.g. `references/rubric.md`) using the `read` tool.
 
 Each successful `load_skill` call records the use in `.planck/skills.db` (the
 per-project SQLite usage DB). This drives the last-used ranking that determines

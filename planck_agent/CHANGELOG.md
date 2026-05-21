@@ -89,12 +89,47 @@ are the public constructors and mutators.
 
 ### `Skill.t` — new frontmatter fields
 
-`Planck.Agent.Skill.t` gains two new optional frontmatter fields:
+`Planck.Agent.Skill.t` gains three new optional frontmatter fields:
 
 - `always_present: boolean()` (default `false`) — when `true`, the skill is
   always included in the system prompt index regardless of ranking.
-- `planck_version: String.t() | nil` (default `nil`) — optional minimum Planck
-  version constraint for the skill.
+- `planck_version: String.t() | nil` (default `nil`) — set by Planck on
+  bundled skills; used for upgrade detection.
+- `creator: String.t() | nil` (default `nil`) — `"agent"` for skills written
+  by the SkillReflector; `nil` for user-created skills. Used by the reflector's
+  filtered `list_skills` to show agents only their own skills.
+
+### `inject_tool_result/3`
+
+New public API:
+
+```elixir
+@spec inject_tool_result(agent(), tool_name :: String.t(), result :: String.t()) :: :ok
+```
+
+Appends a synthetic assistant tool-call message paired with a `:tool_result`
+message to the agent's history. Both are persisted. No new turn is triggered.
+
+The `tool_name` does not need to be in the agent's callable tool list — it
+appears only as a history entry. Used by the sidecar `SkillReflector` to signal
+`create_skill` / `update_skill` back to the parent agent so the LLM and UI see
+it passively on the next turn.
+
+### `load_skill` — skill directory prefix
+
+The content returned by `load_skill` is now prefixed with a `Skill directory:`
+line so the LLM knows the absolute path of the skill on disk:
+
+```
+Skill directory: /Users/alex/.planck/skills/planck_setup
+
+---
+name: planck-setup
+...
+```
+
+This allows the agent to resolve relative reference file paths (e.g.
+`references/guide.md`) using the `read` tool without any special convention.
 
 ### `Skill.system_prompt_section/3` — three-part index
 

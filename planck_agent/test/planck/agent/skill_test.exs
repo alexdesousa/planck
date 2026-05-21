@@ -64,6 +64,28 @@ defmodule Planck.Agent.SkillTest do
       assert reason =~ "description"
     end
 
+    test "defaults always_present to false and creator/planck_version to nil", %{tmp_dir: dir} do
+      {_, skill_file} = write_skill(dir, "my-skill", valid_md("my-skill", "Does things"))
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.always_present == false
+      assert skill.planck_version == nil
+      assert skill.creator == nil
+    end
+
+    test "parses always_present: true", %{tmp_dir: dir} do
+      content = "---\nname: pinned\ndescription: Always here.\nalways_present: true\n---\n"
+      {_, skill_file} = write_skill(dir, "pinned", content)
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.always_present == true
+    end
+
+    test "parses creator: agent", %{tmp_dir: dir} do
+      content = "---\nname: s\ndescription: d.\ncreator: agent\n---\n"
+      {_, skill_file} = write_skill(dir, "s", content)
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.creator == "agent"
+    end
+
     test "handles descriptions with colons (must be quoted in YAML)", %{tmp_dir: dir} do
       content = """
       ---

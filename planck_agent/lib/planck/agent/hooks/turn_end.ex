@@ -23,7 +23,7 @@ defmodule Planck.Agent.Hooks.TurnEnd do
         def reflect(agent_id, turn_messages, tool_call_count) do
           # Inspect turn_messages, decide whether to write a skill.
           # Write directly — no mini-agent needed.
-          # Signal back via Agent.inject_tool_result/3 if a skill was written.
+          # Signal back via `Planck.Agent.inject_tool_result/3` if a skill was written.
           :ok
         end
       end

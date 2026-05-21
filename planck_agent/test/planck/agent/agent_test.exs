@@ -560,6 +560,67 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  # --- inject_tool_result ---
+
+  describe "inject_tool_result/3" do
+    test "appends a synthetic tool-call + tool-result message pair" do
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+
+      :ok = Agent.inject_tool_result(agent, "create_skill", "")
+
+      state = Agent.get_state(agent)
+      assert Enum.any?(state.messages, fn msg ->
+        msg.role == :assistant and
+          Enum.any?(msg.content, &match?({:tool_call, _, "create_skill", %{}}, &1))
+      end)
+
+      assert Enum.any?(state.messages, fn msg ->
+        msg.role == :tool_result and
+          Enum.any?(msg.content, &match?({:tool_result, _, ""}, &1))
+      end)
+    end
+
+    test "does not trigger a new turn" do
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      :ok = Agent.inject_tool_result(agent, "create_skill", "")
+
+      refute_received {:agent_event, :turn_start, _}
+      assert Agent.get_state(agent).status == :idle
+    end
+
+    test "tool name does not need to be in the agent's tools map" do
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+
+      assert :ok = Agent.inject_tool_result(agent, "nonexistent_tool", "some result")
+    end
+
+    test "both messages share the same call id" do
+      stream_events([{:text_delta, "ok"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+
+      :ok = Agent.inject_tool_result(agent, "create_skill", "")
+
+      state = Agent.get_state(agent)
+
+      {:tool_call, call_id, _, _} =
+        state.messages
+        |> Enum.flat_map(& &1.content)
+        |> Enum.find(&match?({:tool_call, _, "create_skill", _}, &1))
+
+      {:tool_result, result_id, _} =
+        state.messages
+        |> Enum.flat_map(& &1.content)
+        |> Enum.find(&match?({:tool_result, _, _}, &1))
+
+      assert call_id == result_id
+    end
+  end
+
   # --- rewind_to_message ---
 
   describe "rewind_to_message/2" do
