@@ -134,36 +134,42 @@ TEAM.json. The caller merges tools in before spawning.
 }
 ```
 
+`AgentSpec` has no memory-related fields. Memory is implemented at the sidecar
+level via the `system_prompt_prepend_fn` / `system_prompt_append_fn` hooks passed
+to `to_start_opts/2` or directly to `start_link/1`.
+
 ### Agent state
 
 Internal GenServer state — not part of the public API.
 
 ```elixir
 %Planck.Agent{
-  id:                 String.t(),
-  name:               String.t() | nil,
-  description:        String.t() | nil,
-  type:               String.t() | nil,
-  team_id:            String.t() | nil,
-  session_id:         String.t() | nil,
-  delegator_id:       String.t() | nil,
-  role:               :orchestrator | :worker,
-  model:              Planck.AI.Model.t(),
-  available_models:   [Planck.AI.Model.t()],
-  system_prompt:      String.t(),
-  messages:           [Planck.Agent.Message.t()],
-  tools:              %{String.t() => Planck.Agent.Tool.t()},
-  opts:               keyword(),
-  status:             :idle | :streaming | :executing_tools,
-  stream_task:        Task.t() | nil,
-  stream_ref:         reference() | nil,
-  turn_index:         non_neg_integer(),
-  turn_checkpoints:   [non_neg_integer()],
-  pending_tool_calls: [map()],
-  text_buffer:        String.t(),
-  thinking_buffer:    String.t(),
-  usage:              %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()},
-  on_compact:         (([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip)) | nil
+  id:                        String.t(),
+  name:                      String.t() | nil,
+  description:               String.t() | nil,
+  type:                      String.t() | nil,
+  team_id:                   String.t() | nil,
+  session_id:                String.t() | nil,
+  delegator_id:              String.t() | nil,
+  role:                      :orchestrator | :worker,
+  model:                     Planck.AI.Model.t(),
+  available_models:          [Planck.AI.Model.t()],
+  system_prompt:             String.t(),
+  messages:                  [Planck.Agent.Message.t()],
+  tools:                     %{String.t() => Planck.Agent.Tool.t()},
+  opts:                      keyword(),
+  status:                    :idle | :streaming | :executing_tools,
+  stream_task:               Task.t() | nil,
+  stream_ref:                reference() | nil,
+  turn_index:                non_neg_integer(),
+  turn_checkpoints:          [non_neg_integer()],
+  pending_tool_calls:        [map()],
+  text_buffer:               String.t(),
+  thinking_buffer:           String.t(),
+  usage:                     Planck.Agent.Usage.t(),
+  on_compact:                (([Message.t()] -> {:compact, Message.t(), [Message.t()]} | :skip)) | nil,
+  system_prompt_prepend_fn:  (-> String.t() | nil) | nil,
+  system_prompt_append_fn:   (-> String.t() | nil) | nil
 }
 ```
 
@@ -172,6 +178,11 @@ Internal GenServer state — not part of the public API.
 `delegator_id` is set automatically by `spawn_agent`; the LLM never addresses it.
 `turn_checkpoints` is a stack of message-list lengths at the start of each user turn,
 used internally for context management.
+`usage` is a `%Planck.Agent.Usage{}` struct with `input_tokens`, `output_tokens`, and
+`cost` fields. `state.usage.cost` replaces the former top-level `state.cost` field.
+`system_prompt_prepend_fn` / `system_prompt_append_fn` are optional closures called
+before every LLM turn by `SystemPrompt.build/1`. The sidecar provides these; Planck
+calls them without knowing about caching or memory implementation details.
 
 ## Public API
 
@@ -233,6 +244,8 @@ used internally for context management.
 | `session_id` | `String.t()` | no | Enables session persistence and session-topic broadcasting |
 | `delegator_id` | `String.t()` | no | Set by `spawn_agent`; rarely passed directly |
 | `on_compact` | function | no | Context compaction hook |
+| `system_prompt_prepend_fn` | `(-> String.t() \| nil) \| nil` | no | Called before every LLM turn; return value prepended to system prompt |
+| `system_prompt_append_fn` | `(-> String.t() \| nil) \| nil` | no | Called before every LLM turn; return value appended after all other sections |
 
 ## Agent loop — state machine
 
@@ -324,12 +337,15 @@ is resolved correctly regardless of provider configuration.
 `Planck.Agent.BuiltinTools` provides four factory functions. Each returns a
 `Planck.Agent.Tool` struct ready to be passed in a tool list.
 
-| Function | Tool name | Key args |
+| Function  | Tool name | Key args |
 |---|---|---|
-| `read/0`  | `read`  | `path` (required), `offset`, `limit` |
-| `write/0` | `write` | `path`, `content` |
-| `edit/0`  | `edit`  | `path`, `old_string`, `new_string` |
-| `bash/0`  | `bash`  | `command` (required), `cwd`, `timeout` |
+| `read/0`  | `read`    | `path` (required), `offset`, `limit` |
+| `write/0` | `write`   | `path`, `content` |
+| `edit/0`  | `edit`    | `path`, `old_string`, `new_string` |
+| `bash/0`  | `bash`    | `command` (required), `cwd`, `timeout` |
+
+Agent memory is not built into `BuiltinTools`. It is implemented in the sidecar
+via the `system_prompt_prepend_fn` / `system_prompt_append_fn` hooks.
 
 **`read`** streams the file line-by-line with `File.stream!(:line)`. `offset` and
 `limit` select a window without loading the whole file into memory. Expands `~` in
@@ -529,7 +545,7 @@ internally, so any code that needs to build an `AgentSpec` from a decoded map
   name-uniqueness, skills/tools field parsing (see `specs/teams.md`)
 - `Session` — append, messages, truncate, checkpoint pagination, persistence across restart
 - `Compactor` — threshold check, summary generation, fallback on LLM error, keep_recent
-- `BuiltinTools` — each of the four tools exercised directly via `tool.execute_fn`:
+- `BuiltinTools` — `read`, `write`, `edit`, `bash` exercised directly via `tool.execute_fn`:
   - `read`: exists, missing, `~` expansion, offset, limit, offset+limit, offset beyond EOF
   - `write`: creates, overwrites, missing parents, error when parent is a file
   - `edit`: replaces, not found, more than once, missing file

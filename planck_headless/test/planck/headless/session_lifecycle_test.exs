@@ -1356,7 +1356,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       # (100 * 2.5 + 50 * 10.0) / 1_000_000 = 0.00075
       assert state.usage.input_tokens == 100
       assert state.usage.output_tokens == 50
-      assert_in_delta state.cost, 0.00075, 1.0e-10
+      assert_in_delta state.usage.cost, 0.00075, 1.0e-10
     end
 
     test "accumulated usage and cost survive multiple resumes", %{tmp_dir: dir} do
@@ -1402,7 +1402,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       # Total tokens: input 160, output 70
       assert state.usage.input_tokens == 160
       assert state.usage.output_tokens == 70
-      assert_in_delta state.cost, 0.00110, 1.0e-10
+      assert_in_delta state.usage.cost, 0.00110, 1.0e-10
     end
   end
 

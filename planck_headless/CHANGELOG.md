@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.7
+
+- Picks up `planck_agent` v0.1.7: `state.cost` moved to `state.usage.cost`;
+  usage-restore tests updated accordingly.
+
 ## v0.1.6
 
 ### New config schema (breaking)

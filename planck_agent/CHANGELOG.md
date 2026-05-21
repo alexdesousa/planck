@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.1.7
+
+### System prompt hooks
+
+Two new optional `start_link` options (and matching agent state fields) allow the
+caller to inject dynamic content into the system prompt before every LLM turn:
+
+- `system_prompt_prepend_fn: (-> String.t() | nil) | nil` — return value is
+  prepended before the base system prompt
+- `system_prompt_append_fn: (-> String.t() | nil) | nil` — return value is
+  appended after all other sections (identity line, tool sections, skills)
+
+Both are `(-> String.t() | nil)` closures called by `SystemPrompt.build/1` on every
+turn. `nil` fns and `nil`/`""` return values are no-ops. The sidecar typically
+provides these as closures over a caching GenServer (refreshed on the `:compacted`
+PubSub event), enabling agent memory and other context-injection patterns without
+any changes to the core.
+
+### `Usage.from_opts/1`
+
+New public function that builds a `%Usage{}` struct from agent start opts.
+Reads the `:usage` keyword (a map with `:input_tokens`/`:output_tokens` keys) and
+the `:cost` float. Previously this logic lived as a private `build_initial_usage/1`
+in `agent.ex`.
+
+### Agent state — `usage` consolidation
+
+`cost: float()` (added in v0.1.0) has been moved inside the `%Usage{}` struct.
+`state.cost` no longer exists; use `state.usage.cost` instead.
+`SessionStore.persist_usage/3` now serialises `usage.cost` from the struct directly.
+
+### `SessionStore` — `load_messages/3` return type
+
+`SessionStore.load_messages/3` now returns `{:ok, [Message.t()]}` (was
+`{:ok, [Message.t()], [non_neg_integer()]}`). Checkpoint rebuilding is now handled
+by `TurnState.rebuild_checkpoints/2` in `do_load_session`, eliminating the duplicate
+`build_checkpoints/1` private function that previously existed in both modules.
+
 ## v0.1.6
 
 - Drop `:ollama`, `:llama_cpp`, and `:custom_openai` provider atoms — valid

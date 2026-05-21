@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.7
+
+- Version bump to stay in sync with the monorepo release; no functional changes.
+
 ## v0.1.6
 
 ### SetupModal overhaul

@@ -51,7 +51,20 @@ defmodule Planck.Agent do
 
   require Logger
 
-  alias Planck.Agent.{AIBehaviour, Message, Session, Tool}
+  alias Planck.Agent.{
+    AIBehaviour,
+    Message,
+    MessageBuilder,
+    Session,
+    SessionStore,
+    StreamBuffer,
+    Tool,
+    ToolRunner,
+    TurnContext,
+    TurnState,
+    Usage
+  }
+
   alias Planck.AI.Context
 
   @typedoc "A reference to a running agent — pid, registered name, or via-tuple."
@@ -79,20 +92,22 @@ defmodule Planck.Agent do
   - `messages` — full in-memory conversation history (`Message.t()` list)
   - `tools` — map of tool name → `Tool.t()` available to this agent
   - `status` — `:idle`, `:streaming`, or `:executing_tools`
-  - `turn_index` — monotonically increasing turn counter
-  - `usage` — accumulated `%{input_tokens, output_tokens}` for this session
-  - `cost` — accumulated cost in USD; never decreases (rewinding messages does not reduce it)
+  - `turn_state` — monotonically increasing turn counter and checkpoint stack
+  - `usage` — accumulated token counts and cost for this session
 
   Internal fields (not part of the public API):
   - `stream_task` / `stream_ref` — in-flight async LLM stream
   - `stream_start` — length of `messages` when the current stream began; used to
     detect messages appended *during* streaming that the LLM did not see
-  - `turn_checkpoints` — message-count stack used internally
-  - `pending_tool_calls` — tool calls waiting for execution after stream end
-  - `text_buffer` / `thinking_buffer` — partial text accumulated during streaming
+  - `stream_buffer` — accumulates text/thinking/tool-call deltas during streaming
+  - `tool_runner` — tracks in-flight tool tasks and their accumulated results
   - `on_compact` — optional compaction callback
   - `opts` — pass-through keyword options (e.g. `tool_timeout`)
   - `available_models` — model catalog used by `list_models` and `spawn_agent`
+  - `system_prompt_prepend_fn` — optional `(-> String.t() | nil)` called before
+    each LLM turn; result is prepended to the system prompt
+  - `system_prompt_append_fn` — optional `(-> String.t() | nil)` called before
+    each LLM turn; result is appended to the system prompt
   """
   @type t :: %__MODULE__{
           id: String.t(),
@@ -109,6 +124,8 @@ defmodule Planck.Agent do
           skill_refresh_fn: (-> [Planck.Agent.Skill.t()]) | nil,
           cwd: String.t(),
           system_prompt: String.t(),
+          system_prompt_prepend_fn: (-> String.t() | nil) | nil,
+          system_prompt_append_fn: (-> String.t() | nil) | nil,
           messages: [Message.t()],
           tools: %{String.t() => Tool.t()},
           opts: keyword(),
@@ -117,15 +134,10 @@ defmodule Planck.Agent do
           stream_task: Task.t() | nil,
           stream_ref: reference() | nil,
           stream_start: non_neg_integer(),
-          turn_index: non_neg_integer(),
-          turn_checkpoints: [non_neg_integer()],
-          pending_tool_calls: [map()],
-          text_buffer: String.t(),
-          thinking_buffer: String.t(),
-          usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()},
-          cost: float(),
-          running_tools: %{String.t() => map()},
-          tool_results_acc: list()
+          turn_state: TurnState.t(),
+          stream_buffer: StreamBuffer.t(),
+          usage: Usage.t(),
+          tool_runner: ToolRunner.t()
         }
 
   defstruct [
@@ -139,6 +151,8 @@ defmodule Planck.Agent do
     :role,
     :model,
     :on_compact,
+    system_prompt_prepend_fn: nil,
+    system_prompt_append_fn: nil,
     skill_names: [],
     skill_refresh_fn: nil,
     cwd: "",
@@ -151,15 +165,10 @@ defmodule Planck.Agent do
     stream_task: nil,
     stream_ref: nil,
     stream_start: 0,
-    turn_index: 0,
-    turn_checkpoints: [],
-    pending_tool_calls: [],
-    text_buffer: "",
-    thinking_buffer: "",
-    usage: %{input_tokens: 0, output_tokens: 0},
-    cost: 0.0,
-    running_tools: %{},
-    tool_results_acc: []
+    turn_state: %TurnState{},
+    stream_buffer: %StreamBuffer{},
+    usage: %Usage{},
+    tool_runner: %ToolRunner{}
   ]
 
   # ---------------------------------------------------------------------------
@@ -322,14 +331,15 @@ defmodule Planck.Agent do
       model: Keyword.fetch!(opts, :model),
       cwd: Keyword.get(opts, :cwd, ""),
       system_prompt: Keyword.get(opts, :system_prompt, ""),
+      system_prompt_prepend_fn: Keyword.get(opts, :system_prompt_prepend_fn),
+      system_prompt_append_fn: Keyword.get(opts, :system_prompt_append_fn),
       tools: tool_map,
       opts: Keyword.get(opts, :opts, []),
       available_models: Keyword.get(opts, :available_models, []),
       on_compact: Keyword.get(opts, :on_compact),
       skill_names: Keyword.get(opts, :skill_names, []),
       skill_refresh_fn: Keyword.get(opts, :skill_refresh_fn),
-      usage: Keyword.get(opts, :usage, %{input_tokens: 0, output_tokens: 0}),
-      cost: Keyword.get(opts, :cost, 0.0)
+      usage: Usage.from_opts(opts)
     }
 
     register_agent(state)
@@ -366,9 +376,9 @@ defmodule Planck.Agent do
       type: state.type,
       role: state.role,
       status: state.status,
-      turn_index: state.turn_index,
-      usage: state.usage,
-      cost: state.cost
+      turn_index: state.turn_state.index,
+      usage: %{input_tokens: state.usage.input_tokens, output_tokens: state.usage.output_tokens},
+      cost: state.usage.cost
     }
 
     {:reply, info, state}
@@ -391,7 +401,7 @@ defmodule Planck.Agent do
     # the queued message a db_id smaller than the current turn's assistant
     # response, breaking edit-message truncation order. The message is flushed
     # to the session in handle_continue(:run_llm) after the current turn ends.
-    parts = normalize_content(content)
+    parts = MessageBuilder.normalize_content(content)
     msg = Message.new(:user, parts)
     {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
   end
@@ -401,8 +411,8 @@ defmodule Planck.Agent do
     cancel_running_tools(state)
     new_state = reset_streaming(state)
 
-    if has_pending_input?(new_state.messages, new_state.stream_start) do
-      broadcast(new_state, :turn_start, %{index: new_state.turn_index})
+    if TurnContext.has_pending_input?(new_state.messages, new_state.stream_start) do
+      broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
       {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
     else
       {:reply, :ok, new_state}
@@ -419,7 +429,7 @@ defmodule Planck.Agent do
   def handle_cast(event, state)
 
   def handle_cast(:nudge, %{status: :idle} = state) do
-    broadcast(state, :turn_start, %{index: state.turn_index})
+    broadcast(state, :turn_start, %{index: state.turn_state.index})
     {:noreply, %{state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
   end
 
@@ -487,20 +497,19 @@ defmodule Planck.Agent do
   end
 
   def handle_info({:tool_done, call_id, name, result}, state) do
-    case Map.pop(state.running_tools, call_id) do
-      {nil, _} ->
-        # Stale result arriving after an abort — ignore.
+    case ToolRunner.mark_done(state.tool_runner, call_id, result) do
+      :not_running ->
         {:noreply, state}
 
-      {_task, remaining} ->
+      {:ok, runner} ->
         error = match?({:error, _}, result)
         broadcast(state, :tool_end, %{id: call_id, name: name, result: result, error: error})
-        new_results = [{call_id, result} | state.tool_results_acc]
+        new_state = %{state | tool_runner: runner}
 
-        if map_size(remaining) == 0 do
-          {:noreply, finish_tool_execution(new_results, state), {:continue, :run_llm}}
+        if ToolRunner.done?(runner) do
+          {:noreply, finish_tool_execution(runner.results, new_state), {:continue, :run_llm}}
         else
-          {:noreply, %{state | running_tools: remaining, tool_results_acc: new_results}}
+          {:noreply, new_state}
         end
     end
   end
@@ -527,7 +536,7 @@ defmodule Planck.Agent do
   @spec do_prompt(String.t() | [Planck.AI.Message.content_part()], t()) ::
           {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
   defp do_prompt(content, state) do
-    parts = normalize_content(content)
+    parts = MessageBuilder.normalize_content(content)
     msg = Message.new(:user, parts)
     checkpoint = length(state.messages)
     msg = persist_message(state, msg)
@@ -535,10 +544,10 @@ defmodule Planck.Agent do
     new_state = %{
       state
       | messages: state.messages ++ [msg],
-        turn_checkpoints: [checkpoint | state.turn_checkpoints]
+        turn_state: TurnState.push_checkpoint(state.turn_state, checkpoint)
     }
 
-    broadcast(new_state, :turn_start, %{index: new_state.turn_index})
+    broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
     {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
   end
 
@@ -588,7 +597,7 @@ defmodule Planck.Agent do
         stream_ref: ref,
         stream_start: stream_start,
         status: :streaming,
-        turn_index: state.turn_index + 1
+        turn_state: TurnState.advance(state.turn_state)
     }
   end
 
@@ -596,8 +605,8 @@ defmodule Planck.Agent do
   defp start_tool_tasks(tool_calls, state) do
     parent = self()
 
-    running =
-      Map.new(tool_calls, fn %{id: id, name: name, args: args} ->
+    entries =
+      Enum.map(tool_calls, fn %{id: id, name: name, args: args} ->
         broadcast(state, :tool_start, %{id: id, name: name, args: args})
         execute_fn = resolve_tool_fn(state.tools, state.id, name, id, args)
 
@@ -615,23 +624,20 @@ defmodule Planck.Agent do
             send(parent, {:tool_done, id, name, result})
           end)
 
-        {id, %{name: name, pid: pid}}
+        {id, name, pid}
       end)
 
-    %{state | running_tools: running, tool_results_acc: [], status: :executing_tools}
+    %{state | tool_runner: ToolRunner.start(entries), status: :executing_tools}
   end
 
   @spec finish_tool_execution(list(), t()) :: t()
   defp finish_tool_execution(results, state) do
-    tool_result_msg = results |> Enum.reverse() |> build_tool_result_message()
+    tool_result_msg = results |> Enum.reverse() |> MessageBuilder.build_tool_result()
     tool_result_msg = persist_message(state, tool_result_msg)
 
     %{
       state
       | messages: state.messages ++ [tool_result_msg],
-        pending_tool_calls: [],
-        running_tools: %{},
-        tool_results_acc: [],
         status: :streaming
     }
   end
@@ -657,17 +663,15 @@ defmodule Planck.Agent do
   end
 
   @spec cancel_running_tools(t()) :: :ok
-  defp cancel_running_tools(%{running_tools: tools}) when map_size(tools) == 0, do: :ok
-
-  defp cancel_running_tools(%{running_tools: tools}) do
-    Enum.each(tools, fn {_id, %{pid: pid}} -> Process.exit(pid, :kill) end)
+  defp cancel_running_tools(state) do
+    ToolRunner.cancel_all(state.tool_runner)
   end
 
   @spec do_stream_done(t()) ::
           {:noreply, t()} | {:noreply, t(), {:continue, {:execute_tools, [map()]}}}
   defp do_stream_done(state) do
-    pending = state.pending_tool_calls
-    assistant_msg = build_assistant_message(state)
+    pending = state.stream_buffer.calls
+    assistant_msg = MessageBuilder.build_assistant(state.stream_buffer)
 
     assistant_msg = persist_message(state, assistant_msg)
 
@@ -700,7 +704,7 @@ defmodule Planck.Agent do
     new_state = %{state | messages: state.messages ++ [msg]}
 
     if state.status == :idle do
-      broadcast(new_state, :turn_start, %{index: new_state.turn_index})
+      broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
       {:noreply, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
     else
       {:noreply, new_state}
@@ -746,124 +750,57 @@ defmodule Planck.Agent do
     end
   end
 
-  # Persist any messages with a UUID id (not yet written to the session),
-  # then reload all messages from the DB to get the canonical id-ordered sequence
-  # and rebuild turn_checkpoints. Called at the start of handle_continue(:run_llm)
-  # so queued messages are always written AFTER the previous turn's assistant
-  # response and the in-memory list reflects the correct DB order.
   @spec flush_unpersisted_messages(t()) :: t()
-  defp flush_unpersisted_messages(state)
-
-  defp flush_unpersisted_messages(%__MODULE__{session_id: nil} = state) do
-    state
-  end
-
   defp flush_unpersisted_messages(state) do
-    unpersisted = Enum.filter(state.messages, &is_binary(&1.id))
-
-    if unpersisted == [] do
-      state
-    else
-      Enum.each(unpersisted, &Session.append(state.session_id, state.id, &1))
-      reload_messages_from_session(state)
+    case SessionStore.flush_unpersisted(state.session_id, state.id, state.messages) do
+      :noop -> state
+      :flushed -> reload_messages_from_session(state)
     end
   end
 
-  # Reload the agent's message history from the session DB and rebuild
-  # Rebuild turn_checkpoints. Used after any operation that changes the canonical
-  # sequence (rewind, flush of queued messages). Strips orphaned tool-call turns.
   @spec reload_messages_from_session(t()) :: t()
-  defp reload_messages_from_session(state), do: do_load_session(state, strip: true)
+  defp reload_messages_from_session(state), do: do_load_session(state, strip_orphans: true)
 
-  # Load session history without stripping orphans. Used at init so that
-  # resume_session can inject its recovery message before the agent sees clean state.
   @spec load_messages_from_session(t()) :: t()
-  defp load_messages_from_session(state), do: do_load_session(state, strip: false)
+  defp load_messages_from_session(state), do: do_load_session(state, strip_orphans: false)
 
   @spec do_load_session(t(), keyword()) :: t()
   defp do_load_session(state, opts) do
-    case Session.messages(state.session_id, agent_id: state.id) do
-      {:ok, rows} ->
-        rows = if opts[:strip], do: strip_orphaned_tool_call(state.session_id, rows), else: rows
-        messages = Enum.map(rows, & &1.message)
+    case SessionStore.load_messages(state.session_id, state.id, opts) do
+      {:ok, messages} ->
+        turn_state = TurnState.rebuild_checkpoints(state.turn_state, messages)
+        %{state | messages: messages, turn_state: turn_state}
 
-        checkpoints =
-          messages
-          |> Enum.with_index()
-          |> Enum.filter(fn {msg, _} -> msg.role == :user end)
-          |> Enum.map(fn {_, idx} -> idx end)
-          |> Enum.reverse()
-
-        %{state | messages: messages, turn_checkpoints: checkpoints}
-
-      _ ->
-        # Session unavailable (e.g. no GenServer running for this session_id);
-        # keep current in-memory state unchanged.
+      :error ->
         state
-    end
-  end
-
-  # If the last message is an assistant turn containing tool calls with no
-  # following tool-result message, the agent crashed mid-execution. Strip it
-  # from memory and truncate the DB so the LLM never sees an unanswered call.
-  @spec strip_orphaned_tool_call(String.t() | nil, [map()]) :: [map()]
-  defp strip_orphaned_tool_call(_session_id, []), do: []
-
-  defp strip_orphaned_tool_call(session_id, rows) do
-    last = List.last(rows)
-
-    orphaned? =
-      last.message.role == :assistant and
-        Enum.any?(last.message.content, &match?({:tool_call, _, _, _}, &1))
-
-    if orphaned? do
-      Logger.warning("[Planck.Agent] stripping orphaned tool-call turn (db_id=#{last.db_id})")
-      if session_id, do: Session.truncate_after(session_id, last.db_id)
-      Enum.drop(rows, -1)
-    else
-      rows
     end
   end
 
   # Persist a message and return it with its DB row id set. For ephemeral
   # agents (no session_id), the message is returned unchanged.
   @spec persist_usage(t()) :: :ok
-  defp persist_usage(%{session_id: nil}), do: :ok
-
-  defp persist_usage(%{session_id: sid, id: agent_id, usage: usage, cost: cost}) do
-    data =
-      Jason.encode!(%{
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
-        cost: cost
-      })
-
-    Session.save_metadata(sid, %{"agent_usage:#{agent_id}" => data})
+  defp persist_usage(state) do
+    SessionStore.persist_usage(state.session_id, state.id, state.usage)
   end
 
   @spec persist_message(t(), Message.t()) :: Message.t()
-  defp persist_message(%{session_id: nil}, msg), do: msg
-
-  defp persist_message(%{session_id: sid, id: agent_id}, msg) do
-    case Session.append(sid, agent_id, msg) do
-      nil -> msg
-      db_id -> %{msg | id: db_id}
-    end
+  defp persist_message(state, msg) do
+    SessionStore.persist_message(state.session_id, state.id, msg)
   end
 
   @spec process_event(t(), Planck.AI.Stream.t()) :: t()
   defp process_event(state, {:text_delta, text}) do
     broadcast(state, :text_delta, %{text: text})
-    %{state | text_buffer: state.text_buffer <> text}
+    %{state | stream_buffer: StreamBuffer.append_text(state.stream_buffer, text)}
   end
 
   defp process_event(state, {:thinking_delta, text}) do
     broadcast(state, :thinking_delta, %{text: text})
-    %{state | thinking_buffer: state.thinking_buffer <> text}
+    %{state | stream_buffer: StreamBuffer.append_thinking(state.stream_buffer, text)}
   end
 
   defp process_event(state, {:tool_call_complete, call}) do
-    %{state | pending_tool_calls: state.pending_tool_calls ++ [call]}
+    %{state | stream_buffer: StreamBuffer.add_call(state.stream_buffer, call)}
   end
 
   defp process_event(state, {:error, reason}) do
@@ -872,21 +809,9 @@ defmodule Planck.Agent do
   end
 
   defp process_event(state, {:done, %{usage: %{input_tokens: i, output_tokens: o}}}) do
-    usage = %{
-      input_tokens: state.usage.input_tokens + i,
-      output_tokens: state.usage.output_tokens + o
-    }
-
-    turn_cost =
-      case state.model do
-        %{cost: %{input: in_rate, output: out_rate}} ->
-          (i * in_rate + o * out_rate) / 1_000_000
-
-        _ ->
-          0.0
-      end
-
-    new_state = %{state | usage: usage, cost: state.cost + turn_cost}
+    new_usage = Usage.add_turn(state.usage, i, o, state.model)
+    turn_cost = new_usage.cost - state.usage.cost
+    new_state = %{state | usage: new_usage}
 
     persist_usage(new_state)
 
@@ -897,9 +822,9 @@ defmodule Planck.Agent do
         cost: turn_cost
       },
       total: %{
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
-        cost: new_state.cost
+        input_tokens: new_usage.input_tokens,
+        output_tokens: new_usage.output_tokens,
+        cost: new_usage.cost
       },
       context_tokens: Message.estimate_tokens(new_state.messages)
     })
@@ -909,86 +834,16 @@ defmodule Planck.Agent do
 
   defp process_event(state, _other), do: state
 
-  @spec build_assistant_message(t()) :: Message.t()
-  defp build_assistant_message(%{
-         text_buffer: text,
-         thinking_buffer: thinking,
-         pending_tool_calls: calls
-       }) do
-    content =
-      Enum.map(calls, fn %{id: id, name: name, args: args} -> {:tool_call, id, name, args} end)
-      |> prepend_if(text != "", {:text, text})
-      |> prepend_if(thinking != "", {:thinking, thinking})
-
-    Message.new(:assistant, content)
-  end
-
-  @spec prepend_if(list(), boolean(), term()) :: list()
-  defp prepend_if(list, true, item), do: [item | list]
-  defp prepend_if(list, false, _item), do: list
-
-  # 2000 lines or 50 KB, whichever is hit first — matching pi-mono's limits.
-  @max_tool_output_lines 2_000
-  @max_tool_output_bytes 50_000
-
-  @spec build_tool_result_message([{String.t(), {:ok, String.t()} | {:error, term()}}]) ::
-          Message.t()
-  defp build_tool_result_message(results) do
-    content =
-      Enum.map(results, fn {id, result} ->
-        value =
-          case result do
-            {:ok, v} when is_binary(v) -> v
-            {:ok, v} -> inspect(v)
-            {:error, reason} when is_binary(reason) -> "Error: #{reason}"
-            {:error, reason} -> "Error: #{inspect(reason)}"
-          end
-
-        {:tool_result, id, truncate_tool_output(value)}
-      end)
-
-    Message.new(:tool_result, content)
-  end
-
-  @spec truncate_tool_output(String.t()) :: String.t()
-  defp truncate_tool_output(value) do
-    if String.valid?(value) do
-      truncate_text_output(value)
-    else
-      "[binary file, #{byte_size(value)} bytes — cannot display]"
-    end
-  end
-
-  defp truncate_text_output(value) do
-    lines = String.split(value, "\n")
-
-    {value, line_truncated} =
-      if length(lines) > @max_tool_output_lines do
-        {Enum.take(lines, @max_tool_output_lines) |> Enum.join("\n"), true}
-      else
-        {value, false}
-      end
-
-    {value, truncated} =
-      if byte_size(value) > @max_tool_output_bytes do
-        {binary_part(value, 0, @max_tool_output_bytes), true}
-      else
-        {value, line_truncated}
-      end
-
-    if truncated, do: value <> "\n[output truncated]", else: value
-  end
-
   @spec apply_compact(t()) :: {[Message.t()], t()}
   defp apply_compact(state)
 
   defp apply_compact(%__MODULE__{on_compact: nil, messages: messages} = state) do
-    {messages_since_last_summary(messages), state}
+    {TurnContext.messages_since_last_summary(messages), state}
   end
 
   defp apply_compact(%__MODULE__{on_compact: fun, messages: messages} = state)
        when is_function(fun) do
-    recent = messages_since_last_summary(messages)
+    recent = TurnContext.messages_since_last_summary(messages)
 
     case fun.(recent) do
       :skip ->
@@ -1002,6 +857,7 @@ defmodule Planck.Agent do
         prefix_len = length(messages) - length(recent)
         prefix = Enum.take(messages, prefix_len)
         new_messages = prefix ++ [summary_msg | kept]
+
         new_state = %{state | messages: new_messages}
 
         broadcast(new_state, :compacted, %{})
@@ -1015,36 +871,11 @@ defmodule Planck.Agent do
   defp maybe_turn_start(state)
 
   defp maybe_turn_start(%__MODULE__{} = state) do
-    if has_pending_input?(state.messages, state.stream_start) do
-      broadcast(state, :turn_start, %{index: state.turn_index})
+    if TurnContext.has_pending_input?(state.messages, state.stream_start) do
+      broadcast(state, :turn_start, %{index: state.turn_state.index})
       {:noreply, %{state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
     else
       {:noreply, state}
-    end
-  end
-
-  # Returns true if any :user or {:custom, :agent_response} message arrived
-  # after stream_start — those were appended during streaming and not seen
-  # by the LLM.
-  @spec has_pending_input?([Message.t()], non_neg_integer()) :: boolean()
-  defp has_pending_input?(messages, stream_start) do
-    messages
-    |> Enum.drop(stream_start)
-    |> Enum.any?(fn
-      %{role: :user} -> true
-      %{role: {:custom, :agent_response}} -> true
-      _ -> false
-    end)
-  end
-
-  @spec messages_since_last_summary([Message.t()]) :: [Message.t()]
-  defp messages_since_last_summary(messages) do
-    messages
-    |> Enum.reverse()
-    |> Enum.split_while(&(not match?(%Message{role: {:custom, :summary}}, &1)))
-    |> case do
-      {_tail_rev, []} -> messages
-      {tail_rev, [%Message{} = summary | _]} -> [summary | Enum.reverse(tail_rev)]
     end
   end
 
@@ -1062,11 +893,8 @@ defmodule Planck.Agent do
       | status: :idle,
         stream_task: nil,
         stream_ref: nil,
-        text_buffer: "",
-        thinking_buffer: "",
-        pending_tool_calls: [],
-        running_tools: %{},
-        tool_results_acc: []
+        stream_buffer: StreamBuffer.new(),
+        tool_runner: ToolRunner.new()
     }
   end
 
@@ -1080,11 +908,6 @@ defmodule Planck.Agent do
     :exit, reason -> {:error, {:exit, reason}}
   end
 
-  @spec normalize_content(String.t() | [Planck.AI.Message.content_part()]) ::
-          [Planck.AI.Message.content_part()]
-  defp normalize_content(text) when is_binary(text), do: [{:text, text}]
-  defp normalize_content(parts) when is_list(parts), do: parts
-
   @spec build_system_prompt(t()) :: String.t()
   defp build_system_prompt(%__MODULE__{
          skill_names: names,
@@ -1092,7 +915,9 @@ defmodule Planck.Agent do
          system_prompt: base,
          tools: tools,
          name: name,
-         type: type
+         type: type,
+         system_prompt_prepend_fn: prepend_fn,
+         system_prompt_append_fn: append_fn
        }) do
     Planck.Agent.SystemPrompt.build(%{
       system_prompt: base,
@@ -1100,7 +925,9 @@ defmodule Planck.Agent do
       type: type,
       tools: tools,
       skill_names: names,
-      skill_refresh_fn: refresh_fn
+      skill_refresh_fn: refresh_fn,
+      system_prompt_prepend_fn: prepend_fn,
+      system_prompt_append_fn: append_fn
     })
   end
 

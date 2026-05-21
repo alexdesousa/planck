@@ -277,7 +277,7 @@ defmodule Planck.Agent.AgentTest do
       Agent.prompt(agent, "second")
       assert_receive {:agent_event, :turn_end, _}, 1_000
 
-      assert Agent.get_state(agent).turn_index == 2
+      assert Agent.get_state(agent).turn_state.index == 2
     end
 
     test "content list is passed through" do
@@ -978,7 +978,7 @@ defmodule Planck.Agent.AgentTest do
         |> Enum.map(fn {_, idx} -> idx end)
 
       # Every user message must have a corresponding checkpoint
-      assert length(state.turn_checkpoints) == length(user_indices)
+      assert length(state.turn_state.checkpoints) == length(user_indices)
     end
   end
 
@@ -996,7 +996,7 @@ defmodule Planck.Agent.AgentTest do
 
     test "cost starts at zero" do
       agent = start_agent()
-      assert Agent.get_state(agent).cost == 0.0
+      assert Agent.get_state(agent).usage.cost == 0.0
     end
 
     test "cost is zero when model has no cost rates" do
@@ -1005,7 +1005,7 @@ defmodule Planck.Agent.AgentTest do
       Agent.subscribe(agent)
       Agent.prompt(agent, "hello")
       assert_receive {:agent_event, :turn_end, _}, 1_000
-      assert Agent.get_state(agent).cost == 0.0
+      assert Agent.get_state(agent).usage.cost == 0.0
     end
 
     test "cost is calculated correctly from model rates" do
@@ -1015,7 +1015,7 @@ defmodule Planck.Agent.AgentTest do
       Agent.subscribe(agent)
       Agent.prompt(agent, "hello")
       assert_receive {:agent_event, :turn_end, _}, 1_000
-      assert_in_delta Agent.get_state(agent).cost, 0.00075, 1.0e-10
+      assert_in_delta Agent.get_state(agent).usage.cost, 0.00075, 1.0e-10
     end
 
     test "cost accumulates across turns" do
@@ -1033,7 +1033,7 @@ defmodule Planck.Agent.AgentTest do
       Agent.prompt(agent, "second")
       assert_receive {:agent_event, :turn_end, _}, 1_000
 
-      assert_in_delta Agent.get_state(agent).cost, 0.00110, 1.0e-10
+      assert_in_delta Agent.get_state(agent).usage.cost, 0.00110, 1.0e-10
     end
 
     test "usage_delta includes cost in delta and total" do
@@ -1082,8 +1082,9 @@ defmodule Planck.Agent.AgentTest do
         start_agent(usage: %{input_tokens: 500, output_tokens: 200}, cost: 0.005)
 
       state = Agent.get_state(agent)
-      assert state.usage == %{input_tokens: 500, output_tokens: 200}
-      assert state.cost == 0.005
+      assert state.usage.input_tokens == 500
+      assert state.usage.output_tokens == 200
+      assert state.usage.cost == 0.005
     end
 
     test "new cost adds on top of initial cost" do
@@ -1094,7 +1095,7 @@ defmodule Planck.Agent.AgentTest do
       Agent.subscribe(agent)
       Agent.prompt(agent, "hello")
       assert_receive {:agent_event, :turn_end, _}, 1_000
-      assert_in_delta Agent.get_state(agent).cost, 0.00175, 1.0e-10
+      assert_in_delta Agent.get_state(agent).usage.cost, 0.00175, 1.0e-10
     end
 
     test "usage and cost are persisted to session metadata on :done" do

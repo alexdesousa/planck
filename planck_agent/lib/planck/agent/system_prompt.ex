@@ -23,7 +23,9 @@ defmodule Planck.Agent.SystemPrompt do
           type: String.t() | nil,
           tools: %{String.t() => Tool.t()},
           skill_names: [String.t()],
-          skill_refresh_fn: (-> [Skill.t()]) | nil
+          skill_refresh_fn: (-> [Skill.t()]) | nil,
+          system_prompt_prepend_fn: (-> String.t() | nil) | nil,
+          system_prompt_append_fn: (-> String.t() | nil) | nil
         }
 
   # Inter-agent tools in the order their sections should appear.
@@ -51,12 +53,50 @@ defmodule Planck.Agent.SystemPrompt do
         type: type,
         tools: tools,
         skill_names: names,
-        skill_refresh_fn: refresh_fn
+        skill_refresh_fn: refresh_fn,
+        system_prompt_prepend_fn: prepend_fn,
+        system_prompt_append_fn: append_fn
       }) do
     base
+    |> run_hook_prepend(prepend_fn)
     |> prepend_identity_line(name, type)
     |> append_tool_sections(tools)
     |> append_skills(names, refresh_fn)
+    |> run_hook_append(append_fn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Hooks
+  # ---------------------------------------------------------------------------
+
+  @spec run_hook_prepend(String.t(), (-> String.t() | nil) | nil) :: String.t()
+  defp run_hook_prepend(prompt, fun)
+
+  defp run_hook_prepend(prompt, nil) do
+    prompt
+  end
+
+  defp run_hook_prepend(prompt, fun) when is_function(fun) do
+    case fun.() do
+      nil -> prompt
+      "" -> prompt
+      section -> if prompt == "", do: section, else: section <> "\n\n" <> prompt
+    end
+  end
+
+  @spec run_hook_append(String.t(), (-> String.t() | nil) | nil) :: String.t()
+  defp run_hook_append(prompt, function)
+
+  defp run_hook_append(prompt, nil) do
+    prompt
+  end
+
+  defp run_hook_append(prompt, fun) when is_function(fun) do
+    case fun.() do
+      nil -> prompt
+      "" -> prompt
+      section -> append_section(prompt, section)
+    end
   end
 
   # ---------------------------------------------------------------------------

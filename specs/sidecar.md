@@ -217,6 +217,77 @@ end
 If the sidecar node is unavailable, `Compactor.build/2` falls back to the
 local LLM-based compactor automatically.
 
+## Per-agent memory
+
+Agent memory is no longer built into `planck_agent`. Instead, the sidecar
+provides `system_prompt_prepend_fn` / `system_prompt_append_fn` closures when
+building the agent's start opts. Planck calls these closures before every LLM
+turn; the sidecar controls when the returned string is live or cached.
+
+### Recommended pattern
+
+1. A `GenServer` in the sidecar holds the cached memory string.
+2. The GenServer subscribes to the `"session:#{session_id}"` PubSub topic and
+   refreshes its cache on every `:compacted` event (the natural point where
+   memory should be reconsolidated).
+3. The closures passed to `start_link` call the GenServer via a local function
+   that reads from its cache without triggering an LLM call.
+
+```elixir
+defmodule MySidecar.Memory do
+  use GenServer
+
+  def start_link(session_id) do
+    GenServer.start_link(__MODULE__, session_id, name: via(session_id))
+  end
+
+  def prepend_fn(session_id) do
+    fn -> GenServer.call(via(session_id), :get_prepend) end
+  end
+
+  def append_fn(session_id) do
+    fn -> GenServer.call(via(session_id), :get_append) end
+  end
+
+  @impl true
+  def init(session_id) do
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+    {:ok, %{prepend: nil, append: nil, session_id: session_id}}
+  end
+
+  @impl true
+  def handle_info({:agent_event, :compacted, _}, state) do
+    {:noreply, %{state | append: reload_memory(state.session_id)}}
+  end
+
+  @impl true
+  def handle_call(:get_prepend, _from, state), do: {:reply, state.prepend, state}
+  def handle_call(:get_append, _from, state),  do: {:reply, state.append, state}
+
+  defp via(session_id), do: {:via, Registry, {MySidecar.Registry, {:memory, session_id}}}
+  defp reload_memory(_session_id), do: nil  # replace with actual storage read
+end
+```
+
+Wire the closures into `planck_headless`:
+
+```elixir
+prepend = MySidecar.Memory.prepend_fn(session_id)
+append  = MySidecar.Memory.append_fn(session_id)
+
+start_opts = AgentSpec.to_start_opts(spec,
+  team_id:                  team_id,
+  session_id:               session_id,
+  on_compact:               on_compact,
+  system_prompt_prepend_fn: prepend,
+  system_prompt_append_fn:  append
+)
+```
+
+Planck passes both fns into the agent state and calls them at the start of every
+LLM turn via `SystemPrompt.build/1`. The sidecar's GenServer absorbs the caching
+concern; Planck has no knowledge of storage or refresh logic.
+
 ## Config
 
 ```elixir

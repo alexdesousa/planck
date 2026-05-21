@@ -1,13 +1,10 @@
 defmodule Planck.Agent.BuiltinTools do
   @moduledoc """
-  Factory functions for the four built-in tools: `read`, `write`, `edit`, `bash`.
+  Factory functions for the built-in tools: `read`, `write`, `edit`, `bash`.
 
-  These tools cover file system access and shell execution. Together they are
-  sufficient for most agent tasks — reading context, writing code, applying
-  edits, and running scripts (including skill scripts).
-
-  Shell execution uses `erlexec` (`:exec`) which manages process groups and
-  cleans up child processes on timeout or termination.
+  These tools cover file system access and shell execution. Shell execution uses
+  `erlexec` (`:exec`) which manages process groups and cleans up child processes
+  on timeout or termination.
 
   ## Usage
 
@@ -17,8 +14,6 @@ defmodule Planck.Agent.BuiltinTools do
         Planck.Agent.BuiltinTools.edit(),
         Planck.Agent.BuiltinTools.bash()
       ]
-
-  Pass these alongside any inter-agent tools when starting an agent.
   """
 
   alias Planck.Agent.Tool

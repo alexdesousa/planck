@@ -52,24 +52,24 @@ defmodule Planck.Agent.AgentSpec do
   require Logger
 
   @typedoc """
-  - `:type` — role identifier used for registry lookups and tool targeting (e.g. `"builder"`)
-  - `:name` — human-readable label shown to other agents via `list_team`; defaults
-    to `type` when not provided or empty
-  - `:description` — one-line purpose shown to other agents via `list_team`
-  - `:provider` — LLM provider atom (e.g. `:anthropic`, `:ollama`)
-  - `:model_id` — model identifier within the provider (e.g. `"claude-sonnet-4-6"`)
-  - `:system_prompt` — system prompt text sent to the model at the start of every turn
-  - `:opts` — provider-specific options forwarded to the LLM call (e.g. `temperature:`)
-  - `:tools` — tool names to resolve from a `tool_pool:` at start time (e.g. `["read", "bash"]`)
-  - `:skills` — skill names to resolve from a `skill_pool:` at start time; when
-    non-empty, their descriptions are appended to `system_prompt` in `to_start_opts/2`
-  - `:base_url` — base URL of the model server for local providers that run multiple
-    instances (e.g. `"http://localhost:11434"` for a specific Ollama server). When
-    `nil`, the provider's default URL is used.
-  - `:compactor` — fully-qualified module name of a sidecar compactor for this agent,
-    e.g. `"MySidecar.Compactors.Builder"`. The module must implement `compact/2`.
-    planck_headless resolves this via `Planck.Agent.Compactor.build/2` when
-    materialising the agent. `nil` means the default compactor is used.
+    - `:type` — role identifier used for registry lookups and tool targeting (e.g. `"builder"`)
+    - `:name` — human-readable label shown to other agents via `list_team`; defaults
+      to `type` when not provided or empty
+    - `:description` — one-line purpose shown to other agents via `list_team`
+    - `:provider` — LLM provider atom (e.g. `:anthropic`, `:ollama`)
+    - `:model_id` — model identifier within the provider (e.g. `"claude-sonnet-4-6"`)
+    - `:system_prompt` — system prompt text sent to the model at the start of every turn
+    - `:opts` — provider-specific options forwarded to the LLM call (e.g. `temperature:`)
+    - `:tools` — tool names to resolve from a `tool_pool:` at start time (e.g. `["read", "bash"]`)
+    - `:skills` — skill names to resolve from a `skill_pool:` at start time; when
+      non-empty, their descriptions are appended to `system_prompt` in `to_start_opts/2`
+    - `:base_url` — base URL of the model server for local providers that run multiple
+      instances (e.g. `"http://localhost:11434"` for a specific Ollama server). When
+      `nil`, the provider's default URL is used.
+    - `:compactor` — fully-qualified module name of a sidecar compactor for this agent,
+      e.g. `"MySidecar.Compactors.Builder"`. The module must implement `compact/2`.
+      planck_headless resolves this via `Planck.Agent.Compactor.build/2` when
+      materialising the agent. `nil` means the default compactor is used.
   """
   @type t :: %__MODULE__{
           type: String.t(),
