@@ -171,15 +171,15 @@ defmodule Planck.Agent.Hooks.Compactor do
 
     result =
       AIBehaviour.client().stream(model, context, [])
-      |> Enum.reduce({:ok, ""}, fn
-        {:text_delta, text}, {:ok, acc} -> {:ok, acc <> text}
+      |> Enum.reduce({:ok, []}, fn
+        {:text_delta, text}, {:ok, acc} -> {:ok, [acc | text]}
         {:error, reason}, _acc -> {:error, reason}
         _other, acc -> acc
       end)
 
     case result do
-      {:ok, ""} -> {:error, :empty_response}
-      {:ok, text} -> {:ok, text}
+      {:ok, []} -> {:error, :empty_response}
+      {:ok, iodata} -> {:ok, IO.iodata_to_binary(iodata)}
       {:error, _} = error -> error
     end
   end
@@ -202,11 +202,13 @@ defmodule Planck.Agent.Hooks.Compactor do
 
   @spec extract_text([Planck.AI.Message.content_part()]) :: String.t()
   defp extract_text(content) do
-    Enum.reduce(content, "", fn
-      {:text, text}, acc -> acc <> text
-      {:tool_result, _id, value}, acc -> acc <> value
-      _other, acc -> acc
+    content
+    |> Enum.flat_map(fn
+      {:text, text} -> [text]
+      {:tool_result, _id, value} -> [value]
+      _ -> []
     end)
+    |> IO.iodata_to_binary()
   end
 
   @spec remote_timeout(module(), atom()) :: pos_integer()

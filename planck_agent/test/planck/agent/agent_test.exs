@@ -610,15 +610,16 @@ defmodule Planck.Agent.AgentTest do
       :ok = Agent.inject_tool_result(agent, "create_skill", "")
 
       state = Agent.get_state(agent)
-      assert Enum.any?(state.messages, fn msg ->
-        msg.role == :assistant and
-          Enum.any?(msg.content, &match?({:tool_call, _, "create_skill", %{}}, &1))
-      end)
 
       assert Enum.any?(state.messages, fn msg ->
-        msg.role == :tool_result and
-          Enum.any?(msg.content, &match?({:tool_result, _, ""}, &1))
-      end)
+               msg.role == :assistant and
+                 Enum.any?(msg.content, &match?({:tool_call, _, "create_skill", %{}}, &1))
+             end)
+
+      assert Enum.any?(state.messages, fn msg ->
+               msg.role == :tool_result and
+                 Enum.any?(msg.content, &match?({:tool_result, _, ""}, &1))
+             end)
     end
 
     test "does not trigger a new turn" do

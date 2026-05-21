@@ -11,9 +11,11 @@ defmodule Sidecar.Config do
   | Key | Env var | Default |
   |---|---|---|
   | `workspace_dir` | `WORKSPACE_DIR` | `/workspace` |
+  | `searxng_url` | `SEARXNG_URL` | `http://searxng:8080` |
   | `typesense_url` | `TYPESENSE_URL` | `http://typesense:8108` |
   | `typesense_api_key` | `TYPESENSE_API_KEY` | `planck-internal-key` |
-  | `searxng_url` | `SEARXNG_URL` | `http://searxng:8080` |
+  | `typesense_collection` | `TYPESENSE_COLLECTION` | `workspace` |
+  | `sessions_collection` | `TYPESENSE_SESSIONS_COLLECTION` | `memory` |
   """
   use Skogsra
 
@@ -41,6 +43,11 @@ defmodule Sidecar.Config do
   app_env :typesense_collection, :sidecar, :typesense_collection,
     os_env: "TYPESENSE_COLLECTION",
     default: "workspace"
+
+  @envdoc "Name of the Typesense collection used for session turn indexing and memory."
+  app_env :sessions_collection, :sidecar, :sessions_collection,
+    os_env: "TYPESENSE_SESSIONS_COLLECTION",
+    default: "memory"
 
   @envdoc "Base URL of the Apache Tika Server instance (internal Docker service)."
   app_env :tika_url, :sidecar, :tika_url,

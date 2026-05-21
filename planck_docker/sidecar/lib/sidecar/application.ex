@@ -4,6 +4,7 @@ defmodule Sidecar.Application do
   use Application
 
   @watcher if Mix.env() == :test, do: [], else: [Sidecar.Watcher]
+  @indexer if Mix.env() == :test, do: [], else: [Sidecar.SessionIndexer]
   @reloader if Mix.env() == :dev, do: [Sidecar.Reloader], else: []
 
   @impl true
@@ -16,6 +17,9 @@ defmodule Sidecar.Application do
         node -> [{Task, fn -> Node.connect(String.to_atom(node)) end}]
       end
 
-    Supervisor.start_link(connect_task ++ @watcher ++ @reloader, strategy: :one_for_one)
+    Supervisor.start_link(
+      connect_task ++ @watcher ++ @indexer ++ @reloader,
+      strategy: :one_for_one
+    )
   end
 end

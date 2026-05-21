@@ -718,7 +718,14 @@ defmodule Planck.Agent do
 
     case pending do
       [] ->
-        broadcast(new_state, :turn_end, %{message: assistant_msg, usage: new_state.usage})
+        turn_msgs = readable_turn_messages(new_state.messages, state.stream_start)
+
+        broadcast(new_state, :turn_end, %{
+          message: assistant_msg,
+          usage: new_state.usage,
+          turn_messages: turn_msgs
+        })
+
         fire_turn_end_hook(new_state)
         maybe_turn_start(new_state)
 
@@ -968,6 +975,11 @@ defmodule Planck.Agent do
       session_id: state.session_id,
       sidecar_node: state.sidecar_node
     })
+  end
+
+  @spec readable_turn_messages([Message.t()], non_neg_integer()) :: [Message.t()]
+  defp readable_turn_messages(messages, stream_start) do
+    Enum.drop(messages, max(0, stream_start - 1))
   end
 
   @spec fire_turn_end_hook(t()) :: :ok

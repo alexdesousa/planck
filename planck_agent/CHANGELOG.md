@@ -175,6 +175,12 @@ tools to access a live pool.
 `config.json`. Controls how many last-used skills appear in the system prompt
 index per agent.
 
+### `Hooks.Compactor` — iodata accumulation
+
+`summarize/2` and `extract_text/1` now build iolists instead of using `<>`
+string concatenation in a reduce. `IO.iodata_to_binary/1` does a single
+allocation at the end — O(n) instead of O(n²) for long histories.
+
 ### `"planck:sessions"` global PubSub topic
 
 `Planck.Agent` now broadcasts `:turn_end` and `:compacted` events to a global
@@ -188,7 +194,7 @@ The payload is the same as the per-session event plus two extra fields:
 
 ```elixir
 Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sessions")
-# receives: {:agent_event, :turn_end | :compacted, %{agent_id:, agent_name:, session_id:, ...}}
+# receives: {:agent_event, :turn_end | :compacted, %{agent_id:, agent_name:, session_id:, turn_messages:, ...}}
 ```
 
 Sidecars subscribe to this single topic to receive events from all agents

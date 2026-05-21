@@ -8,6 +8,7 @@ defmodule Sidecar.Planck do
     [
       Sidecar.Tools.Read.tool(),
       Sidecar.Tools.SearchWorkspace.tool(),
+      Sidecar.Tools.SessionSearch.tool(),
       Sidecar.Tools.SearchWeb.tool(),
       Sidecar.Tools.WebFetch.tool()
     ]

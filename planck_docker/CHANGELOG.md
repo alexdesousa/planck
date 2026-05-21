@@ -2,7 +2,22 @@
 
 ## v0.1.7
 
-- Version bump to stay in sync with the monorepo release; no functional changes.
+### Session indexing and search
+
+- `Sidecar.SessionIndexer` — new GenServer that subscribes to the
+  `"planck:sessions"` global PubSub topic and indexes each turn into a
+  Typesense `memory` collection (configurable via `TYPESENSE_SESSIONS_COLLECTION`,
+  default `"memory"`). One document per turn combines the user/trigger message
+  and the agent response, labelled by agent name.
+- `session_search` sidecar tool — queries the `memory` Typesense collection for
+  relevant past turns; accepts an optional `agent_name` filter.
+- `Sidecar.Config` — new `sessions_collection` key (`TYPESENSE_SESSIONS_COLLECTION`,
+  default `"memory"`).
+
+### planck_setup bundled skill
+
+- `skills/planck_setup/` installed at first run by the install scripts; guides
+  for configuring providers, teams, skills, sidecars, hooks, and the HTTP API.
 
 ## v0.1.6
 
