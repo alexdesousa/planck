@@ -1,6 +1,10 @@
 #!/bin/sh
 # Local development helper — builds images from source and starts the stack.
 # Data lives in .planck-dev/ (gitignored) so it doesn't touch ~/planck.
+#
+# Usage:
+#   ./dev_docker.sh            — fresh environment (default): tears down and rebuilds
+#   ./dev_docker.sh preserve   — keep existing data, just rebuild images and restart
 set -e
 
 cd "$(dirname "$0")"
@@ -14,14 +18,25 @@ fi
 
 DEV_DIR=".planck-dev"
 export PLANCK_HOME="$(pwd)/$DEV_DIR"
+ENV_FILE="$DEV_DIR/.env"
 
+PRESERVE=0
+[ "$1" = "preserve" ] && PRESERVE=1
+
+# ── Tear down existing environment (default) ─────────────────────────────────
+if [ "$PRESERVE" = "0" ]; then
+  echo "Tearing down existing environment..."
+  dc -f planck_docker/compose.yml --env-file "$ENV_FILE" down --volumes 2>/dev/null || true
+  rm -rf "$DEV_DIR"
+  echo "  → $DEV_DIR removed."
+fi
+
+# ── Create directory layout ───────────────────────────────────────────────────
 mkdir -p \
   "$DEV_DIR/typesense-data" \
   "$DEV_DIR/workspace/.planck/skills"
 
 # ── Write .env (add missing keys if it exists) ────────────────────────────────
-ENV_FILE="$DEV_DIR/.env"
-
 add_if_missing() {
   grep -q "^$1=" "$ENV_FILE" 2>/dev/null || echo "$1=$2" >>"$ENV_FILE"
 }
