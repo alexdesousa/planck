@@ -2,6 +2,13 @@
 
 ## v0.1.7
 
+### Skill Reflector — objective 2: filtered `list_skills` tool
+
+- `Sidecar.Tools.ListSkills` — a `list_skills` tool restricted to agent-created
+  skills (`creator: agent`). Used exclusively inside the SkillReflector's
+  mini-agent so it only sees skills it wrote itself — user-curated skills are
+  not surfaced to avoid unintended rewrites.
+
 ### Skill Reflector — objective 1: `write_skill` tool
 
 - `Sidecar.Tools.WriteSkill` — new sidecar tool that writes or updates a skill
