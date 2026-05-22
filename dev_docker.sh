@@ -25,8 +25,6 @@ PRESERVE=0
 
 # ── Tear down existing environment (default) ─────────────────────────────────
 if [ "$PRESERVE" = "0" ]; then
-  echo "Tearing down existing environment..."
-  dc -f planck_docker/compose.yml --env-file "$ENV_FILE" down --volumes 2>/dev/null || true
   rm -rf "$DEV_DIR"
   echo "  → $DEV_DIR removed."
 fi
