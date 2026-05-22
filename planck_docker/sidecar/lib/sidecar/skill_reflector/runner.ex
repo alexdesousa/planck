@@ -9,7 +9,7 @@ defmodule Sidecar.SkillReflector.Runner do
   3. Subscribes to the mini-agent's PubSub topic.
   4. On `:turn_end` — the agent finished its work. If `write_skill` was called,
      injects a `create_skill` or `update_skill` synthetic tool result into the
-     parent agent's history via `Agent.inject_tool_result/3`.
+     parent agent's history via `Planck.Agent.inject_tool_result/3`.
   5. Stops itself; the linked mini-agent terminates with it.
   """
 
@@ -20,7 +20,7 @@ defmodule Sidecar.SkillReflector.Runner do
   alias Planck.Agent
   alias Planck.Agent.Skill
 
-  @reflect_max_turns 10
+  @max_tool_calls 15
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -59,7 +59,7 @@ defmodule Sidecar.SkillReflector.Runner do
          parent_pid: parent_pid,
          mini_id: mini_id,
          mini_pid: mini_pid,
-         turn_count: 0,
+         tool_call_count: 0,
          skill_result: nil
        }}
     else
@@ -70,20 +70,26 @@ defmodule Sidecar.SkillReflector.Runner do
   end
 
   @impl true
+  def handle_info({:agent_event, :tool_start, _payload}, state) do
+    new_count = state.tool_call_count + 1
+
+    if new_count > @max_tool_calls do
+      Logger.warning(
+        "[SkillReflector.Runner] tool call limit (#{@max_tool_calls}) exceeded — stopping"
+      )
+
+      inject_and_stop(%{state | tool_call_count: new_count})
+    else
+      {:noreply, %{state | tool_call_count: new_count}}
+    end
+  end
+
   def handle_info({:agent_event, :tool_end, %{name: "write_skill", result: {:ok, result}}}, state) do
     {:noreply, %{state | skill_result: result}}
   end
 
   def handle_info({:agent_event, :turn_end, _payload}, state) do
-    new_count = state.turn_count + 1
-
-    if new_count >= @reflect_max_turns do
-      Logger.warning(
-        "[SkillReflector.Runner] max turns (#{@reflect_max_turns}) reached — stopping"
-      )
-    end
-
-    inject_and_stop(%{state | turn_count: new_count})
+    inject_and_stop(state)
   end
 
   def handle_info({:EXIT, pid, reason}, %{mini_pid: pid} = state) do

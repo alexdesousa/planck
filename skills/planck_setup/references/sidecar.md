@@ -141,13 +141,20 @@ Each field is independent — declare only the ones your sidecar implements.
 Planck calls the hook module via RPC on the sidecar node; all three fall back
 gracefully when the sidecar is unavailable.
 
-The planck_docker bundled sidecar ships `Sidecar.Memory` as a ready-to-use
-`prompt_hook` implementation. It is an ETS-backed GenServer that stores condensed
-agent memory in the `short_term_memory` Typesense collection keyed by
-`"team_name:agent_name"`. Agents use the `update_memory` sidecar tool to record
-facts; memory is injected before the base system prompt on every turn via
-`before_prompt/1`. Enable it by adding `"prompt_hook": "Sidecar.Memory"` to any
-TEAM.json agent entry.
+The planck_docker bundled sidecar ships two ready-to-use hook implementations:
+
+- **`Sidecar.Memory`** (`prompt_hook`) — ETS-backed GenServer that stores
+  condensed agent memory in the `short_term_memory` Typesense collection keyed
+  by `"team_name:agent_name"`. Agents record new facts via the `update_memory`
+  sidecar tool; memory is injected before the base system prompt on every turn
+  via `before_prompt/1`. Enable with `"prompt_hook": "Sidecar.Memory"`.
+
+- **`Sidecar.SkillReflector`** (`turn_end_hook`) — after every turn with five or
+  more tool calls, launches a mini-agent that reviews the conversation and
+  decides whether to write or update a skill file in
+  `{workspace}/.planck/skills/`. On completion it injects a `create_skill` or
+  `update_skill` synthetic tool result into the parent agent's history. Enable
+  with `"turn_end_hook": "Sidecar.SkillReflector"`.
 
 See [Hooks guide](hooks.md) for full examples of each behaviour.
 

@@ -2,6 +2,51 @@
 
 ## v0.1.7
 
+### Skill Reflector
+
+After every LLM turn that contained five or more tool calls, the bundled sidecar
+now automatically reflects on the conversation and decides whether to capture the
+workflow as a reusable agent skill.
+
+- **`Sidecar.Tools.WriteSkill`** — writes or updates
+  `{workspace}/.planck/skills/<name>/SKILL.md`. Frontmatter is generated with
+  `Ymlr` and parsed with `:yamerl_constr`; `creator: agent` is always set by the
+  tool; `always_present` is preserved from an existing file on update (a
+  user-set `true` survives rewrites). Returns `"create_skill:name"` or
+  `"update_skill:name"` for injection signalling. `ymlr ~> 5.1` added as dep.
+
+- **`Sidecar.Tools.ListSkills`** — a filtered `list_skills` tool that shows only
+  skills with `creator: "agent"`. Used exclusively inside the reflector's
+  mini-agent so it does not surface user-curated skills.
+
+- **`Sidecar.SkillReflector.Prompt`** — builds the system prompt for the
+  mini-agent: instructs it to call `list_skills` first, evaluate repeatability,
+  and write structured skills (When to Use, Quick Reference, Procedure, Pitfalls,
+  Verification sections).
+
+- **`Sidecar.SkillReflector.Runner`** — transient GenServer that manages one
+  reflection cycle. Starts an ephemeral `Planck.Agent` under
+  `Planck.Agent.AgentSupervisor` with the `list_skills`, `load_skill`, and
+  `write_skill` tools. Links to the mini-agent and subscribes to its PubSub.
+  `@max_tool_calls 15` stops the cycle if the tool call count exceeds the limit,
+  preventing runaway loops. On `:tool_end` for `write_skill`: stores the result
+  string. On `:turn_end`: injects a `create_skill` or `update_skill` synthetic
+  tool result into the parent agent via `Planck.Agent.inject_tool_result/3`, then
+  stops (the mini-agent dies with it via the link).
+
+- **`Sidecar.SkillReflector`** — implements `Planck.Agent.Hooks.TurnEnd`.
+  `reflect_threshold/0` returns 5. `reflect/2` calls `Runner.start/2` directly
+  (already in a background task from agent.ex). Enable per-agent in TEAM.json:
+  `"turn_end_hook": "Sidecar.SkillReflector"`.
+
+- Integration tests cover the full flow using `MockAI` (defined in
+  `sidecar/test_helper`): `list_skills → write_skill → create_skill` injection;
+  skip scenario; and the public `reflect/2` interface.
+
+- **`dev_docker.sh`** — model download removed; `planck_setup` skill copied from
+  local `skills/planck_setup/`; `PLANCK_HOME` added to `.env`; `add_if_missing`
+  pattern adopted.
+
 ### Skill Reflector — objective 2: filtered `list_skills` tool
 
 - `Sidecar.Tools.ListSkills` — a `list_skills` tool restricted to agent-created

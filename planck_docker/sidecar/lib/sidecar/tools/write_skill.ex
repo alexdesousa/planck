@@ -122,17 +122,22 @@ defmodule Sidecar.Tools.WriteSkill do
   defp read_always_present(skill_file) do
     with {:ok, content} <- File.read(skill_file),
          [frontmatter] <- Regex.run(@frontmatter_re, content, capture: :all_but_first) do
-      Application.ensure_all_started(:yamerl)
-
-      case :yamerl_constr.string(String.to_charlist(frontmatter)) do
-        [[_ | _] = pairs] ->
-          Enum.any?(pairs, fn {k, v} -> k == ~c"always_present" and v == true end)
-
-        _ ->
-          false
-      end
+      parse_always_present(frontmatter)
     else
       _ -> false
+    end
+  end
+
+  @spec parse_always_present(String.t()) :: boolean()
+  defp parse_always_present(frontmatter) do
+    Application.ensure_all_started(:yamerl)
+
+    case :yamerl_constr.string(String.to_charlist(frontmatter)) do
+      [[_ | _] = pairs] ->
+        Enum.any?(pairs, fn {k, v} -> k == ~c"always_present" and v == true end)
+
+      _ ->
+        false
     end
   end
 end

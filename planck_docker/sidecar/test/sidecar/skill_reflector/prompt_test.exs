@@ -70,7 +70,10 @@ defmodule Sidecar.SkillReflector.PromptTest do
     end
 
     test "includes agent_response with sender name" do
-      messages = [msg({:custom, :agent_response}, "Task done.", metadata: %{sender_name: "Builder"})]
+      messages = [
+        msg({:custom, :agent_response}, "Task done.", metadata: %{sender_name: "Builder"})
+      ]
+
       prompt = Prompt.build(messages, "orchestrator")
       assert prompt =~ "Builder:"
       assert prompt =~ "Task done."
@@ -81,6 +84,7 @@ defmodule Sidecar.SkillReflector.PromptTest do
         msg(:user, "do something"),
         msg(:assistant, "")
       ]
+
       prompt = Prompt.build(messages, "orchestrator")
       assert prompt =~ "do something"
     end

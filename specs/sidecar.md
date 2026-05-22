@@ -342,7 +342,66 @@ Default threshold: 5. Override `reflect_threshold/0` to tune sensitivity.
 @callback reflect_timeout()   :: pos_integer()
 ```
 
-### Example — SkillReflector
+### Skill Reflector — bundled implementation
+
+The planck_docker bundled sidecar ships a production-ready implementation of this
+pattern as `Sidecar.SkillReflector`. Enable it in TEAM.json:
+
+```json
+{
+  "type":           "builder",
+  "turn_end_hook":  "Sidecar.SkillReflector"
+}
+```
+
+#### How it works
+
+`Sidecar.SkillReflector` implements `Planck.Agent.Hooks.TurnEnd` with
+`reflect_threshold/0` returning `5`. When a turn's tool-call count meets the
+threshold, `reflect/2` delegates to `Sidecar.SkillReflector.Runner` (already
+executing in the background task that `agent.ex` fires for all turn-end hooks).
+
+#### Mini-agent lifecycle
+
+`Runner` is a transient GenServer that manages one reflection cycle:
+
+1. Starts an ephemeral `Planck.Agent` under `Planck.Agent.AgentSupervisor` with
+   three tools: `list_skills`, `load_skill`, `write_skill`.
+2. Links to the mini-agent and subscribes to its PubSub topic.
+3. The mini-agent runs with the system prompt from `Sidecar.SkillReflector.Prompt`,
+   which instructs it to call `list_skills` first, evaluate repeatability, and
+   write structured skills (When to Use, Quick Reference, Procedure, Pitfalls,
+   Verification sections).
+4. `@max_tool_calls 15` — if the mini-agent's accumulated tool-call count exceeds
+   this limit, the Runner stops the cycle to prevent runaway loops.
+5. On `:tool_end` for `write_skill`: stores the returned action string
+   (`"create_skill:name"` or `"update_skill:name"`).
+6. On `:turn_end`: injects the stored action as a synthetic tool result into the
+   **parent** agent via `Planck.Agent.inject_tool_result/3`, then stops. The
+   mini-agent dies with it via the link.
+
+#### Tools available inside the mini-agent
+
+| Tool | Description |
+|---|---|
+| `list_skills` | `Sidecar.Tools.ListSkills` — filtered to `creator: "agent"` only; user-curated skills are not surfaced |
+| `load_skill` | Standard sidecar `load_skill` tool |
+| `write_skill` | `Sidecar.Tools.WriteSkill` — writes `{workspace}/.planck/skills/<name>/SKILL.md`; preserves user-set `always_present: true` on update |
+
+#### create_skill / update_skill injection
+
+`WriteSkill` returns `"create_skill:name"` if the skill file did not previously
+exist, or `"update_skill:name"` if it did. The Runner forwards this string to
+the parent agent as a synthetic tool result. The parent LLM sees the entry
+passively in history on its next turn — no callable tool is added.
+
+#### Safety cap
+
+`@max_tool_calls 15` is defined as a module attribute in `Runner`. If the
+mini-agent issues more than 15 tool calls without ending its turn, the Runner
+sends a stop signal and terminates, preventing infinite loops.
+
+### Example — generic SkillReflector
 
 ```elixir
 defmodule MySidecar.Hooks.SkillReflector do
@@ -353,13 +412,8 @@ defmodule MySidecar.Hooks.SkillReflector do
 
   @impl true
   def reflect(agent_id, turn_messages) do
-    tool_call_count =
-      turn_messages
-      |> Enum.flat_map(& &1.content)
-      |> Enum.count(&match?({:tool_call, _, _, _}, &1))
-
     # Query existing skills, decide: new skill / update / skip.
-    case decide(turn_messages, tool_call_count) do
+    case decide(turn_messages) do
       :skip ->
         :ok
 
@@ -372,7 +426,7 @@ defmodule MySidecar.Hooks.SkillReflector do
     end
   end
 
-  defp decide(_messages, _count), do: :skip  # implement your logic here
+  defp decide(_messages), do: :skip  # implement your logic here
   defp write_skill(_name, _description, _content), do: :ok
 end
 ```

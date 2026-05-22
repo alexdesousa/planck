@@ -208,7 +208,43 @@ pair to the parent agent's history. The tool name (`"skill_reflector"` in the
 example below) does **not** need to be in the agent's callable tool list — it
 appears as a read-only history entry the LLM sees passively on the next turn.
 
-### Example — SkillReflector
+### Bundled implementation — `Sidecar.SkillReflector`
+
+The planck_docker bundled sidecar ships `Sidecar.SkillReflector` as a
+production-ready implementation. Enable it by declaring it in TEAM.json:
+
+```json
+{
+  "type":           "builder",
+  "turn_end_hook":  "Sidecar.SkillReflector"
+}
+```
+
+`reflect_threshold/0` returns `5` — reflection only fires on turns with five or
+more tool calls.
+
+When the threshold is met, `reflect/2` starts `Sidecar.SkillReflector.Runner`, a
+transient GenServer that launches an ephemeral `Planck.Agent` (the "mini-agent")
+with three tools: `list_skills` (filtered to `creator: "agent"` only),
+`load_skill`, and `write_skill`. The mini-agent is linked to the Runner, so it
+dies automatically when the Runner stops.
+
+The mini-agent follows the prompt from `Sidecar.SkillReflector.Prompt`: call
+`list_skills` first, decide whether the turn's workflow is repeatable, and write
+a structured skill (When to Use, Quick Reference, Procedure, Pitfalls,
+Verification). `@max_tool_calls 15` caps the cycle — if the mini-agent exceeds
+this count the Runner stops it, preventing loops.
+
+When `write_skill` completes, it returns `"create_skill:name"` (new file) or
+`"update_skill:name"` (existing file updated). On `:turn_end`, the Runner
+forwards this string to the **parent** agent via
+`Planck.Agent.inject_tool_result/3`. The parent LLM sees the entry as a
+read-only history item on its next turn — no callable tool is added.
+
+The `write_skill` tool preserves a user-set `always_present: true` frontmatter
+field on update, so manually pinned skills are never accidentally unpinned.
+
+### Example — minimal custom SkillReflector
 
 ```elixir
 defmodule MySidecar.Hooks.SkillReflector do

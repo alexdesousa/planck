@@ -40,7 +40,11 @@ defmodule Sidecar.Tools.WriteSkillTest do
   describe "write/3 — create" do
     test "creates skill directory and SKILL.md", %{tmp_dir: dir} do
       assert {:ok, "create_skill:git-workflow"} =
-               WriteSkill.write("git-workflow", "Git branching conventions.", "## Procedure\n\nDo things.")
+               WriteSkill.write(
+                 "git-workflow",
+                 "Git branching conventions.",
+                 "## Procedure\n\nDo things."
+               )
 
       assert File.exists?(skill_file(dir, "git-workflow"))
     end
@@ -83,6 +87,7 @@ defmodule Sidecar.Tools.WriteSkillTest do
   describe "write/3 — update" do
     test "returns update_skill:name for existing files", %{tmp_dir: _dir} do
       WriteSkill.write("existing", "Original.", "Original body.")
+
       assert {:ok, "update_skill:existing"} =
                WriteSkill.write("existing", "Updated.", "Updated body.")
     end
@@ -124,6 +129,7 @@ defmodule Sidecar.Tools.WriteSkillTest do
   describe "execute_fn" do
     test "delegates to write/3 and returns ok string" do
       tool = WriteSkill.tool()
+
       assert {:ok, result} =
                tool.execute_fn.("agent-1", "tc1", %{
                  "name" => "test-skill",
