@@ -19,19 +19,19 @@ defmodule Sidecar.Tools.ListSkillsTest do
 
   describe "tool/0" do
     test "tool name is list_skills" do
-      assert ListAgentSkills.tool().name == "list_skills"
+      assert ListSkills.tool().name == "list_skills"
     end
   end
 
   describe "list/0" do
     test "returns no-skills message when workspace has no agent skills" do
-      assert {:ok, msg} = ListAgentSkills.list()
+      assert {:ok, msg} = ListSkills.list()
       assert msg =~ "No agent-created skills"
     end
 
     test "returns agent-created skills" do
       WriteSkill.write("git-workflow", "Git branching conventions.", "Body.")
-      assert {:ok, result} = ListAgentSkills.list()
+      assert {:ok, result} = ListSkills.list()
       assert result =~ "git-workflow"
       assert result =~ "Git branching conventions."
     end
@@ -52,7 +52,7 @@ defmodule Sidecar.Tools.ListSkillsTest do
       Body.
       """)
 
-      assert {:ok, result} = ListAgentSkills.list()
+      assert {:ok, result} = ListSkills.list()
       refute result =~ "user-skill"
     end
 
@@ -71,7 +71,7 @@ defmodule Sidecar.Tools.ListSkillsTest do
       Body.
       """)
 
-      assert {:ok, result} = ListAgentSkills.list()
+      assert {:ok, result} = ListSkills.list()
       refute result =~ "pinned-user"
     end
 
@@ -79,20 +79,20 @@ defmodule Sidecar.Tools.ListSkillsTest do
       WriteSkill.write("skill-a", "Skill A.", "Body A.")
       WriteSkill.write("skill-b", "Skill B.", "Body B.")
 
-      assert {:ok, result} = ListAgentSkills.list()
+      assert {:ok, result} = ListSkills.list()
       assert result =~ "skill-a"
       assert result =~ "skill-b"
     end
 
     test "works when skills directory does not exist" do
-      assert {:ok, msg} = ListAgentSkills.list()
+      assert {:ok, msg} = ListSkills.list()
       assert msg =~ "No agent-created skills"
     end
   end
 
   describe "execute_fn" do
     test "calls list/0 and returns result" do
-      tool = ListAgentSkills.tool()
+      tool = ListSkills.tool()
       assert {:ok, _} = tool.execute_fn.("agent-1", "tc1", %{})
     end
   end
