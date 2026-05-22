@@ -59,15 +59,10 @@ else
   add_if_missing SEARXNG_LANGUAGE "en"
 fi
 
-# ── Install planck_setup skill ────────────────────────────────────────────────
-SKILL_DEST="$DEV_DIR/workspace/.planck/skills/planck_setup"
-
-if [ ! -f "$SKILL_DEST/SKILL.md" ]; then
-  echo "Installing planck_setup skill..."
-  cp -r skills/planck_setup "$DEV_DIR/workspace/.planck/skills/"
-else
-  echo "  → planck_setup skill already present, skipping."
-fi
+# ── Install planck_setup skill (always — it's repo-managed, not user data) ───
+echo "Installing planck_setup skill..."
+rm -rf "$DEV_DIR/workspace/.planck/skills/planck_setup"
+cp -r skills/planck_setup "$DEV_DIR/workspace/.planck/skills/"
 
 # ── Build images ──────────────────────────────────────────────────────────────
 echo "Building images..."
