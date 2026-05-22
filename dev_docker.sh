@@ -16,14 +16,19 @@ DEV_DIR=".planck-dev"
 export PLANCK_HOME="$(pwd)/$DEV_DIR"
 
 mkdir -p \
-  "$DEV_DIR/models" \
   "$DEV_DIR/typesense-data" \
-  "$DEV_DIR/workspace/.planck"
+  "$DEV_DIR/workspace/.planck/skills"
 
-# ── Write .env (skip if present) ─────────────────────────────────────────────
+# ── Write .env (add missing keys if it exists) ────────────────────────────────
 ENV_FILE="$DEV_DIR/.env"
+
+add_if_missing() {
+  grep -q "^$1=" "$ENV_FILE" 2>/dev/null || echo "$1=$2" >>"$ENV_FILE"
+}
+
 if [ ! -f "$ENV_FILE" ]; then
-  cat > "$ENV_FILE" << 'EOF'
+  cat >"$ENV_FILE" <<EOF
+PLANCK_HOME=$PLANCK_HOME
 TYPESENSE_API_KEY=planck-internal-key
 PLANCK_BIND_ADDRESS=127.0.0.1
 SEARXNG_SECRET=test-secret-local
@@ -31,19 +36,22 @@ SEARXNG_LANGUAGE=en
 EOF
   echo "  → $ENV_FILE created."
 else
-  echo "  → $ENV_FILE already exists, skipping."
+  echo "  → $ENV_FILE exists — adding any missing keys..."
+  add_if_missing PLANCK_HOME "$PLANCK_HOME"
+  add_if_missing TYPESENSE_API_KEY "planck-internal-key"
+  add_if_missing PLANCK_BIND_ADDRESS "127.0.0.1"
+  add_if_missing SEARXNG_SECRET "test-secret-local"
+  add_if_missing SEARXNG_LANGUAGE "en"
 fi
 
-# ── Download model ────────────────────────────────────────────────────────────
-MODEL="Bonsai-8B-Q1_0.gguf"
-MODEL_PATH="$DEV_DIR/models/$MODEL"
-MODEL_URL="https://huggingface.co/prism-ml/Bonsai-8B-gguf/resolve/main/$MODEL"
+# ── Install planck_setup skill ────────────────────────────────────────────────
+SKILL_DEST="$DEV_DIR/workspace/.planck/skills/planck_setup"
 
-if [ ! -f "$MODEL_PATH" ]; then
-  echo "Downloading Bonsai model (1.16 GB)..."
-  curl -L --progress-bar -o "$MODEL_PATH" "$MODEL_URL"
+if [ ! -f "$SKILL_DEST/SKILL.md" ]; then
+  echo "Installing planck_setup skill..."
+  cp -r skills/planck_setup "$DEV_DIR/workspace/.planck/skills/"
 else
-  echo "  → Model already downloaded, skipping."
+  echo "  → planck_setup skill already present, skipping."
 fi
 
 # ── Build images ──────────────────────────────────────────────────────────────
