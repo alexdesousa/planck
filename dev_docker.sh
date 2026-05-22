@@ -17,7 +17,7 @@ else
 fi
 
 DEV_DIR=".planck-dev"
-export PLANCK_HOME="$(pwd)/$DEV_DIR"
+PLANCK_HOME="$(pwd)/$DEV_DIR"
 ENV_FILE="$DEV_DIR/.env"
 
 PRESERVE=0
