@@ -46,6 +46,7 @@ defmodule Sidecar.MixProject do
       local_or_hex(:planck_agent, "~> 0.1"),
       {:skogsra, "~> 2.5"},
       {:req, "~> 0.5"},
+      {:ymlr, "~> 5.1"},
       {:erlexec, "~> 2.0"},
       {:file_system, "~> 1.0"},
       {:bypass, "~> 2.1", only: :test},

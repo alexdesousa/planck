@@ -2,6 +2,19 @@
 
 ## v0.1.7
 
+### Skill Reflector — objective 1: `write_skill` tool
+
+- `Sidecar.Tools.WriteSkill` — new sidecar tool that writes or updates a skill
+  file at `{workspace}/.planck/skills/<name>/SKILL.md`:
+  - `creator: agent` and `planck_version: null` always set by the tool
+  - `always_present` preserved from existing file on update (user-set `true`
+    survives rewrites), parsed via `:yamerl_constr`
+  - Action detection: `"create_skill"` if file did not exist, `"update_skill"`
+    if it did — returned in the result for synthetic tool injection
+  - Frontmatter generated using `Ymlr.Encode.to_s!/1` for correct YAML quoting
+    of all scalar values
+- `ymlr ~> 5.1` added as dependency for YAML generation
+
 ### Session indexing and search
 
 - `Sidecar.SessionIndexer` — new GenServer that subscribes to the
