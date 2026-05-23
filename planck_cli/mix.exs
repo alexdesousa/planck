@@ -73,11 +73,8 @@ defmodule Planck.CLI.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp local_or_hex(package, version) do
-    if System.get_env("PLANCK_LOCAL") == "true" do
-      {package, path: "../#{package}"}
-    else
-      {package, version}
-    end
+    local_path = Path.expand("../#{package}", __DIR__)
+    if File.dir?(local_path), do: {package, path: local_path}, else: {package, version}
   end
 
   defp aliases do

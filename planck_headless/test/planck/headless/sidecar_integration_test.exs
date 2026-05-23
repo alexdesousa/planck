@@ -142,7 +142,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
 
   defp pre_build_sidecar!(dir) do
     env =
-      Enum.flat_map(["PATH", "MIX_ENV", "PLANCK_LOCAL"], fn k ->
+      Enum.flat_map(["PATH", "MIX_ENV"], fn k ->
         case System.get_env(k) do
           nil -> []
           v -> [{to_charlist(k), to_charlist(v)}]

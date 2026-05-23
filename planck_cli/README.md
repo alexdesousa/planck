@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/4045b308-4b1c-4315-9024-11574a8c8eb5
 ## Running
 
 ```bash
-PLANCK_LOCAL=true mix run --no-halt -- --sname planck_cli
+mix run --no-halt -- --sname planck_cli
 ```
 
 - `PLANCK_LOCAL=true` — resolves sibling packages as local path dependencies instead

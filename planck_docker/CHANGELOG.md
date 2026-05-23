@@ -108,8 +108,8 @@ workflow as a reusable agent skill.
 - `Sidecar.Config` — new `memory_collection` key (`TYPESENSE_MEMORY_COLLECTION`,
   default `"short_term_memory"`); `sessions_collection` default renamed from
   `"memory"` to `"long_term_memory"`.
-- `sidecar/mix.exs` — `local_or_hex/2` helper so `PLANCK_LOCAL=true` uses local
-  `planck_agent` deps instead of Hex.
+- `sidecar/mix.exs` — `local_or_hex/2` auto-detects local `planck_agent` by
+  checking if the path exists, with Hex fallback for standalone installs.
 
 ### Collection naming convention
 

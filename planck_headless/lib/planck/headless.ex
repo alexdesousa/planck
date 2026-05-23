@@ -577,12 +577,15 @@ defmodule Planck.Headless do
     skill_opts =
       build_skill_opts(ctx.team_name, spec.name, spec.type, store.skills, cwd)
 
+    default_tools = if spec.tools == [], do: builtins(), else: []
+
     base_opts =
       AgentSpec.to_start_opts(spec,
         tool_pool:
           builtins() ++
             store.tools ++
             store.registered_tools ++ skill_discovery_tools(store.skills),
+        tools: default_tools,
         skill_pool: store.skills,
         skill_refresh_fn: fn -> ResourceStore.get().skills end,
         on_skill_use: skill_opts[:on_skill_use],

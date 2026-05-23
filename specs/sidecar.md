@@ -99,7 +99,7 @@ No configuration is needed — `list_tools/0` discovers the entry module automat
    via erlexec. The following env vars are injected:
    - `PLANCK_HEADLESS_NODE` — `Node.self()` stringified so the sidecar knows where
      to connect.
-   - `PATH`, `MIX_ENV`, `PLANCK_LOCAL` — forwarded from the headless process.
+   - `PATH`, `MIX_ENV` — forwarded from the headless process.
 3. Calls `:net_kernel.monitor_nodes(true)` and waits for `{:nodeup, sidecar_node}`.
 4. On nodeup: calls `Planck.Agent.Sidecar.list_tools/0` via RPC, wraps each
    `Planck.AI.Tool.t()` with an RPC `execute_fn`, stores in `ResourceStore`.

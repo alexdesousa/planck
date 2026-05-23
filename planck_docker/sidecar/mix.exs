@@ -22,11 +22,12 @@ defmodule Sidecar.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp local_or_hex(package, version) do
-    if System.get_env("PLANCK_LOCAL") == "true" do
-      {package, path: "../../#{package}"}
-    else
-      {package, version}
-    end
+    # Env var: planck_agent -> PLANCK_AGENT_SRC, planck_ai -> PLANCK_AI_SRC
+    suffix = package |> to_string() |> String.replace_prefix("planck_", "") |> String.upcase()
+    env_path = System.get_env("PLANCK_#{suffix}_SRC")
+    auto_path = Path.expand("../../#{package}", __DIR__)
+    path = env_path || if(File.dir?(auto_path), do: auto_path)
+    if path, do: {package, path: path}, else: {package, version}
   end
 
   defp aliases do

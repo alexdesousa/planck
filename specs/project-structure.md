@@ -28,21 +28,21 @@ boundary is enforced by convention: all interface code talks exclusively to
 
 ## Inter-package dependencies
 
-During development, packages reference siblings via path deps controlled by an env var.
-In CI and after Hex release, they use version refs.
+During development, packages reference siblings via path deps auto-detected at
+compile time. When the sibling directory exists on disk (monorepo checkout),
+the path dep is used automatically. When it doesn't (standalone install),
+the published Hex version is used instead.
 
 ```elixir
 # In each mix.exs:
 defp local_or_hex(package, version) do
-  if System.get_env("PLANCK_LOCAL") == "true" do
-    {package, path: "../#{package}"}
-  else
-    {package, version}
-  end
+  local_path = Path.expand("../#{package}", __DIR__)
+  if File.dir?(local_path), do: {package, path: local_path}, else: {package, version}
 end
 ```
 
-Usage: `PLANCK_LOCAL=true mix test` inside any package resolves siblings from disk.
+No env var needed — running `mix test` inside any package automatically
+resolves siblings from disk when checked out in the monorepo.
 
 ## Dependency graph
 

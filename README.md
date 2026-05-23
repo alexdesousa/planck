@@ -61,7 +61,7 @@ See [`specs/`](./specs) for design decisions.
 
 ```bash
 # Start the web UI
-PLANCK_LOCAL=true elixir --sname planck_cli -S mix run --no-halt
+elixir --sname planck_cli -S mix run --no-halt
 # → http://localhost:4000
 ```
 

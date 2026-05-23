@@ -22,7 +22,6 @@ COPY . .
 
 # Build the planck_docker OTP release (no Burrito wrapper).
 ENV MIX_ENV=prod
-ENV PLANCK_LOCAL=true
 RUN cd planck_cli \
     && mix deps.get \
     && MIX_ENV=dev mix deps.compile \
@@ -30,6 +29,9 @@ RUN cd planck_cli \
     && mix release planck_docker
 
 # Pre-install sidecar deps (Mix + npm) so the runtime sidecar setup is fast.
+# planck_agent is resolved as a local path dep via File.dir? auto-detection in
+# mix.exs — no env var needed. The path ../../planck_agent exists here (COPY . .)
+# so mix.lock does not lock it to Hex, and SidecarManager picks it up at runtime.
 RUN cd planck_docker/sidecar \
     && mix do local.hex --force + local.rebar --force + setup + compile
 
@@ -56,6 +58,11 @@ COPY --from=builder /build/planck_cli/_build/prod/rel/planck_docker /app/release
 
 # Sidecar source + pre-installed deps (entrypoint copies to workspace on first run).
 COPY --from=builder /build/planck_docker/sidecar /app/sidecar
+# planck_agent + planck_ai sources outside the workspace so Typesense doesn't index them.
+# PLANCK_AGENT_SRC is forwarded by SidecarManager. planck_agent's local_or_hex then
+# auto-detects planck_ai via File.dir?("../planck_ai") = /app/planck_ai.
+COPY --from=builder /build/planck_agent /app/planck_agent
+COPY --from=builder /build/planck_ai /app/planck_ai
 
 COPY planck_docker/planck/default_config.json.template /app/default_config.json.template
 COPY planck_docker/searxng/settings.yml.template /app/searxng_settings.yml.template
@@ -70,6 +77,7 @@ ENV SHELL=/bin/sh
 ENV MIX_ENV=prod
 ENV IP_ADDRESS=0.0.0.0
 ENV PORT=4000
+ENV PLANCK_AGENT_SRC=/app/planck_agent
 
 EXPOSE 4000
 
