@@ -60,7 +60,9 @@ defmodule Planck.Headless.MixProject do
 
   defp local_or_hex(package, version) do
     local_path = Path.expand("../#{package}", __DIR__)
-    if File.dir?(local_path), do: {package, path: local_path}, else: {package, version}
+    if File.dir?(local_path) and is_nil(System.get_env("HEX_PUBLISH")),
+      do: {package, path: local_path},
+      else: {package, version}
   end
 
   defp aliases do
