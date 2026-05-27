@@ -55,6 +55,7 @@ jobs:
         working-directory: planck_agent
     env:
       MIX_ENV: dev
+      HEX_PUBLISH: "true"
     steps:
       - uses: actions/checkout@v5
 
@@ -88,6 +89,7 @@ jobs:
         working-directory: planck_headless
     env:
       MIX_ENV: dev
+      HEX_PUBLISH: "true"
     steps:
       - uses: actions/checkout@v5
 
