@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.8
+
+- Version bump; pin Burrito OTP build version to 28.5.0 to fix macOS binary builds.
+
 ## v0.1.7
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

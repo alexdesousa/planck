@@ -95,3 +95,50 @@ Users who want to build on top of Planck depend only on what they need:
 All packages share the same version number and are released simultaneously. Version is
 defined once per `mix.exs` via a module attribute and kept in sync manually (or via a
 root-level Mix task).
+
+## Release checklist
+
+Every file that must be updated when cutting a new version (`X.Y.Z`):
+
+### Version numbers
+
+| File | What to change |
+|---|---|
+| `VERSION` | Bare version string, read by CI scripts |
+| `planck_ai/mix.exs` | `@version` |
+| `planck_agent/mix.exs` | `@version` |
+| `planck_headless/mix.exs` | `@version` |
+| `planck_cli/mix.exs` | `@version` |
+| `planck_docker/sidecar/mix.exs` | `version:` |
+| `planck_docker/compose.yml` | `image: ghcr.io/alexdesousa/planck:X.Y.Z` (both service entries) |
+| `skills/planck_setup/SKILL.md` | `planck_version:` frontmatter field |
+| `docs/install.sh` | `VERSION="X.Y.Z"` |
+| `docs/install.ps1` | `$Version = "X.Y.Z"` |
+| `docs/install_docker.sh` | `VERSION="X.Y.Z"` |
+| `docs/install_docker.ps1` | `$Version = "X.Y.Z"` |
+
+### CHANGELOGs
+
+Add a `## vX.Y.Z` section to each of:
+
+- `planck_ai/CHANGELOG.md`
+- `planck_agent/CHANGELOG.md`
+- `planck_headless/CHANGELOG.md`
+- `planck_cli/CHANGELOG.md`
+- `planck_docker/CHANGELOG.md`
+
+### CI — OTP version pins
+
+`release.yml` has two sets of `otp-version`:
+
+- **Publish jobs** (`publish-ai`, `publish-agent`, `publish-headless`): float on `"28.5"` — no pin needed.
+- **Build jobs** (`build-linux`, `build-macos-arm`, `build-windows`): pinned to an exact version (e.g. `"28.5.0"`) so Burrito resolves a version that exists on beam-machine's CDN. Update when beam-machine publishes a newer build.
+
+### Git tag
+
+```sh
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Pushing the tag triggers the release workflow.

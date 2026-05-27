@@ -58,6 +58,10 @@ for pkg in "${PACKAGES[@]}"; do
     run "$pkg" gettext  bash -c "mix gettext.extract --merge && git -C '$ROOT' diff --exit-code '$ROOT/$pkg/priv/gettext'"
   fi
 
+  if grep -q "test\.integration" "$ROOT/$pkg/mix.exs" 2>/dev/null; then
+    run "$pkg" integration mix test.integration
+  fi
+
   if [ $? -eq 0 ]; then
     PASSED=$((PASSED + 1))
   fi

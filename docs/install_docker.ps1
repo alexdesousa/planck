@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Repo        = "alexdesousa/planck"
-$Version     = "0.1.7"
+$Version     = "0.1.8"
 $PlanckHome  = Join-Path $HOME "planck"
 $ComposeUrl  = "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
 $ComposeFile = Join-Path $PlanckHome "compose.yml"
