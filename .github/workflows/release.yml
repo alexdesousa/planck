@@ -126,6 +126,8 @@ jobs:
     defaults:
       run:
         working-directory: planck_cli
+    env:
+      HEX_PUBLISH: "true"
     steps:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
@@ -163,6 +165,8 @@ jobs:
     defaults:
       run:
         working-directory: planck_cli
+    env:
+      HEX_PUBLISH: "true"
     steps:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
@@ -200,6 +204,8 @@ jobs:
     defaults:
       run:
         working-directory: planck_cli
+    env:
+      HEX_PUBLISH: "true"
     steps:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
