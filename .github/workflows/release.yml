@@ -172,7 +172,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.5"
-          otp-version: "28.5.0"
+          otp-version: "28.4"
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.15.2"
