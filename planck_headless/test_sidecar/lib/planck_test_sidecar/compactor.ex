@@ -1,5 +1,5 @@
 defmodule PlanckTestSidecar.Compactor do
-  use Planck.Agent.Compactor
+  use Planck.Agent.Hooks.Compactor
 
   @impl true
   def compact(_model, messages) do
