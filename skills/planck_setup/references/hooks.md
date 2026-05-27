@@ -179,19 +179,15 @@ whether the workflow is worth capturing as a reusable skill.
 
 ```elixir
 @callback reflect(
-            agent_id    :: String.t(),
+            agent_id      :: String.t(),
             turn_messages :: [Planck.Agent.Message.t()]
           ) :: :ok
 
-@callback reflect_threshold() :: non_neg_integer()   # default: 5
-@callback reflect_timeout()   :: pos_integer()        # default: 30_000 ms
+@callback reflect_timeout() :: pos_integer()   # default: 30_000 ms
 ```
 
-`reflect/2` is only called when the tool call count derived from
-`turn_messages` meets or exceeds `reflect_threshold/0`. On all other turns the
-hook is a single integer comparison — effectively free.
-
-The tool call count can be derived when needed:
+`reflect/2` is called on every turn. The implementation is responsible for any
+threshold check or filtering. The tool call count can be derived when needed:
 
 ```elixir
 tool_call_count =
@@ -220,10 +216,9 @@ production-ready implementation. Enable it by declaring it in TEAM.json:
 }
 ```
 
-`reflect_threshold/0` returns `5` — reflection only fires on turns with five or
-more tool calls.
-
-When the threshold is met, `reflect/2` starts `Sidecar.SkillReflector.Runner`, a
+`reflect/2` counts tool calls in `turn_messages` and only fires when the count
+reaches `@tool_threshold` (5). When the threshold is met, it starts
+`Sidecar.SkillReflector.Runner`, a
 transient GenServer that launches an ephemeral `Planck.Agent` (the "mini-agent")
 with three tools: `list_skills` (filtered to `creator: "agent"` only),
 `load_skill`, and `write_skill`. The mini-agent is linked to the Runner, so it
@@ -250,11 +245,19 @@ field on update, so manually pinned skills are never accidentally unpinned.
 defmodule MySidecar.Hooks.SkillReflector do
   use Planck.Agent.Hooks.TurnEnd
 
-  @impl true
-  def reflect_threshold, do: 5
+  @tool_threshold 5
 
   @impl true
   def reflect(agent_id, turn_messages) do
+    tool_call_count =
+      turn_messages
+      |> Enum.flat_map(& &1.content)
+      |> Enum.count(&match?({:tool_call, _, _, _}, &1))
+
+    if tool_call_count < @tool_threshold, do: :ok, else: do_reflect(agent_id, turn_messages)
+  end
+
+  defp do_reflect(agent_id, turn_messages) do
     case analyse(turn_messages) do
       :skip ->
         :ok
@@ -274,6 +277,7 @@ defmodule MySidecar.Hooks.SkillReflector do
 
   defp analyse(_turn_messages), do: :skip
   defp write_skill(_name, _description, _content), do: :ok
+  defp do_reflect(_agent_id, _turn_messages), do: :ok
 end
 ```
 

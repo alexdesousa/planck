@@ -234,6 +234,7 @@ defmodule Planck.Web.Components do
   `:starting`, `:connected`, `:failed`.
   """
   attr :status, :atom, required: true
+  attr :tools, :list, default: []
 
   def sidecar_status(assigns) do
     {dot_class, label} =
@@ -248,9 +249,20 @@ defmodule Planck.Web.Components do
     assigns = assign(assigns, dot_class: dot_class, label: label)
 
     ~H"""
-    <span class="flex items-center gap-1">
+    <details class="group relative" :if={@status == :connected and @tools != []}>
+      <summary class="flex items-center gap-1 cursor-pointer list-none">
+        <span class={["w-1.5 h-1.5 rounded-full", @dot_class]} />
+        <span><%= @label %> (<%= length(@tools) %>)</span>
+        <span class="opacity-50 group-open:rotate-180 transition-transform">▾</span>
+      </summary>
+      <ul class="absolute bottom-full right-0 mb-1 bg-card border border-border rounded shadow-md
+                 py-1 px-2 min-w-max z-50 text-left">
+        <li :for={tool <- @tools} class="py-0.5"><%= tool %></li>
+      </ul>
+    </details>
+    <span class="flex items-center gap-1" :if={@status != :connected or @tools == []}>
       <span class={["w-1.5 h-1.5 rounded-full", @dot_class]} />
-      <span><%= @label %></span>
+      <span><%= @label %><%= if @status == :connected and @tools == [], do: " (0)", else: "" %></span>
     </span>
     """
   end

@@ -27,13 +27,6 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
     use Planck.Agent.Hooks.TurnEnd
   end
 
-  defmodule HighThresholdHook do
-    use Planck.Agent.Hooks.TurnEnd
-
-    @impl true
-    def reflect_threshold, do: 100
-  end
-
   defmodule CustomTimeoutHook do
     use Planck.Agent.Hooks.TurnEnd
 
@@ -46,20 +39,12 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
   # ---------------------------------------------------------------------------
 
   describe "use Planck.Agent.Hooks.TurnEnd" do
-    test "provides default reflect_threshold/0" do
-      assert DefaultHook.reflect_threshold() == TurnEnd.default_threshold()
-    end
-
     test "provides default reflect_timeout/0" do
       assert DefaultHook.reflect_timeout() == TurnEnd.default_timeout()
     end
 
     test "reflect/2 returns :ok by default" do
       assert DefaultHook.reflect("agent-1", []) == :ok
-    end
-
-    test "reflect_threshold/0 can be overridden" do
-      assert HighThresholdHook.reflect_threshold() == 100
     end
 
     test "reflect_timeout/0 can be overridden" do
@@ -95,15 +80,22 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
     defmodule RecordingHook do
       use Planck.Agent.Hooks.TurnEnd
 
-      @impl true
-      def reflect_threshold, do: 2
+      @threshold 2
 
       @impl true
       def reflect(agent_id, turn_messages) do
-        counter = :persistent_term.get({__MODULE__, :counter}, nil)
-        if counter, do: :counters.add(counter, 1, 1)
-        parent = :persistent_term.get({__MODULE__, :parent}, nil)
-        if parent, do: send(parent, {:reflected, agent_id, length(turn_messages)})
+        tool_call_count =
+          turn_messages
+          |> Enum.flat_map(& &1.content)
+          |> Enum.count(&match?({:tool_call, _, _, _}, &1))
+
+        if tool_call_count >= @threshold do
+          counter = :persistent_term.get({__MODULE__, :counter}, nil)
+          if counter, do: :counters.add(counter, 1, 1)
+          parent = :persistent_term.get({__MODULE__, :parent}, nil)
+          if parent, do: send(parent, {:reflected, agent_id, length(turn_messages)})
+        end
+
         :ok
       end
     end
@@ -161,13 +153,20 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
   defmodule RemoteHook do
     use Planck.Agent.Hooks.TurnEnd
 
-    @impl true
-    def reflect_threshold, do: 1
+    @threshold 1
 
     @impl true
-    def reflect(_agent_id, _turn_messages) do
-      parent = :persistent_term.get({__MODULE__, :parent}, nil)
-      if parent, do: send(parent, :remote_reflected)
+    def reflect(_agent_id, turn_messages) do
+      tool_call_count =
+        turn_messages
+        |> Enum.flat_map(& &1.content)
+        |> Enum.count(&match?({:tool_call, _, _, _}, &1))
+
+      if tool_call_count >= @threshold do
+        parent = :persistent_term.get({__MODULE__, :parent}, nil)
+        if parent, do: send(parent, :remote_reflected)
+      end
+
       :ok
     end
   end
@@ -196,7 +195,7 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
       assert TurnEnd.reflect(RemoteHook, "a1", messages, :nonexistent@localhost) == :ok
     end
 
-    test "does not call reflect/2 below threshold even over RPC" do
+    test "does not notify below threshold even over RPC" do
       assert TurnEnd.reflect(RemoteHook, "a1", [], Node.self()) == :ok
       refute_received :remote_reflected
     end
@@ -208,12 +207,9 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
 
   defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
 
-  # Fires on every turn (threshold 0) — no tools needed.
+  # Fires on every turn — no threshold check.
   defmodule AlwaysHook do
     use Planck.Agent.Hooks.TurnEnd
-
-    @impl true
-    def reflect_threshold, do: 0
 
     @impl true
     def reflect(agent_id, _turn_messages) do
@@ -228,12 +224,17 @@ defmodule Planck.Agent.Hooks.TurnEndTest do
     use Planck.Agent.Hooks.TurnEnd
 
     @impl true
-    def reflect_threshold, do: 1
+    def reflect(agent_id, turn_messages) do
+      tool_call_count =
+        turn_messages
+        |> Enum.flat_map(& &1.content)
+        |> Enum.count(&match?({:tool_call, _, _, _}, &1))
 
-    @impl true
-    def reflect(agent_id, _turn_messages) do
-      parent = :persistent_term.get({__MODULE__, :parent}, nil)
-      if parent, do: send(parent, {:hook_fired, agent_id})
+      if tool_call_count >= 1 do
+        parent = :persistent_term.get({__MODULE__, :parent}, nil)
+        if parent, do: send(parent, {:hook_fired, agent_id})
+      end
+
       :ok
     end
   end

@@ -30,7 +30,8 @@ defmodule Planck.Web.Live.AgentsSidebar do
      |> assign(:open, false)
      |> assign(:agents, %{})
      |> assign(:agent_order, [])
-     |> assign(:sidecar, :idle)}
+     |> assign(:sidecar, :idle)
+     |> assign(:sidecar_tools, [])}
   end
 
   @impl true
@@ -41,7 +42,8 @@ defmodule Planck.Web.Live.AgentsSidebar do
      socket
      |> assign(:agents, assigns[:agents] || %{})
      |> assign(:agent_order, assigns[:agent_order] || [])
-     |> assign(:sidecar, assigns[:sidecar] || :idle)}
+     |> assign(:sidecar, assigns[:sidecar] || :idle)
+     |> assign(:sidecar_tools, assigns[:sidecar_tools] || [])}
   end
 
   def update(%{action: :event, event: event}, socket) do
@@ -99,9 +101,22 @@ defmodule Planck.Web.Live.AgentsSidebar do
     end)
   end
 
+  defp handle_agent_event(socket, {:connected, _node}) do
+    tools =
+      Planck.Headless.ResourceStore.get().tools
+      |> Stream.map(& &1.name)
+      |> Enum.sort()
+
+    socket
+    |> assign(:sidecar, :connected)
+    |> assign(:sidecar_tools, tools)
+  end
+
   defp handle_agent_event(socket, {sidecar_event, _})
-       when sidecar_event in [:building, :starting, :connected, :disconnected, :exited] do
-    assign(socket, :sidecar, sidecar_to_status(sidecar_event))
+       when sidecar_event in [:building, :starting, :disconnected, :exited] do
+    socket
+    |> assign(:sidecar, sidecar_to_status(sidecar_event))
+    |> assign(:sidecar_tools, [])
   end
 
   defp handle_agent_event(socket, {:error, _step, _reason}) do
@@ -127,10 +142,9 @@ defmodule Planck.Web.Live.AgentsSidebar do
     end)
   end
 
-  @spec sidecar_to_status(:building | :starting | :connected | :disconnected | :exited) ::
-          :idle | :building | :starting | :connected | :failed
+  @spec sidecar_to_status(:building | :starting | :disconnected | :exited) ::
+          :idle | :building | :starting | :failed
   defp sidecar_to_status(status)
-  defp sidecar_to_status(:connected), do: :connected
   defp sidecar_to_status(:building), do: :building
   defp sidecar_to_status(:starting), do: :starting
   defp sidecar_to_status(:disconnected), do: :idle

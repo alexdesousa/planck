@@ -3,12 +3,6 @@ defmodule Sidecar.SkillReflectorTest do
 
   alias Sidecar.SkillReflector
 
-  describe "reflect_threshold/0" do
-    test "defaults to 5" do
-      assert SkillReflector.reflect_threshold() == 5
-    end
-  end
-
   describe "reflect_timeout/0" do
     test "has a positive default" do
       assert SkillReflector.reflect_timeout() > 0

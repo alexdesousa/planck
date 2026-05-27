@@ -319,16 +319,8 @@ Post-turn reflection is implemented in the sidecar via the
 planck_headless passes `turn_end_hook: MySidecar.Hooks.SkillReflector` (a module
 atom) at agent start time. After every LLM turn ends, the agent fires
 `Hooks.TurnEnd.reflect/4` in a background `Task` — non-blocking, the agent
-returns to idle immediately.
-
-### Threshold check
-
-`Hooks.TurnEnd.reflect/4` derives the tool call count from `turn_messages` and
-checks it against `module.reflect_threshold/0` **before dispatching**. The RPC
-call only happens when the threshold is met. On all other turns the cost is one
-local integer comparison.
-
-Default threshold: 5. Override `reflect_threshold/0` to tune sensitivity.
+returns to idle immediately. `reflect/4` dispatches unconditionally; the
+implementation is responsible for any threshold check or filtering.
 
 ### Behaviour
 
@@ -338,8 +330,7 @@ Default threshold: 5. Override `reflect_threshold/0` to tune sensitivity.
             turn_messages :: [Planck.Agent.Message.t()]
           ) :: :ok
 
-@callback reflect_threshold() :: non_neg_integer()
-@callback reflect_timeout()   :: pos_integer()
+@callback reflect_timeout() :: pos_integer()
 ```
 
 ### Skill Reflector — bundled implementation
@@ -356,10 +347,9 @@ pattern as `Sidecar.SkillReflector`. Enable it in TEAM.json:
 
 #### How it works
 
-`Sidecar.SkillReflector` implements `Planck.Agent.Hooks.TurnEnd` with
-`reflect_threshold/0` returning `5`. When a turn's tool-call count meets the
-threshold, `reflect/2` delegates to `Sidecar.SkillReflector.Runner` (already
-executing in the background task that `agent.ex` fires for all turn-end hooks).
+`Sidecar.SkillReflector` implements `Planck.Agent.Hooks.TurnEnd`. Its
+`reflect/2` counts tool calls in `turn_messages` and only delegates to
+`Sidecar.SkillReflector.Runner` when the count reaches `@tool_threshold` (5).
 
 #### Mini-agent lifecycle
 
@@ -407,22 +397,30 @@ sends a stop signal and terminates, preventing infinite loops.
 defmodule MySidecar.Hooks.SkillReflector do
   use Planck.Agent.Hooks.TurnEnd
 
-  @impl true
-  def reflect_threshold, do: 5
+  @tool_threshold 5
 
   @impl true
   def reflect(agent_id, turn_messages) do
-    # Query existing skills, decide: new skill / update / skip.
-    case decide(turn_messages) do
-      :skip ->
-        :ok
+    tool_call_count =
+      turn_messages
+      |> Enum.flat_map(& &1.content)
+      |> Enum.count(&match?({:tool_call, _, _, _}, &1))
 
-      {:write, name, description, content} ->
-        write_skill(name, description, content)
-        # Signal back via a synthetic tool result visible to the LLM next turn.
-        Planck.Agent.inject_tool_result(agent_id, "skill_reflector",
-          "Skill '#{name}' written: #{description}")
-        :ok
+    if tool_call_count >= @tool_threshold do
+      # Query existing skills, decide: new skill / update / skip.
+      case decide(turn_messages) do
+        :skip ->
+          :ok
+
+        {:write, name, description, content} ->
+          write_skill(name, description, content)
+          # Signal back via a synthetic tool result visible to the LLM next turn.
+          Planck.Agent.inject_tool_result(agent_id, "skill_reflector",
+            "Skill '#{name}' written: #{description}")
+          :ok
+      end
+    else
+      :ok
     end
   end
 

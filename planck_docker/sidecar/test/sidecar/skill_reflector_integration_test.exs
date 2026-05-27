@@ -51,6 +51,13 @@ defmodule Sidecar.SkillReflectorIntegrationTest do
     Path.join([dir, ".planck", "skills", name, "SKILL.md"])
   end
 
+  defp tool_call_messages(count) do
+    alias Planck.Agent.Message
+    calls = Enum.map(1..count, fn i -> {:tool_call, "id-#{i}", "bash", %{}} end)
+    results = Enum.map(1..count, fn i -> {:tool_result, "id-#{i}", "ok"} end)
+    [Message.new(:assistant, calls), Message.new(:tool_result, results)]
+  end
+
   # ---------------------------------------------------------------------------
 
   describe "full reflector flow" do
@@ -195,8 +202,11 @@ defmodule Sidecar.SkillReflectorIntegrationTest do
         end
       end)
 
+      # Pass enough tool calls to meet @tool_threshold (5)
+      turn_messages = tool_call_messages(5)
+
       # Test through the public Hooks.TurnEnd interface
-      assert :ok = SkillReflector.reflect(parent_id, [])
+      assert :ok = SkillReflector.reflect(parent_id, turn_messages)
 
       # Wait for the skill file to appear (Runner is async)
       assert_eventually(fn -> File.exists?(skill_file(dir, "reflect-skill")) end, 5_000)

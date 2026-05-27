@@ -577,19 +577,30 @@ defmodule Planck.Web.SessionLive do
     sidecar_status = SidecarManager.status() |> map_sidecar_status()
     initial_usage = derive_total_usage(agents)
 
+    sidecar_tools =
+      if sidecar_status == :connected do
+        Planck.Headless.ResourceStore.get().tools
+        |> Stream.map(& &1.name)
+        |> Enum.sort()
+      else
+        []
+      end
+
     send_update(AgentsSidebar,
       id: "agents-sidebar",
       action: :load,
       agents: agents,
       agent_order: agent_order,
-      sidecar: sidecar_status
+      sidecar: sidecar_status,
+      sidecar_tools: sidecar_tools
     )
 
     send_update(StatusBar,
       id: "status-bar",
       action: :load,
       usage: initial_usage,
-      sidecar: sidecar_status
+      sidecar: sidecar_status,
+      sidecar_tools: sidecar_tools
     )
 
     {description, welcome} = session_description(session_id)
@@ -679,9 +690,8 @@ defmodule Planck.Web.SessionLive do
   @spec maybe_sync_sidecar_tools(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp maybe_sync_sidecar_tools(%{assigns: %{orchestrator_id: nil}} = socket), do: socket
 
-  defp maybe_sync_sidecar_tools(%{assigns: %{active_session: sid, orchestrator_id: oid}} = socket) do
-    with {_desc, true} <- session_description(sid),
-         {:ok, pid} <- Agent.whereis(oid) do
+  defp maybe_sync_sidecar_tools(%{assigns: %{orchestrator_id: oid}} = socket) do
+    with {:ok, pid} <- Agent.whereis(oid) do
       Planck.Headless.ResourceStore.get().tools
       |> Enum.each(&Planck.Agent.add_tool(pid, &1))
     end
@@ -692,11 +702,8 @@ defmodule Planck.Web.SessionLive do
   @spec maybe_clear_sidecar_tools(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp maybe_clear_sidecar_tools(%{assigns: %{orchestrator_id: nil}} = socket), do: socket
 
-  defp maybe_clear_sidecar_tools(
-         %{assigns: %{active_session: sid, orchestrator_id: oid}} = socket
-       ) do
-    with {_desc, true} <- session_description(sid),
-         {:ok, pid} <- Agent.whereis(oid) do
+  defp maybe_clear_sidecar_tools(%{assigns: %{orchestrator_id: oid}} = socket) do
+    with {:ok, pid} <- Agent.whereis(oid) do
       Planck.Headless.ResourceStore.get().tools
       |> Enum.each(&Planck.Agent.remove_tool(pid, &1.name))
     end

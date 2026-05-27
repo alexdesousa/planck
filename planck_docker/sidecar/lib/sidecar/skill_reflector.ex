@@ -15,11 +15,34 @@ defmodule Sidecar.SkillReflector do
 
   require Logger
 
-  @impl Planck.Agent.Hooks.TurnEnd
-  def reflect_threshold, do: 5
+  alias Planck.Agent.Message
+
+  @tool_threshold 5
 
   @impl Planck.Agent.Hooks.TurnEnd
   def reflect(agent_id, turn_messages) do
+    tool_call_count = count_tool_calls(turn_messages)
+
+    if @tool_threshold <= tool_call_count do
+      do_reflect(agent_id, turn_messages)
+    else
+      :ok
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
+
+  @spec count_tool_calls([Message.t()]) :: non_neg_integer()
+  defp count_tool_calls(messages) do
+    messages
+    |> Enum.flat_map(& &1.content)
+    |> Enum.count(&match?({:tool_call, _, _, _}, &1))
+  end
+
+  @spec do_reflect(String.t(), [Message.t()]) :: :ok
+  defp do_reflect(agent_id, turn_messages) do
     case Sidecar.SkillReflector.Runner.start(agent_id, turn_messages) do
       {:ok, _pid} ->
         :ok

@@ -22,8 +22,10 @@ Three hook behaviours under `Planck.Agent.Hooks`:
   return `nil` (no injection) instead of raising
 
 **`Planck.Agent.Hooks.TurnEnd`** — post-turn reflection, fires in a background Task.
-- `reflect/2` callback: `reflect(agent_id, turn_messages)` — called after every turn
-- `reflect_threshold/0` and `reflect_timeout/0` for control
+- `reflect/2` callback: `reflect(agent_id, turn_messages)` — called after every turn;
+  dispatch is unconditional — the implementation owns any threshold check
+- `reflect_timeout/0` for custom RPC timeouts (default 30 000 ms); `default_timeout/0`
+  exposes the default for use in `__using__` macros
 - `use Planck.Agent.Hooks.TurnEnd` injects no-op defaults
 - Dispatch: `TurnEnd.reflect(module, agent_id, turn_messages, sidecar_node)`
 

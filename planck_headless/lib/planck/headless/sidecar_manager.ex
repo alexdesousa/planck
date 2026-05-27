@@ -172,6 +172,17 @@ defmodule Planck.Headless.SidecarManager do
     {:noreply, %{state | os_pid: nil, sidecar_node: nil, status: :failed}}
   end
 
+  # erlexec stdout/stderr from the sidecar process — log and discard
+  def handle_info({:stdout, _os_pid, data}, state) do
+    Logger.debug("[SidecarManager] sidecar stdout: #{String.trim(data)}")
+    {:noreply, state}
+  end
+
+  def handle_info({:stderr, _os_pid, data}, state) do
+    Logger.debug("[SidecarManager] sidecar stderr: #{String.trim(data)}")
+    {:noreply, state}
+  end
+
   # Ignore nodeup/nodedown for other nodes we don't care about
   def handle_info({:nodeup, _node}, state), do: {:noreply, state}
   def handle_info({:nodedown, _node}, state), do: {:noreply, state}
@@ -224,6 +235,11 @@ defmodule Planck.Headless.SidecarManager do
 
   @spec spawn_sidecar(Path.t()) :: {:ok, pos_integer()} | {:error, term()}
   defp spawn_sidecar(dir) do
+    # Kill any stale epmd registration for the sidecar node from a previous crash.
+    # Without this, restarting after an epipe crash fails with "name already in use".
+    :net_adm.ping(:"#{@sname}@#{node_host()}")
+    :rpc.call(:"#{@sname}@#{node_host()}", :erlang, :halt, [0])
+
     cookie =
       Node.get_cookie()
       |> Atom.to_string()
@@ -234,7 +250,7 @@ defmodule Planck.Headless.SidecarManager do
       |> to_charlist()
 
     extra = [{~c"PLANCK_HEADLESS_NODE", headless_node}]
-    opts = [:monitor, cd: to_charlist(dir), env: env(extra)]
+    opts = [:monitor, :stdout, :stderr, cd: to_charlist(dir), env: env(extra)]
 
     cmd = "elixir --sname #{@sname} --cookie #{cookie} -S mix run --no-halt"
 
@@ -271,6 +287,14 @@ defmodule Planck.Headless.SidecarManager do
       end)
 
     [{~c"PATH", to_charlist(clean_path)}] ++ passthrough ++ release_unsets ++ extra
+  end
+
+  @spec node_host() :: String.t()
+  defp node_host do
+    Node.self()
+    |> Atom.to_string()
+    |> String.split("@")
+    |> List.last()
   end
 
   @spec sidecar_node?(atom()) :: boolean()

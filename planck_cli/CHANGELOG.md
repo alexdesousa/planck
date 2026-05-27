@@ -2,7 +2,20 @@
 
 ## v0.1.7
 
-- Version bump to stay in sync with the monorepo release; no functional changes.
+### Sidecar tools display
+
+The AgentsSidebar and StatusBar now show the tools registered by the connected
+sidecar. When the sidecar connects, both components read
+`ResourceStore.get().tools` and display an expandable list with the tool names.
+The list clears automatically on disconnect.
+
+### Bug fix — sidecar tools not added to active agent
+
+Sidecar tools were not being injected into the running orchestrator when the
+sidecar connected, due to a stale guard in `maybe_sync_sidecar_tools` that
+checked `session_description/1` and blocked any session with a team alias.
+The guard has been removed — sidecar tools are now added to the orchestrator
+unconditionally on connect and removed on disconnect.
 
 ## v0.1.6
 

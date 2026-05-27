@@ -13,13 +13,13 @@ msgstr ""
 
 #: lib/planck/web/components.ex:113
 #: lib/planck/web/components.ex:123
-#: lib/planck/web/components.ex:481
+#: lib/planck/web/components.ex:493
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "orchestrator"
 msgstr ""
 
-#: lib/planck/web/components.ex:482
+#: lib/planck/web/components.ex:494
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "worker"
@@ -220,31 +220,31 @@ msgctxt "sidebar header"
 msgid "Sessions"
 msgstr ""
 
-#: lib/planck/web/components.ex:242
+#: lib/planck/web/components.ex:243
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "building…"
 msgstr ""
 
-#: lib/planck/web/components.ex:245
+#: lib/planck/web/components.ex:246
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "no sidecar"
 msgstr ""
 
-#: lib/planck/web/components.ex:241
+#: lib/planck/web/components.ex:242
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "sidecar"
 msgstr ""
 
-#: lib/planck/web/components.ex:244
+#: lib/planck/web/components.ex:245
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "sidecar error"
 msgstr ""
 
-#: lib/planck/web/components.ex:243
+#: lib/planck/web/components.ex:244
 #, elixir-autogen, elixir-format
 msgctxt "sidecar status"
 msgid "starting…"

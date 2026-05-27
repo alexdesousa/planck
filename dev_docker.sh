@@ -106,7 +106,7 @@ EOF
     {
       "type": "orchestrator",
       "name": "Marvin",
-      "provider": "marvin",
+      "provider": "openai",
       "model_id": "Qwen3.6 35B",
       "system_prompt": "You are Marvin, a helpful assistant.",
       "prompt_hook": "Sidecar.Memory",

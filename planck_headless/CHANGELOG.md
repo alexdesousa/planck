@@ -5,6 +5,23 @@
 - Picks up `planck_agent` v0.1.7: `state.cost` moved to `state.usage.cost`;
   usage-restore tests updated accordingly.
 
+### ResourceStore tool fields
+
+`ResourceStore` distinguishes two tool lists:
+
+- `.tools` — sidecar tools, set by `SidecarManager` on nodeup via
+  `put_tools/1` and cleared on nodedown via `clear_tools/0`.
+- `.registered_tools` — locally registered tools, managed via
+  `register_tool/1` and `unregister_tool/1`.
+
+### Bug fixes
+
+- `SidecarManager`: added `:stdout` and `:stderr` handlers to prevent a
+  `FunctionClauseError` crash when the sidecar process writes to its pipes.
+- `SidecarManager`: ping + halt the stale `planck_sidecar` epmd registration
+  before spawning a new node, preventing "name already in use" failures on
+  restart after a crash.
+
 ## v0.1.6
 
 ### New config schema (breaking)
