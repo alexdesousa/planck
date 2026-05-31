@@ -28,8 +28,8 @@ defmodule Planck.Web.Live.SetupModal do
   @openai_compat_presets [
     {"nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", "NVIDIA", true},
     {"groq", "Groq", "https://api.groq.com/openai/v1", "GROQ", true},
-    {"ollama", "Ollama", "http://localhost:11434", nil, false},
-    {"llama_cpp", "llama.cpp", "http://localhost:8080", nil, false},
+    {"ollama", "Ollama", "http://localhost:11434/v1", nil, false},
+    {"llama_cpp", "llama.cpp", "http://localhost:8080/v1", nil, false},
     {"other", "Other", "", nil, true}
   ]
 
@@ -69,6 +69,13 @@ defmodule Planck.Web.Live.SetupModal do
      |> assign(:scope, :local)
      |> assign(:set_default, true)
      |> assign(:advanced_opts, "")
+     |> assign(:param_context_window, "")
+     |> assign(:param_max_tokens, "")
+     |> assign(:param_temperature, "")
+     |> assign(:param_top_p, "")
+     |> assign(:param_min_p, "")
+     |> assign(:param_top_k, "")
+     |> assign(:params_open, false)
      |> assign(:saving, false)
      |> assign(:error, nil)}
   end
@@ -136,6 +143,10 @@ defmodule Planck.Web.Live.SetupModal do
 
   def handle_event("toggle_default", _params, socket) do
     {:noreply, update(socket, :set_default, &(!&1))}
+  end
+
+  def handle_event("toggle_params", _params, socket) do
+    {:noreply, update(socket, :params_open, &(!&1))}
   end
 
   def handle_event("next", _params, socket) do
@@ -212,8 +223,10 @@ defmodule Planck.Web.Live.SetupModal do
     socket
     |> assign(:provider_key, provider_key)
     |> assign(:models, models)
-    |> assign(:model_api_id, first_model || "")
-    |> assign(:model_alias, first_model || "")
+    |> clear_param_assigns()
+    |> then(fn s ->
+      if first_model, do: do_select_model(s, first_model), else: assign(s, :model_api_id, "")
+    end)
   end
 
   @spec do_select_model(Socket.t(), String.t()) :: Socket.t()
@@ -229,6 +242,12 @@ defmodule Planck.Web.Live.SetupModal do
     |> maybe_assign(:model_api_id, params, "model_api_id")
     |> maybe_assign(:model_alias, params, "model_alias")
     |> maybe_assign(:advanced_opts, params, "advanced_opts")
+    |> maybe_assign(:param_context_window, params, "param_context_window")
+    |> maybe_assign(:param_max_tokens, params, "param_max_tokens")
+    |> maybe_assign(:param_temperature, params, "param_temperature")
+    |> maybe_assign(:param_top_p, params, "param_top_p")
+    |> maybe_assign(:param_min_p, params, "param_min_p")
+    |> maybe_assign(:param_top_k, params, "param_top_k")
   end
 
   @spec do_next(Socket.t()) :: Socket.t()
@@ -304,17 +323,33 @@ defmodule Planck.Web.Live.SetupModal do
 
     preset_params = Map.get(@preset_default_params, a.preset || "")
     preset_model = Map.get(@preset_default_models, a.preset || "")
-    advanced_opts = if preset_params, do: Jason.encode!(preset_params, pretty: true), else: ""
     first_model = preset_model || models |> List.first({nil, nil}) |> elem(0)
 
     socket
     |> assign(:provider_key, provider_key)
     |> assign(:step, :model)
     |> assign(:models, models)
-    |> assign(:advanced_opts, advanced_opts)
     |> assign(:model_api_id, first_model || "")
     |> assign(:model_alias, first_model || "")
     |> assign(:error, nil)
+    |> assign_preset_params(preset_params)
+  end
+
+  @spec assign_preset_params(Socket.t(), map() | nil) :: Socket.t()
+  defp assign_preset_params(socket, preset_params) do
+    {known_params, remaining_params} = extract_known_params(preset_params || %{})
+
+    advanced_opts =
+      if remaining_params != %{}, do: Jason.encode!(remaining_params, pretty: true), else: ""
+
+    socket
+    |> assign(:advanced_opts, advanced_opts)
+    |> assign(:param_context_window, "")
+    |> assign(:param_max_tokens, "")
+    |> assign(:param_temperature, param_to_string(known_params["temperature"]))
+    |> assign(:param_top_p, param_to_string(known_params["top_p"]))
+    |> assign(:param_min_p, param_to_string(known_params["min_p"]))
+    |> assign(:param_top_k, param_to_string(known_params["top_k"]))
   end
 
   # ---------------------------------------------------------------------------
@@ -333,7 +368,7 @@ defmodule Planck.Web.Live.SetupModal do
   defp validate_provider_step(a) do
     provider_key = compute_provider_key(a.provider, a.identifier, a.preset)
 
-    if Map.has_key?(Headless.config().providers || %{}, provider_key) do
+    if Map.has_key?(Headless.config().providers, provider_key) do
       {:error,
        pgettext(
          "setup error",
@@ -416,6 +451,60 @@ defmodule Planck.Web.Live.SetupModal do
     end
   end
 
+  @spec clear_param_assigns(Socket.t()) :: Socket.t()
+  defp clear_param_assigns(socket) do
+    socket
+    |> assign(:param_context_window, "")
+    |> assign(:param_max_tokens, "")
+    |> assign(:param_temperature, "")
+    |> assign(:param_top_p, "")
+    |> assign(:param_min_p, "")
+    |> assign(:param_top_k, "")
+  end
+
+  @spec extract_known_params(map()) :: {map(), map()}
+  defp extract_known_params(params) do
+    known_keys = ["temperature", "top_p", "min_p", "top_k"]
+    {Map.take(params, known_keys), Map.drop(params, known_keys)}
+  end
+
+  @spec param_to_string(number() | nil) :: String.t()
+  defp param_to_string(nil), do: ""
+  defp param_to_string(val), do: to_string(val)
+
+  @spec int_to_string(integer() | nil) :: String.t()
+  defp int_to_string(nil), do: ""
+  defp int_to_string(val), do: to_string(val)
+
+  @spec parse_float(String.t()) :: {:ok, float()} | :error
+  defp parse_float(""), do: :error
+
+  defp parse_float(s) do
+    case Float.parse(String.trim(s)) do
+      {f, _} -> {:ok, f}
+      :error -> :error
+    end
+  end
+
+  @spec parse_integer(String.t()) :: {:ok, integer()} | :error
+  defp parse_integer(""), do: :error
+
+  defp parse_integer(s) do
+    case Integer.parse(String.trim(s)) do
+      {i, ""} -> {:ok, i}
+      _ -> :error
+    end
+  end
+
+  @spec put_if_parsed(keyword(), atom(), String.t(), (String.t() -> {:ok, term()} | :error)) ::
+          keyword()
+  defp put_if_parsed(opts, key, val, parser) do
+    case parser.(val) do
+      {:ok, parsed} -> Keyword.put(opts, key, parsed)
+      :error -> opts
+    end
+  end
+
   @spec maybe_assign(Socket.t(), atom(), map(), String.t()) :: Socket.t()
   defp maybe_assign(socket, key, params, field) do
     case Map.fetch(params, field) do
@@ -440,14 +529,23 @@ defmodule Planck.Web.Live.SetupModal do
 
       entry ->
         alias_val = Map.get(entry, "id", model_api_id)
-        params = Map.get(entry, "params")
-        advanced_opts = if params, do: Jason.encode!(params, pretty: true), else: ""
+        {known_params, remaining_params} = extract_known_params(Map.get(entry, "params") || %{})
+
+        advanced_opts =
+          if remaining_params != %{}, do: Jason.encode!(remaining_params, pretty: true), else: ""
+
         is_default = config.default_model == alias_val
 
         socket
         |> assign(:model_alias, alias_val)
         |> assign(:advanced_opts, advanced_opts)
         |> assign(:set_default, is_default)
+        |> assign(:param_context_window, int_to_string(Map.get(entry, "context_window")))
+        |> assign(:param_max_tokens, int_to_string(Map.get(entry, "max_tokens")))
+        |> assign(:param_temperature, param_to_string(known_params["temperature"]))
+        |> assign(:param_top_p, param_to_string(known_params["top_p"]))
+        |> assign(:param_min_p, param_to_string(known_params["min_p"]))
+        |> assign(:param_top_k, param_to_string(known_params["top_k"]))
     end
   end
 
@@ -483,13 +581,36 @@ defmodule Planck.Web.Live.SetupModal do
     end
   end
 
+  @spec merge_param(map(), String.t(), String.t(), (String.t() -> {:ok, term()} | :error)) ::
+          map()
+  defp merge_param(acc, key, _val, _parser) when is_map_key(acc, key), do: acc
+
+  defp merge_param(acc, key, val, parser) do
+    case parser.(val) do
+      {:ok, parsed} -> Map.put(acc, key, parsed)
+      :error -> acc
+    end
+  end
+
   @spec prepend_if(keyword(), atom(), term(), boolean()) :: keyword()
   defp prepend_if(opts, _key, _val, false), do: opts
   defp prepend_if(opts, key, val, true), do: [{key, val} | opts]
 
   @spec build_model_opts(map(), String.t(), map() | nil) :: keyword()
-  defp build_model_opts(a, provider_key, params) do
+  defp build_model_opts(a, provider_key, json_params) do
     alias_val = if a.model_alias != "", do: a.model_alias, else: a.model_api_id
+
+    merged_params =
+      [
+        {"temperature", a.param_temperature, &parse_float/1},
+        {"top_p", a.param_top_p, &parse_float/1},
+        {"min_p", a.param_min_p, &parse_float/1},
+        {"top_k", a.param_top_k, &parse_integer/1}
+      ]
+      |> Enum.reduce(json_params || %{}, fn {key, val, parser}, acc ->
+        merge_param(acc, key, val, parser)
+      end)
+      |> then(fn p -> if p == %{}, do: nil, else: p end)
 
     [
       id: alias_val,
@@ -497,8 +618,10 @@ defmodule Planck.Web.Live.SetupModal do
       provider: provider_key,
       scope: a.scope,
       default: a.set_default,
-      params: params
+      params: merged_params
     ]
+    |> put_if_parsed(:context_window, a.param_context_window, &parse_integer/1)
+    |> put_if_parsed(:max_tokens, a.param_max_tokens, &parse_integer/1)
   end
 
   @spec provider_type_for(atom()) :: String.t()

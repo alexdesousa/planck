@@ -310,80 +310,81 @@ msgctxt "chat welcome"
 msgid "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up."
 msgstr "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up."
 
-#: lib/planck/web/live/setup_modal.html.heex:333
+#: lib/planck/web/live/setup_modal.html.heex:428
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Back"
 msgstr "Back"
 
-#: lib/planck/web/live/setup_modal.html.heex:347
+#: lib/planck/web/live/setup_modal.html.heex:442
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Next"
 msgstr "Next"
 
-#: lib/planck/web/live/setup_modal.html.heex:358
+#: lib/planck/web/live/setup_modal.html.heex:453
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Save"
 msgstr "Save"
 
-#: lib/planck/web/live/setup_modal.html.heex:358
+#: lib/planck/web/live/setup_modal.html.heex:453
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Saving…"
 msgstr "Saving…"
 
-#: lib/planck/web/live/setup_modal.ex:220
+#: lib/planck/web/live/setup_modal.ex:361
+#: lib/planck/web/live/setup_modal.ex:384
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select a provider."
 msgstr "Please select a provider."
 
-#: lib/planck/web/live/setup_modal.ex:230
-#: lib/planck/web/live/setup_modal.ex:245
+#: lib/planck/web/live/setup_modal.ex:388
+#: lib/planck/web/live/setup_modal.ex:405
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select or enter a model."
 msgstr "Please select or enter a model."
 
-#: lib/planck/web/live/setup_modal.ex:459
+#: lib/planck/web/live/setup_modal.ex:689
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "All projects (~/.planck/)"
 msgstr "All projects (~/.planck/)"
 
-#: lib/planck/web/live/setup_modal.ex:440
+#: lib/planck/web/live/setup_modal.ex:667
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Anthropic API Key"
 msgstr "Anthropic API Key"
 
-#: lib/planck/web/live/setup_modal.ex:442
+#: lib/planck/web/live/setup_modal.ex:669
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Google API Key"
 msgstr "Google API Key"
 
-#: lib/planck/web/live/setup_modal.ex:441
+#: lib/planck/web/live/setup_modal.ex:668
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "OpenAI API Key"
 msgstr "OpenAI API Key"
 
-#: lib/planck/web/live/setup_modal.html.heex:211
+#: lib/planck/web/live/setup_modal.html.heex:218
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Provider"
 msgstr "Provider"
 
-#: lib/planck/web/live/setup_modal.html.heex:281
+#: lib/planck/web/live/setup_modal.html.heex:288
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Set as default model"
 msgstr "Set as default model"
 
-#: lib/planck/web/live/setup_modal.ex:458
+#: lib/planck/web/live/setup_modal.ex:688
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "This project (.planck/)"
@@ -401,26 +402,26 @@ msgctxt "tooltip"
 msgid "Configure models"
 msgstr "Configure models"
 
-#: lib/planck/web/live/setup_modal.ex:421
+#: lib/planck/web/live/setup_modal.ex:645
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Advanced options contain invalid JSON."
 msgstr "Advanced options contain invalid JSON."
 
-#: lib/planck/web/live/setup_modal.ex:418
+#: lib/planck/web/live/setup_modal.ex:642
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Advanced options must be a JSON object."
 msgstr "Advanced options must be a JSON object."
 
-#: lib/planck/web/live/setup_modal.html.heex:301
+#: lib/planck/web/live/setup_modal.html.heex:393
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "(JSON, optional)"
 msgstr "(JSON, optional)"
 
-#: lib/planck/web/live/setup_modal.html.heex:136
-#: lib/planck/web/live/setup_modal.html.heex:159
+#: lib/planck/web/live/setup_modal.html.heex:138
+#: lib/planck/web/live/setup_modal.html.heex:166
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "(optional)"
@@ -444,8 +445,8 @@ msgctxt "model selector"
 msgid "Save"
 msgstr "Save"
 
-#: lib/planck/web/live/setup_modal.ex:443
-#: lib/planck/web/live/setup_modal.html.heex:158
+#: lib/planck/web/live/setup_modal.ex:670
+#: lib/planck/web/live/setup_modal.html.heex:165
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "API Key"
@@ -457,7 +458,7 @@ msgctxt "setup label"
 msgid "Base URL"
 msgstr "Base URL"
 
-#: lib/planck/web/live/setup_modal.html.heex:135
+#: lib/planck/web/live/setup_modal.html.heex:137
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Identifier"
@@ -487,29 +488,23 @@ msgctxt "setup action"
 msgid "Configure a provider"
 msgstr "Configure a provider"
 
-#: lib/planck/web/live/setup_modal.ex:224
+#: lib/planck/web/live/setup_modal.ex:365
 #, elixir-autogen, elixir-format
 msgctxt "setup error"
 msgid "Please select a preset."
 msgstr "Please select a preset."
 
-#: lib/planck/web/live/setup_modal.html.heex:249
+#: lib/planck/web/live/setup_modal.html.heex:256
 #, elixir-autogen, elixir-format
 msgctxt "setup help"
 msgid "Exact model identifier as it appears in the provider API."
 msgstr "Exact model identifier as it appears in the provider API."
 
-#: lib/planck/web/live/setup_modal.html.heex:180
+#: lib/planck/web/live/setup_modal.html.heex:187
 #, elixir-autogen, elixir-format
 msgctxt "setup help"
 msgid "Get started for free"
 msgstr "Get started for free"
-
-#: lib/planck/web/live/setup_modal.html.heex:148
-#, elixir-autogen, elixir-format
-msgctxt "setup help"
-msgid "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY)."
-msgstr "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY)."
 
 #: lib/planck/web/live/setup_modal.html.heex:80
 #, elixir-autogen, elixir-format
@@ -517,31 +512,25 @@ msgctxt "setup label"
 msgid "(optional — set via env var instead)"
 msgstr "(optional — set via env var instead)"
 
-#: lib/planck/web/live/setup_modal.html.heex:258
+#: lib/planck/web/live/setup_modal.html.heex:265
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "(your shorthand for this model)"
 msgstr "(your shorthand for this model)"
 
-#: lib/planck/web/live/setup_modal.html.heex:257
+#: lib/planck/web/live/setup_modal.html.heex:264
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Alias"
 msgstr "Alias"
 
-#: lib/planck/web/live/setup_modal.html.heex:300
-#, elixir-autogen, elixir-format
-msgctxt "setup label"
-msgid "Inference parameters"
-msgstr "Inference parameters"
-
-#: lib/planck/web/live/setup_modal.html.heex:227
+#: lib/planck/web/live/setup_modal.html.heex:234
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "Model"
 msgstr "Model"
 
-#: lib/planck/web/live/setup_modal.ex:453
+#: lib/planck/web/live/setup_modal.ex:682
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "OpenAI-compatible"
@@ -559,32 +548,146 @@ msgctxt "setup label"
 msgid "Provider type"
 msgstr "Provider type"
 
-#: lib/planck/web/live/setup_modal.ex:497
+#: lib/planck/web/live/setup_modal.ex:733
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Add a model"
 msgstr "Add a model"
 
-#: lib/planck/web/live/setup_modal.ex:491
+#: lib/planck/web/live/setup_modal.ex:727
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Add a provider"
 msgstr "Add a provider"
 
-#: lib/planck/web/live/setup_modal.ex:488
+#: lib/planck/web/live/setup_modal.ex:724
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Step 1 of 2 — Add a provider"
 msgstr "Step 1 of 2 — Add a provider"
 
-#: lib/planck/web/live/setup_modal.ex:494
+#: lib/planck/web/live/setup_modal.ex:730
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Step 2 of 2 — Add a model"
 msgstr "Step 2 of 2 — Add a model"
 
-#: lib/planck/web/live/setup_modal.ex:485
+#: lib/planck/web/live/setup_modal.ex:721
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "What would you like to configure?"
 msgstr "What would you like to configure?"
+
+#: lib/planck/web/live/setup_modal.ex:373
+#, elixir-autogen, elixir-format
+msgctxt "setup error"
+msgid "A provider with this identifier already exists. Choose a different identifier."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:130
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Must include /v1 — e.g. http://localhost:11434/v1"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:151
+#, elixir-autogen, elixir-format, fuzzy
+msgctxt "setup help"
+msgid "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY). Also used as the provider key."
+msgstr "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY)."
+
+#: lib/planck/web/live/setup_modal.html.heex:153
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Used as the provider key. Set one if you plan to add multiple instances of this backend."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:392
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Additional parameters"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:321
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Context window"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:331
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Max output tokens"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:379
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Min P"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:311
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Parameters"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.ex:702
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Select a preset…"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:345
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Temperature"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:355
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Top K"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:369
+#, elixir-autogen, elixir-format
+msgctxt "setup label"
+msgid "Top P"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:323
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Match this to your model's actual context size — e.g. 4096 for most 7B models, 32768 for larger ones. Planck uses it to decide when to summarise the conversation history."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:381
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Try 0.05 to silently filter out clearly wrong word choices without affecting the overall style. Most models work fine at 0.0 (disabled)."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:347
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Try 0.2 for precise code generation or factual answers. Try 0.7–0.8 for writing tasks. Use 1.0+ for open-ended brainstorming. Higher values may produce incoherent output."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:371
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Try 0.9 to cut off unlikely words while keeping variety, or 0.5 for more focused output. Leave at 1.0 if using Top K instead."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:357
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Try 20 for conservative, on-topic output or 40 for a good balance. Very low values (< 10) may make the model repetitive. Leave at 0 if using Top P instead."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.html.heex:333
+#, elixir-autogen, elixir-format
+msgctxt "setup help"
+msgid "Try 2048 for most conversations. Increase to 4096 or more if the model cuts off mid-response on long tasks like writing or code generation."
+msgstr ""

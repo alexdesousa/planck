@@ -21,7 +21,7 @@
       <% end %>
     </div>
 
-    <div class="p-4 space-y-4 flex-1 overflow-y-visible">
+    <div class="p-4 space-y-4 flex-1 overflow-y-auto">
 
       <%= cond do %>
 
@@ -124,8 +124,11 @@
                       class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
                              bg-background focus:outline-none shadow-[2px_2px_0px_#000]
                              placeholder:text-muted-foreground"
-                      placeholder="http://localhost:11434"
+                      placeholder="http://localhost:11434/v1"
                     />
+                    <p class="font-mono text-xs text-muted-foreground mt-1">
+                      <%= pgettext("setup help", "Must include /v1 — e.g. http://localhost:11434/v1") %>
+                    </p>
                   </div>
 
                   <%!-- Identifier — always shown, used as provider key --%>
@@ -298,20 +301,108 @@
               </div>
             </div>
 
-            <%!-- Advanced params --%>
-            <div>
-              <label class="font-mono text-xs text-muted-foreground block mb-1">
-                <%= pgettext("setup label", "Inference parameters") %>
-                <span class="opacity-50 ml-1"><%= pgettext("setup label", "(JSON, optional)") %></span>
-              </label>
-              <textarea
-                name="advanced_opts"
-                rows="4"
-                class="w-full border-2 border-black px-2 py-1.5 font-mono text-xs
-                       bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                       placeholder:text-muted-foreground resize-none"
-                placeholder={"{\n  \"temperature\": 1.0,\n  \"receive_timeout\": 600000\n}"}
-              ><%= @advanced_opts %></textarea>
+            <%!-- Parameters (collapsible) --%>
+            <div class="border-2 border-black">
+              <button type="button"
+                phx-click="toggle_params"
+                phx-target={@myself}
+                class="w-full px-3 py-2 font-mono text-sm font-bold flex items-center
+                       justify-between hover:bg-muted">
+                <span><%= pgettext("setup label", "Parameters") %></span>
+                <span class={["text-xs opacity-50", if(@params_open, do: "rotate-180", else: "")]}>▾</span>
+              </button>
+
+              <div class={["p-3 space-y-3 border-t-2 border-black", unless(@params_open, do: "hidden")]}>
+
+                <%!-- Row 1: context_window / max_tokens --%>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      <%= pgettext("setup label", "Context window") %>
+                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
+                        title={pgettext("setup help", "Match this to your model's actual context size — e.g. 4096 for most 7B models, 32768 for larger ones. Planck uses it to decide when to summarise the conversation history.")}>?</button>
+                    </label>
+                    <input type="number" name="param_context_window" value={@param_context_window} min="0" step="1"
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+                      placeholder="e.g. 4096" />
+                  </div>
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      <%= pgettext("setup label", "Max output tokens") %>
+                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
+                        title={pgettext("setup help", "Try 2048 for most conversations. Increase to 4096 or more if the model cuts off mid-response on long tasks like writing or code generation.")}>?</button>
+                    </label>
+                    <input type="number" name="param_max_tokens" value={@param_max_tokens} min="0" step="1"
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+                      placeholder="e.g. 2048" />
+                  </div>
+                </div>
+
+                <%!-- Row 2: temperature / top_k --%>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      <%= pgettext("setup label", "Temperature") %>
+                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
+                        title={pgettext("setup help", "Try 0.2 for precise code generation or factual answers. Try 0.7–0.8 for writing tasks. Use 1.0+ for open-ended brainstorming. Higher values may produce incoherent output.")}>?</button>
+                    </label>
+                    <input type="number" name="param_temperature" value={@param_temperature} min="0" max="2" step="0.1"
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+                      placeholder="1.0" />
+                  </div>
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      <%= pgettext("setup label", "Top K") %>
+                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
+                        title={pgettext("setup help", "Try 20 for conservative, on-topic output or 40 for a good balance. Very low values (< 10) may make the model repetitive. Leave at 0 if using Top P instead.")}>?</button>
+                    </label>
+                    <input type="number" name="param_top_k" value={@param_top_k} min="0" step="1"
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+                      placeholder="0" />
+                  </div>
+                </div>
+
+                <%!-- Row 3: top_p / min_p --%>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      <%= pgettext("setup label", "Top P") %>
+                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
+                        title={pgettext("setup help", "Try 0.9 to cut off unlikely words while keeping variety, or 0.5 for more focused output. Leave at 1.0 if using Top K instead.")}>?</button>
+                    </label>
+                    <input type="number" name="param_top_p" value={@param_top_p} min="0" max="1" step="0.05"
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+                      placeholder="1.0" />
+                  </div>
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      <%= pgettext("setup label", "Min P") %>
+                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
+                        title={pgettext("setup help", "Try 0.05 to silently filter out clearly wrong word choices without affecting the overall style. Most models work fine at 0.0 (disabled).")}>?</button>
+                    </label>
+                    <input type="number" name="param_min_p" value={@param_min_p} min="0" max="1" step="0.01"
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
+                      placeholder="0.0" />
+                  </div>
+                </div>
+
+                <%!-- Additional params (JSON) --%>
+                <div>
+                  <label class="font-mono text-xs text-muted-foreground block mb-1">
+                    <%= pgettext("setup label", "Additional parameters") %>
+                    <span class="opacity-50 ml-1"><%= pgettext("setup label", "(JSON, optional)") %></span>
+                  </label>
+                  <textarea
+                    name="advanced_opts"
+                    rows="3"
+                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-xs
+                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                           placeholder:text-muted-foreground resize-none"
+                    placeholder={"{\n  \"receive_timeout\": 600000\n}"}
+                  ><%= @advanced_opts %></textarea>
+                </div>
+
+              </div>
             </div>
 
           </form>

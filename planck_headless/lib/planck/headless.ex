@@ -317,12 +317,16 @@ defmodule Planck.Headless do
     scope = Keyword.get(opts, :scope, :local)
     set_default = Keyword.get(opts, :default, true)
     params = Keyword.get(opts, :params)
+    context_window = Keyword.get(opts, :context_window)
+    max_tokens = Keyword.get(opts, :max_tokens)
 
     config_path = Keyword.get(opts, :config_file) || config_path_for(scope)
 
     entry =
       %{"id" => id, "model" => model_id, "provider" => provider}
       |> maybe_put("params", params)
+      |> maybe_put("context_window", context_window)
+      |> maybe_put("max_tokens", max_tokens)
 
     config_update =
       if set_default,
