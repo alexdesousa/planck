@@ -118,6 +118,21 @@ defmodule Planck.Headless.ResourceStore do
   def handle_call(:reload, _from, state) do
     Config.JsonBinding.invalidate()
     Config.EnvBinding.invalidate()
+    # Clear Skogsra's per-key persistent_term caches so the next access
+    # re-resolves from disk via the (now-cleared) JsonBinding/EnvBinding.
+    Config.reload_default_provider()
+    Config.reload_default_model()
+    Config.reload_providers()
+    Config.reload_models()
+    Config.reload_locale()
+    Config.reload_sessions_dir()
+    Config.reload_skills_dirs()
+    Config.reload_teams_dirs()
+    Config.reload_sidecar()
+    Config.reload_top_skills()
+    Config.reload_anthropic_api_key()
+    Config.reload_openai_api_key()
+    Config.reload_google_api_key()
     Enum.each(state.on_reload, & &1.())
     new_state = load_resources()
 

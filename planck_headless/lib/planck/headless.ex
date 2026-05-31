@@ -15,7 +15,6 @@ defmodule Planck.Headless do
   alias Planck.Agent
   alias Planck.Agent.{AgentSpec, BuiltinTools, Message, Session, Skill, SkillUsage, Team, Tools}
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
-  alias Planck.Headless.Config.{EnvBinding, JsonBinding}
 
   @type session_id :: String.t()
 
@@ -347,22 +346,6 @@ defmodule Planck.Headless do
   """
   @spec reload_resources() :: :ok
   def reload_resources do
-    JsonBinding.invalidate()
-    EnvBinding.invalidate()
-    # Clear Skogsra's own persistent_term caches for every key that reads from
-    # the JSON or .env bindings, so the next access re-resolves from disk.
-    Config.reload_default_provider()
-    Config.reload_default_model()
-    Config.reload_providers()
-    Config.reload_models()
-    Config.reload_locale()
-    Config.reload_sessions_dir()
-    Config.reload_skills_dirs()
-    Config.reload_teams_dirs()
-    Config.reload_sidecar()
-    Config.reload_anthropic_api_key()
-    Config.reload_openai_api_key()
-    Config.reload_google_api_key()
     ResourceStore.reload()
   end
 
