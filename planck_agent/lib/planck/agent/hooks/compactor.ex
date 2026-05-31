@@ -42,7 +42,7 @@ defmodule Planck.Agent.Hooks.Compactor do
 
   @default_compact_timeout_ms 120_000
   @default_ratio 0.8
-  @default_keep_recent 10
+  @keep_ratio 0.1
 
   @doc """
   Compact the message list.
@@ -143,7 +143,8 @@ defmodule Planck.Agent.Hooks.Compactor do
   @spec compact_local([Message.t()], Model.t()) ::
           :skip | {:compact, Message.t(), [Message.t()]}
   defp compact_local(messages, model) do
-    {old, kept} = Enum.split(messages, -@default_keep_recent)
+    keep_budget = trunc(model.context_window * @keep_ratio)
+    {old, kept} = split_by_token_budget(messages, keep_budget)
     to_summarize = Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1))
 
     case {to_summarize, summarize(to_summarize, model)} do
@@ -157,6 +158,28 @@ defmodule Planck.Agent.Hooks.Compactor do
       {_, {:error, _}} ->
         :skip
     end
+  end
+
+  # Walk from the tail, accumulating messages until the token budget is exceeded.
+  # Always keeps at least the last message even if it alone exceeds the budget.
+  @spec split_by_token_budget([Message.t()], non_neg_integer()) ::
+          {[Message.t()], [Message.t()]}
+  defp split_by_token_budget(messages, budget) do
+    {kept, _} =
+      messages
+      |> Enum.reverse()
+      |> Enum.reduce_while({[], 0}, fn msg, {kept, total} ->
+        cost = Message.estimate_tokens([msg])
+        new_total = total + cost
+
+        if new_total <= budget or kept == [] do
+          {:cont, {[msg | kept], new_total}}
+        else
+          {:halt, {kept, total}}
+        end
+      end)
+
+    Enum.split(messages, length(messages) - length(kept))
   end
 
   @spec summarize([Message.t()], Model.t()) :: {:ok, String.t()} | {:error, term()}

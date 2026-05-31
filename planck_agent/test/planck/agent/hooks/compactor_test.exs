@@ -78,7 +78,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       assert {:compact, summary_msg, kept} = Compactor.compact(nil, @model, messages, nil)
       assert summary_msg.role == {:custom, :summary}
       assert [{:text, "Summary of old messages."}] = summary_msg.content
-      assert length(kept) == 10
+      # keep_budget = trunc(1_000 * 0.1) = 100 tokens; each message costs ~100 tokens → 1 kept
+      assert length(kept) == 1
     end
 
     test "returns :skip on LLM error" do
