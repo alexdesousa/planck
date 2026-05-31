@@ -2,7 +2,14 @@
 
 ## v0.1.9
 
-- TODO
+### Config hot-reload fix
+
+`ResourceStore.reload/0` (triggered automatically by the file watcher when
+`config.json` or `.env` changes on disk) now also flushes Skogsra's per-key
+persistent_term caches before reloading resources. Previously, Skogsra's own
+cache layer returned stale values even after `JsonBinding` was invalidated,
+requiring a full restart to pick up manual config edits. Changes to
+`config.json` are now picked up within 300 ms (the watcher debounce).
 
 ## v0.1.8
 

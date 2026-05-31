@@ -93,8 +93,17 @@ Users who want to build on top of Planck depend only on what they need:
 ## Version policy
 
 All packages share the same version number and are released simultaneously. Version is
-defined once per `mix.exs` via a module attribute and kept in sync manually (or via a
-root-level Mix task).
+defined once per `mix.exs` via a module attribute and kept in sync with `./bump`.
+
+## Bump script
+
+```sh
+./bump X.Y.Z
+```
+
+Updates all files in the checklist below and prepends a `## vX.Y.Z` stub to
+each CHANGELOG. Does not commit or tag — run `./check` and fill in the
+CHANGELOGs before committing.
 
 ## Release checklist
 

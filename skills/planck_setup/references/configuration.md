@@ -97,7 +97,9 @@ Models are declared in two parts: a `providers` map that defines backends, and a
 | `id` | yes | User-defined alias used throughout the UI (e.g. `"sonnet"`) |
 | `model` | yes | Provider's model identifier (e.g. `"claude-sonnet-4-6"`) |
 | `provider` | yes | Key referencing an entry in the `providers` map |
-| `params` | no | Inference parameters (`temperature`, `max_tokens`, etc.) |
+| `context_window` | no | Model's context window in tokens; used by the compactor to decide when to summarise |
+| `max_tokens` | no | Maximum tokens the model may generate per response |
+| `params` | no | Additional inference parameters (`temperature`, `top_p`, `top_k`, `min_p`, `receive_timeout`, etc.) |
 
 ### Example
 

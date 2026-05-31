@@ -125,10 +125,15 @@ no-op mode and rescans when `ResourceStore.reload/0` is called manually.
 
 ### Config hot-reload
 
-`ResourceStore.reload/0` already calls `Config.reload_*` for API keys and
-refreshes available models. The file watcher triggers it automatically, so
-API key changes in `.planck/.env` take effect on the next LLM turn without
-any manual action.
+`ResourceStore.reload/0` invalidates both the `JsonBinding` and `EnvBinding`
+persistent-term caches **and** calls the Skogsra-generated `reload_*` function
+for every JSON/env-backed config key (providers, models, default_model,
+skills_dirs, etc.). This ensures that Skogsra's own per-key cache layer is
+cleared, so `config.json` edits are reflected immediately without restarting.
+
+The file watcher triggers this automatically on every save to a watched
+directory, so API key changes in `.planck/.env` or config changes in
+`.planck/config.json` take effect within 300 ms (the debounce window).
 
 ---
 

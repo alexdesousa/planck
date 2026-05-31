@@ -2,7 +2,42 @@
 
 ## v0.1.9
 
-- TODO
+### Setup modal — model parameter controls
+
+The model configuration step now has dedicated input fields for the most
+commonly tuned inference parameters, replacing the raw JSON-only textarea:
+
+| Field | Default | Notes |
+|---|---|---|
+| Context window | — | Match to model's actual window size; used by the compactor |
+| Max output tokens | — | Caps response length; does not affect context window |
+| Temperature | 1.0 | Lower = more precise; higher = more creative |
+| Top K | 0 | Top-K token selection; 0 = disabled |
+| Top P | 1.0 | Nucleus sampling threshold; 1.0 = disabled |
+| Min P | 0.0 | Minimum relative token probability; 0.0 = disabled |
+
+A JSON textarea for additional parameters (e.g. `receive_timeout`) remains
+below the controls. If a key appears in both the controls and the JSON, the
+JSON value wins. All fields are optional — leaving one blank omits it from the
+saved config and lets the model backend apply its own default.
+
+The controls are in a collapsible **Parameters** section, closed by default.
+
+### Setup modal — config fixes
+
+- Dropdowns now pre-select the first available option on entry so the UI state
+  always matches the underlying assigns (previously the first option appeared
+  selected visually but was not committed until explicitly clicked).
+- Saving a provider or model with an empty `id` or empty `provider` is now
+  rejected with a clear error.
+- Duplicate provider key detection now fires at **Next** (step 1) while the
+  identifier field is still visible, instead of at the final save step.
+- Default scope changed from global (`~/.planck/`) to local (`.planck/`).
+- Identifier field is now shown for all OpenAI-compatible presets, not just
+  those with API keys, so multiple Ollama or llama.cpp instances can be
+  distinguished.
+- Base URL inputs now include `/v1` in placeholder and help text; Ollama and
+  llama.cpp presets updated to ship with the correct `/v1` suffix.
 
 ## v0.1.8
 

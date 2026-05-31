@@ -2,7 +2,13 @@
 
 ## v0.1.9
 
-- TODO
+### Compactor — token-aware keep-recent
+
+The built-in LLM compactor no longer keeps a fixed 10 messages verbatim.
+Instead it keeps messages from the most recent end of history as long as their
+cumulative estimated token count stays within `@keep_ratio` (10%) of the
+model's `context_window`. At least one message is always kept regardless of
+size, preventing infinite compaction loops on very large individual turns.
 
 ## v0.1.8
 

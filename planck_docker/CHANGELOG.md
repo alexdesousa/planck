@@ -2,7 +2,7 @@
 
 ## v0.1.9
 
-- TODO
+- Version bump to stay in sync with the monorepo release; no functional changes.
 
 ## v0.1.8
 

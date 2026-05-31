@@ -40,10 +40,21 @@ Planck.Agent.Hooks.Compactor.compact(module, model, messages, sidecar_node)
 
 ## Built-in compactor
 
-When `module` is `nil`, the built-in strategy runs. It estimates token count as
-`chars ÷ 4` and triggers when usage exceeds `ratio * model.context_window`
-(default ratio: 0.8). On trigger it calls the LLM with a structured prompt to
-produce the summary; returns `:skip` on LLM failure.
+When `module` is `nil`, the built-in strategy runs:
+
+**Trigger** — estimates token count as `chars ÷ 4`; fires when usage exceeds
+`0.8 × model.context_window`.
+
+**Keep-recent** — walks backwards from the most recent message, accumulating
+messages until their total estimated tokens exceed `0.1 × model.context_window`
+(the "keep budget"). At least one message is always kept even if it alone
+exceeds the budget. Everything older than the kept window is passed to the
+summariser.
+
+**Summary** — calls the LLM with a structured prompt asking for a concise
+summary of the old messages. The summary is stored as a `{:custom, :summary}`
+message prepended to the kept window. Returns `:skip` on LLM failure so the
+agent can continue without compaction.
 
 ## Custom compactors (sidecar)
 
