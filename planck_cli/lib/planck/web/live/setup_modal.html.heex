@@ -1,7 +1,7 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
      phx-window-keydown="close_setup"
      phx-key="Escape">
-  <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-full max-w-md flex flex-col max-h-[90vh]">
+  <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden">
 
     <%!-- Header --%>
     <div class="border-b-2 border-border px-4 py-3 flex items-center justify-between bg-card flex-shrink-0">
@@ -21,7 +21,7 @@
       <% end %>
     </div>
 
-    <div class="p-4 space-y-4 flex-1 overflow-y-auto">
+    <div class="p-4 space-y-4 flex-1 overflow-y-visible">
 
       <%= cond do %>
 
@@ -53,8 +53,8 @@
             </button>
           </div>
 
-        <%!-- Step 1 — Provider & credentials --%>
-        <% @step == 1 -> %>
+        <%!-- Step :provider — Provider & credentials --%>
+        <% @step == :provider -> %>
           <div class="space-y-3">
 
             <%!-- Provider type picker --%>
@@ -128,28 +128,32 @@
                     />
                   </div>
 
-                  <%!-- Identifier (presets with API key) --%>
-                  <%= if @has_api_key do %>
-                    <div>
-                      <label class="font-mono text-xs text-muted-foreground block mb-1">
-                        <%= pgettext("setup label", "Identifier") %>
-                        <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
-                      </label>
-                      <input
-                        type="text"
-                        name="identifier"
-                        value={@identifier}
-                        class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                               bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                               placeholder:text-muted-foreground"
-                        placeholder="NVIDIA"
-                      />
-                      <p class="font-mono text-xs text-muted-foreground mt-1">
-                        <%= pgettext("setup help", "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY).") %>
-                      </p>
-                    </div>
+                  <%!-- Identifier — always shown, used as provider key --%>
+                  <div>
+                    <label class="font-mono text-xs text-muted-foreground block mb-1">
+                      <%= pgettext("setup label", "Identifier") %>
+                      <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
+                    </label>
+                    <input
+                      type="text"
+                      name="identifier"
+                      value={@identifier}
+                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                             bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                             placeholder:text-muted-foreground"
+                      placeholder={if @has_api_key, do: "NVIDIA", else: "my-ollama"}
+                    />
+                    <p class="font-mono text-xs text-muted-foreground mt-1">
+                      <%= if @has_api_key do %>
+                        <%= pgettext("setup help", "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY). Also used as the provider key.") %>
+                      <% else %>
+                        <%= pgettext("setup help", "Used as the provider key. Set one if you plan to add multiple instances of this backend.") %>
+                      <% end %>
+                    </p>
+                  </div>
 
-                    <%!-- API key --%>
+                  <%!-- API key (only for presets that require one) --%>
+                  <%= if @has_api_key do %>
                     <div>
                       <label class="font-mono text-xs text-muted-foreground block mb-1">
                         <%= if @identifier != "" do %>
@@ -200,7 +204,7 @@
 
           </div>
 
-        <%!-- Step 2 — Model details --%>
+        <%!-- Step :model — Model details --%>
         <% true -> %>
           <form phx-change="update_model_fields" phx-target={@myself} class="space-y-3">
 
@@ -323,7 +327,7 @@
     <%!-- Buttons --%>
     <div class="flex justify-between p-4 border-t-2 border-border flex-shrink-0">
       <div>
-        <%= if @step == 2 do %>
+        <%= if @step == :model do %>
           <button
             class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                    shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -336,7 +340,7 @@
 
       <div>
         <%= cond do %>
-          <% @step == 1 -> %>
+          <% @step == :provider -> %>
             <button
               class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                      shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -346,7 +350,7 @@
               phx-target={@myself}
             ><%= pgettext("setup button", "Next") %></button>
 
-          <% @step in [1, 2] -> %>
+          <% @step in [:provider, :model] -> %>
             <button
               class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                      shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]

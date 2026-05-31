@@ -289,7 +289,8 @@ defmodule Planck.Headless do
 
     effective_api_key = if has_api_key, do: api_key, else: nil
 
-    with :ok <- ensure_config_dir(config_path),
+    with :ok <- if(id == "", do: {:error, :empty_id}, else: :ok),
+         :ok <- ensure_config_dir(config_path),
          :ok <- update_json_config(config_path, config_update),
          :ok <- maybe_write_provider_api_key(env_path, type, effective_api_key, identifier) do
       reload_resources()
@@ -328,7 +329,9 @@ defmodule Planck.Headless do
         do: %{"default_model" => id, "models" => [entry]},
         else: %{"models" => [entry]}
 
-    with :ok <- ensure_config_dir(config_path),
+    with :ok <- if(id == "", do: {:error, :empty_id}, else: :ok),
+         :ok <- if(provider == "", do: {:error, :empty_provider}, else: :ok),
+         :ok <- ensure_config_dir(config_path),
          :ok <- update_json_config(config_path, config_update) do
       reload_resources()
     end

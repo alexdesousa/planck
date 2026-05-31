@@ -692,6 +692,16 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert content =~ "OTHER=value"
     end
 
+    test "returns error for empty id", %{tmp_dir: dir} do
+      assert {:error, :empty_id} =
+               Headless.configure_provider(
+                 id: "",
+                 type: "openai",
+                 config_file: Path.join(dir, "config.json"),
+                 env_file: Path.join(dir, ".env")
+               )
+    end
+
     test "has_api_key: false does not write api_key to .env", %{tmp_dir: dir} do
       env_path = Path.join(dir, ".env")
 
@@ -829,6 +839,26 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, content} = File.read(config_path)
       {:ok, map} = Jason.decode(content)
       refute Map.has_key?(map, "default_model")
+    end
+
+    test "returns error for empty id", %{tmp_dir: dir} do
+      assert {:error, :empty_id} =
+               Headless.configure_model(
+                 id: "",
+                 model: "llama3.2",
+                 provider: "local",
+                 config_file: Path.join(dir, "config.json")
+               )
+    end
+
+    test "returns error for empty provider", %{tmp_dir: dir} do
+      assert {:error, :empty_provider} =
+               Headless.configure_model(
+                 id: "mymodel",
+                 model: "llama3.2",
+                 provider: "",
+                 config_file: Path.join(dir, "config.json")
+               )
     end
   end
 
