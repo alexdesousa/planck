@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+#
+# ./bump X.Y.Z — bump all version references to X.Y.Z
+#
+# Updates every file listed in specs/releases-and-distribution.md and prepends
+# a stub entry to each CHANGELOG. Does NOT commit or create a git tag.
+
+set -e
+
+cd "$(dirname "$0")"
+
+# ── Argument validation ────────────────────────────────────────────────────────
+
+if [ -z "$1" ]; then
+  echo "Usage: ./bump X.Y.Z"
+  exit 1
+fi
+
+NEW=$1
+
+if ! echo "$NEW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "Error: '$NEW' is not a valid version (expected X.Y.Z)"
+  exit 1
+fi
+
+OLD=$(cat VERSION | tr -d '[:space:]')
+
+if [ "$NEW" = "$OLD" ]; then
+  echo "Error: $NEW is already the current version"
+  exit 1
+fi
+
+# Basic semver comparison — reject if NEW <= OLD
+semver_gt() {
+  IFS='.' read -r a1 a2 a3 <<< "$1"
+  IFS='.' read -r b1 b2 b3 <<< "$2"
+  [ "$a1" -gt "$b1" ] && return 0
+  [ "$a1" -lt "$b1" ] && return 1
+  [ "$a2" -gt "$b2" ] && return 0
+  [ "$a2" -lt "$b2" ] && return 1
+  [ "$a3" -gt "$b3" ] && return 0
+  return 1
+}
+
+if ! semver_gt "$NEW" "$OLD"; then
+  echo "Error: $NEW is not greater than current version $OLD"
+  exit 1
+fi
+
+# ── Portable in-place sed ──────────────────────────────────────────────────────
+
+sedi() {
+  if [ "$(uname)" = "Darwin" ]; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
+
+bump() {
+  local file=$1 pattern=$2 replacement=$3
+  if [ -f "$file" ]; then
+    sedi "s|$pattern|$replacement|g" "$file"
+    echo "  ✓ $file"
+  else
+    echo "  ✗ $file — not found, skipping"
+  fi
+}
+
+# ── Version numbers ────────────────────────────────────────────────────────────
+
+echo "Bumping $OLD → $NEW"
+echo ""
+echo "Version files:"
+
+printf '%s\n' "$NEW" > VERSION
+echo "  ✓ VERSION"
+
+bump planck_ai/mix.exs                  "@version \"$OLD\""           "@version \"$NEW\""
+bump planck_agent/mix.exs               "@version \"$OLD\""           "@version \"$NEW\""
+bump planck_headless/mix.exs            "@version \"$OLD\""           "@version \"$NEW\""
+bump planck_cli/mix.exs                 "@version \"$OLD\""           "@version \"$NEW\""
+bump planck_docker/sidecar/mix.exs      "version: \"$OLD\""           "version: \"$NEW\""
+bump planck_docker/compose.yml          "planck:$OLD"                  "planck:$NEW"
+bump skills/planck_setup/SKILL.md       "planck_version: $OLD"        "planck_version: $NEW"
+bump docs/install.sh                    "VERSION=\"$OLD\""             "VERSION=\"$NEW\""
+bump docs/install_docker.sh             "VERSION=\"$OLD\""             "VERSION=\"$NEW\""
+bump docs/install.ps1                   "\$Version = \"$OLD\""        "\$Version = \"$NEW\""
+bump docs/install_docker.ps1            "\$Version = \"$OLD\""        "\$Version = \"$NEW\""
+
+# ── CHANGELOG stubs ────────────────────────────────────────────────────────────
+
+echo ""
+echo "CHANGELOG stubs:"
+
+add_stub() {
+  local file=$1
+  if [ ! -f "$file" ]; then
+    echo "  ✗ $file — not found, skipping"
+    return
+  fi
+  local tmp
+  tmp=$(mktemp)
+  awk -v v="$NEW" '
+    /^## v[0-9]/ && !done { print "## v" v "\n\n- TODO\n"; done=1 }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+  echo "  ✓ $file"
+}
+
+add_stub planck_ai/CHANGELOG.md
+add_stub planck_agent/CHANGELOG.md
+add_stub planck_headless/CHANGELOG.md
+add_stub planck_cli/CHANGELOG.md
+add_stub planck_docker/CHANGELOG.md
+
+# ── Done ──────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "Done. Review the changes, update the CHANGELOG stubs, then:"
+echo "  ./check"
+echo "  git commit -m \":sparkles: v$NEW: ...\""
+echo "  git tag v$NEW"
+echo "  git push && git push origin v$NEW"

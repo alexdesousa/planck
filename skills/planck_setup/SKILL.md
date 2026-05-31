@@ -2,7 +2,7 @@
 name: planck-setup
 description: Guides for configuring Planck — providers, models, teams, skills, sidecars, hooks, and the HTTP API. Use this skill whenever the user asks about setting up or configuring Planck, creating teams, installing providers, adding skills, writing sidecars, or using the HTTP API.
 always_present: true
-planck_version: 0.1.8
+planck_version: 0.1.9
 ---
 
 # Planck Setup
