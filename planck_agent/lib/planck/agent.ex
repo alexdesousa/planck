@@ -632,13 +632,22 @@ defmodule Planck.Agent do
         send(parent, {:stream_done, ref})
       end)
 
+    # Reset loop detection on a fresh user turn; preserve counts on continuation
+    # so identical calls across multiple LLM rounds within the same turn accumulate.
+    tool_runner =
+      case turn_type do
+        :new_turn -> ToolRunner.new()
+        :continuation -> state.tool_runner
+      end
+
     %{
       state
       | stream_task: task,
         stream_ref: ref,
         stream_start: stream_start,
         status: :streaming,
-        turn_state: TurnState.advance(state.turn_state)
+        turn_state: TurnState.advance(state.turn_state),
+        tool_runner: tool_runner
     }
   end
 
@@ -646,29 +655,27 @@ defmodule Planck.Agent do
   defp start_tool_tasks(tool_calls, state) do
     parent = self()
 
-    entries =
-      Enum.map(tool_calls, fn %{id: id, name: name, args: args} ->
+    {runner, entries} =
+      Enum.reduce(tool_calls, {state.tool_runner, []}, fn %{id: id, name: name, args: args},
+                                                          {runner, acc} ->
         broadcast(state, :tool_start, %{id: id, name: name, args: args})
-        execute_fn = resolve_tool_fn(state.tools, state.id, name, id, args)
+
+        {runner, wrapped_fn} =
+          ToolRunner.prepare_call(runner, state.tools, state.id, name, id, args)
 
         {:ok, pid} =
           Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
-            result =
-              try do
-                execute_fn.()
-              rescue
-                e -> {:error, Exception.message(e)}
-              catch
-                kind, reason -> {:error, "#{kind}: #{inspect(reason)}"}
-              end
-
-            send(parent, {:tool_done, id, name, result})
+            send(parent, {:tool_done, id, name, wrapped_fn.()})
           end)
 
-        {id, name, pid}
+        {runner, [{id, name, pid} | acc]}
       end)
 
-    %{state | tool_runner: ToolRunner.start(entries), status: :executing_tools}
+    %{
+      state
+      | tool_runner: ToolRunner.next_batch(runner, Enum.reverse(entries)),
+        status: :executing_tools
+    }
   end
 
   @spec finish_tool_execution(list(), t()) :: t()
@@ -681,26 +688,6 @@ defmodule Planck.Agent do
       | messages: state.messages ++ [tool_result_msg],
         status: :streaming
     }
-  end
-
-  @spec resolve_tool_fn(%{String.t() => Tool.t()}, String.t(), String.t(), String.t(), map()) ::
-          (-> {:ok, String.t()} | {:error, term()})
-  defp resolve_tool_fn(tools, agent_id, name, id, args) do
-    case Map.get(tools, name) do
-      nil ->
-        fn -> {:error, "unknown tool: #{name}"} end
-
-      %Tool{} = tool ->
-        fn -> run_tool(tool, agent_id, id, args) end
-    end
-  end
-
-  @spec run_tool(Tool.t(), String.t(), String.t(), map()) ::
-          {:ok, String.t()} | {:error, term()}
-  defp run_tool(%Tool{execute_fn: fun} = tool, agent_id, id, args) do
-    with :ok <- Tool.validate_args(tool, args) do
-      safe_execute(fun, agent_id, id, args)
-    end
   end
 
   @spec cancel_running_tools(t()) :: :ok
@@ -958,16 +945,6 @@ defmodule Planck.Agent do
         stream_buffer: StreamBuffer.new(),
         tool_runner: ToolRunner.new()
     }
-  end
-
-  @spec safe_execute(Tool.execute_fn(), String.t(), String.t(), map()) ::
-          {:ok, String.t()} | {:error, term()}
-  defp safe_execute(fun, agent_id, id, args) do
-    fun.(agent_id, id, args)
-  rescue
-    e -> {:error, e}
-  catch
-    :exit, reason -> {:error, {:exit, reason}}
   end
 
   @spec build_system_prompt(t()) :: String.t()
