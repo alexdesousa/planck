@@ -756,6 +756,9 @@ defmodule Planck.Headless do
 
   @spec start_agent(keyword()) :: {:ok, pid()} | {:error, term()}
   defp start_agent(opts) do
+    proxy_opts = Planck.Headless.ProxyPool.opts()
+    opts = Keyword.update(opts, :opts, proxy_opts, &Keyword.merge(&1, proxy_opts))
+
     case DynamicSupervisor.start_child(Planck.Agent.AgentSupervisor, {Planck.Agent, opts}) do
       {:ok, pid} -> {:ok, pid}
       {:error, reason} -> {:error, {:agent_start_failed, reason}}

@@ -130,7 +130,10 @@ defmodule Planck.Headless.Config do
           teams_dirs: [Path.t()],
           sidecar: Path.t(),
           providers: %{String.t() => map()},
-          models: [map()]
+          models: [map()],
+          tool_proxy: String.t() | nil,
+          tool_proxy_ui: String.t() | nil,
+          tool_proxy_ca_cert: String.t() | nil
         }
 
   defstruct default_provider: nil,
@@ -140,7 +143,10 @@ defmodule Planck.Headless.Config do
             teams_dirs: [".planck/teams", "~/.planck/teams"],
             sidecar: ".planck/sidecar",
             providers: %{},
-            models: []
+            models: [],
+            tool_proxy: nil,
+            tool_proxy_ui: nil,
+            tool_proxy_ca_cert: nil
 
   @envdoc """
   Colon-separated list of JSON config files to read at boot, in order.
@@ -222,6 +228,39 @@ defmodule Planck.Headless.Config do
     binding_order: @json
 
   @envdoc """
+  HTTP proxy URL for all outgoing LLM requests (e.g. `"http://vault:14322"`).
+  When set, Planck configures its HTTP client to route LLM API calls through
+  this proxy and sets standard proxy env vars for child processes (bash tools,
+  sidecar, etc.). Designed for use with credential-injecting proxies such as
+  agent-vault.
+  """
+  app_env :tool_proxy, :planck, :tool_proxy,
+    os_env: "PLANCK_TOOL_PROXY",
+    default: nil,
+    binding_order: @json
+
+  @envdoc """
+  External URL of the proxy management UI (e.g. `"http://localhost:14321"`).
+  When set, a button appears in the Planck UI linking to this address.
+  May differ from `tool_proxy` when running in Docker (internal vs host address).
+  """
+  app_env :tool_proxy_ui, :planck, :tool_proxy_ui,
+    os_env: "PLANCK_TOOL_PROXY_UI",
+    default: nil,
+    binding_order: @json
+
+  @envdoc """
+  Path to the proxy CA certificate PEM file (e.g. `"/certs/ca.pem"`).
+  Required when using a TLS MITM proxy such as agent-vault. Planck passes
+  this to its HTTP client and sets `SSL_CERT_FILE`/`CURL_CA_BUNDLE` for
+  child processes.
+  """
+  app_env :tool_proxy_ca_cert, :planck, :tool_proxy_ca_cert,
+    os_env: "PLANCK_TOOL_PROXY_CA_CERT",
+    default: nil,
+    binding_order: @json
+
+  @envdoc """
   Map of named provider entries. Each key is a user-defined provider alias;
   the value describes the provider type and connection details. Only readable
   from `.planck/config.json` or application config — no env var equivalent.
@@ -291,7 +330,10 @@ defmodule Planck.Headless.Config do
       teams_dirs: teams_dirs!(),
       sidecar: sidecar!(),
       providers: providers!(),
-      models: models!()
+      models: models!(),
+      tool_proxy: tool_proxy!(),
+      tool_proxy_ui: tool_proxy_ui!(),
+      tool_proxy_ca_cert: tool_proxy_ca_cert!()
     }
   end
 end

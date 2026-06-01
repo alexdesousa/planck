@@ -14,9 +14,11 @@ defmodule Planck.Headless.Supervisor do
     # Planck.Agent.Supervisor is already started by the :planck_agent OTP
     # application before this supervisor starts. We only need the headless-owned
     # children here.
-    children = [
-      Planck.Headless.AppSupervisor
-    ]
+    proxy_child = Planck.Headless.ProxyPool.child_spec()
+
+    children =
+      [proxy_child, Planck.Headless.AppSupervisor]
+      |> Enum.reject(&is_nil/1)
 
     Supervisor.init(children, strategy: :one_for_one)
   end

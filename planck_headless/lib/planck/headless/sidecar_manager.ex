@@ -278,7 +278,19 @@ defmodule Planck.Headless.SidecarManager do
       |> Enum.map(&{to_charlist(&1), false})
 
     passthrough =
-      ["MIX_ENV", "HOME", "PLANCK_AGENT_SRC"]
+      [
+        "MIX_ENV",
+        "HOME",
+        "PLANCK_AGENT_SRC",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "SSL_CERT_FILE",
+        "CURL_CA_BUNDLE",
+        "REQUESTS_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS"
+      ]
       |> Enum.flat_map(fn key ->
         case System.get_env(key) do
           nil -> []
