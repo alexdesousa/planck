@@ -124,20 +124,43 @@ defmodule Sidecar.Secrets.AgentVaultTest do
   # ---------------------------------------------------------------------------
 
   describe "delete/1" do
-    test "sends credential key to vault", %{bypass: bypass} do
+    test "deletes credential and any service rules that reference it", %{bypass: bypass} do
       parent = self()
 
       Bypass.expect_once(bypass, "DELETE", "/v1/credentials", fn conn ->
         assert_auth(conn)
         {:ok, raw, conn} = Plug.Conn.read_body(conn)
-        send(parent, {:body, Jason.decode!(raw)})
+        send(parent, {:credential, Jason.decode!(raw)})
+        json(conn, 200, %{})
+      end)
+
+      # list_services called to find rules referencing MY_KEY
+      Bypass.expect_once(bypass, "GET", "/v1/vaults/#{@vault}/services", fn conn ->
+        json(conn, 200, %{
+          "services" => [
+            %{"host" => "api.n8n.com", "auth" => %{"type" => "bearer", "key" => "MY_KEY"}},
+            %{"host" => "api.other.com", "auth" => %{"type" => "bearer", "key" => "OTHER_KEY"}}
+          ]
+        })
+      end)
+
+      # Only the matching service rule is deleted
+      Bypass.expect_once(bypass, "DELETE", "/v1/vaults/#{@vault}/services/api.n8n.com", fn conn ->
+        send(parent, :service_deleted)
         json(conn, 200, %{})
       end)
 
       assert :ok = AgentVault.delete("MY_KEY")
-      assert_receive {:body, body}
-      assert body["vault"] == @vault
+      assert_receive {:credential, body}
       assert body["keys"] == ["MY_KEY"]
+      assert_receive :service_deleted
+    end
+
+    test "succeeds even when listing services fails", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "DELETE", "/v1/credentials", &json(&1, 200, %{}))
+      Bypass.expect_once(bypass, "GET", "/v1/vaults/#{@vault}/services", &json(&1, 500, %{}))
+
+      assert :ok = AgentVault.delete("MY_KEY")
     end
   end
 
@@ -279,7 +302,8 @@ defmodule Sidecar.Secrets.AgentVaultTest do
       try do
         fun.(tmp)
       after
-        if original_home, do: System.put_env("HOME", original_home),
+        if original_home,
+          do: System.put_env("HOME", original_home),
           else: System.delete_env("HOME")
       end
     end

@@ -93,6 +93,29 @@ defmodule Planck.Headless.Secrets do
     end
   end
 
+  @doc "Upsert a service rule for the given host."
+  @spec store_service(String.t(), String.t(), String.t(), keyword()) ::
+          :ok | {:error, term()}
+  def store_service(host, auth_type, credential_key, opts \\ []) do
+    dispatch(
+      :store_service,
+      [host, auth_type, credential_key, opts],
+      {:error, :sidecar_not_connected}
+    )
+  end
+
+  @doc "Delete the service rule for the given host."
+  @spec delete_service(String.t()) :: :ok | {:error, term()}
+  def delete_service(host) do
+    dispatch(:delete_service, [host], {:error, :sidecar_not_connected})
+  end
+
+  @doc "List all configured service rules."
+  @spec list_services() :: {:ok, [Planck.Agent.Secrets.service()]} | {:error, term()}
+  def list_services do
+    dispatch(:list_services, [], {:error, :sidecar_not_connected})
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------

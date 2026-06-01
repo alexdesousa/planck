@@ -74,11 +74,10 @@ This is a monorepo. Each package is developed and tested independently.
 
 ```sh
 cd planck_ai
-PLANCK_LOCAL=true mix deps.get
+mix deps.get
 mix test
 ```
 
-Set `PLANCK_LOCAL=true` to resolve sibling packages from disk instead of Hex.
 
 A `./check` script at the monorepo root runs format, compile, credo, tests, and
 dialyzer across all packages:

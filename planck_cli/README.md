@@ -11,8 +11,6 @@ https://github.com/user-attachments/assets/4045b308-4b1c-4315-9024-11574a8c8eb5
 mix run --no-halt -- --sname planck_cli
 ```
 
-- `PLANCK_LOCAL=true` — resolves sibling packages as local path dependencies instead
-  of fetching from Hex.
 - `--sname planck_cli` — sets the Erlang node name for distribution (required for the
   optional sidecar). Passed after `--` so `System.argv()` delivers it to the app.
 
@@ -32,10 +30,10 @@ All options can be passed as flags after `--` or set via environment variables:
 
 ```bash
 # Expose on all interfaces (e.g. for LAN access or Docker)
-IP_ADDRESS=0.0.0.0 PLANCK_LOCAL=true mix run --no-halt
+IP_ADDRESS=0.0.0.0 mix run --no-halt
 
 # Custom port and node name
-PLANCK_LOCAL=true mix run --no-halt -- --port 8080 --sname my_planck
+mix run --no-halt -- --port 8080 --sname my_planck
 ```
 
 ## HTTP API

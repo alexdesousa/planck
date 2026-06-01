@@ -100,10 +100,8 @@ See `specs/sidecar.md` for the full design.
 ## Development
 
 ```sh
-PLANCK_LOCAL=true mix deps.get
-PLANCK_LOCAL=true mix check
+mix deps.get
+mix check
 ```
 
-Set `PLANCK_LOCAL=true` to resolve sibling packages (`planck_agent`, `planck_ai`)
-from disk instead of Hex.
 

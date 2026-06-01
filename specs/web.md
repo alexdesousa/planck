@@ -8,7 +8,7 @@ all business state comes from `planck_headless` and `planck_agent` via
 Accessed at `http://localhost:4000` when running:
 
 ```bash
-PLANCK_LOCAL=true elixir --sname planck_cli -S mix run --no-halt
+elixir --sname planck_cli -S mix run --no-halt
 ```
 
 The `--sname` flag is required for the optional sidecar to connect back.

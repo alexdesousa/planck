@@ -27,13 +27,12 @@ UI code never calls `planck_agent` directly — always through `planck_headless`
 ./check planck_agent
 
 # Unit tests (from any package directory):
-PLANCK_LOCAL=true mix test
+mix test
 
 # planck_headless integration tests (requires distributed Erlang node):
-PLANCK_LOCAL=true mix test.integration
+mix test.integration
 ```
 
-`PLANCK_LOCAL=true` resolves sibling packages from disk instead of Hex.
 `test.integration` is only available in `planck_headless`.
 
 ## Module naming

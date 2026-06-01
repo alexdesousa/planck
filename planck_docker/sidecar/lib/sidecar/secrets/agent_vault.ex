@@ -67,9 +67,9 @@ defmodule Sidecar.Secrets.AgentVault do
   @impl Planck.Agent.Secrets
   @spec delete(String.t()) :: :ok | {:error, term()}
   def delete(key) when is_binary(key) do
-    case delete_req("/v1/credentials", %{"vault" => vault(), "keys" => [key]}) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+    with {:ok, _} <- delete_req("/v1/credentials", %{"vault" => vault(), "keys" => [key]}) do
+      delete_services_for(key)
+      :ok
     end
   end
 
@@ -149,10 +149,27 @@ defmodule Sidecar.Secrets.AgentVault do
   # Private — HTTP
   # ---------------------------------------------------------------------------
 
+  @spec delete_services_for(String.t()) :: :ok
+  defp delete_services_for(key) do
+    case list_services() do
+      {:ok, services} ->
+        services
+        |> Enum.filter(&(&1.credential_key == key))
+        |> Enum.each(&delete_service(&1.host))
+
+      {:error, reason} ->
+        Logger.warning(
+          "[AgentVault] Could not list services to clean up after deleting #{key}: #{inspect(reason)}"
+        )
+    end
+
+    :ok
+  end
+
   @spec token() :: String.t() | nil
   defp token, do: Sidecar.Config.agent_vault_token!()
 
-  @spec base_url() :: String.t()
+  @spec base_url() :: String.t() | nil
   defp base_url, do: Sidecar.Config.agent_vault_url!()
 
   @spec vault() :: String.t()
