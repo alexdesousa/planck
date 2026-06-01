@@ -1,8 +1,9 @@
 services:
 
   # ── First-run workspace setup ──────────────────────────────────────────────
-  # Renders config templates and copies the sidecar before any other service
-  # starts. Runs to completion and exits; other services depend on it.
+  # Renders config templates, copies the sidecar, and bootstraps agent-vault
+  # (registers owner account, creates vault + scoped agent token). Runs to
+  # completion and exits; other services depend on it.
   setup:
     build:
       context: ..
@@ -11,9 +12,16 @@ services:
     entrypoint: ["/setup.sh"]
     volumes:
       - ${PLANCK_HOME}/workspace:/workspace
+      - ${PLANCK_HOME}:/planck-home
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
+      AGENT_VAULT_URL: http://vault:14321
+      AGENT_VAULT_EMAIL: ${AGENT_VAULT_EMAIL}
+      AGENT_VAULT_PASSWORD: ${AGENT_VAULT_PASSWORD}
+    depends_on:
+      vault:
+        condition: service_started
 
   # ── Planck web UI + agent runtime + sidecar ────────────────────────────────
   planck:
@@ -40,8 +48,7 @@ services:
       PLANCK_TOOL_PROXY_CA_CERT: /vault-data/ca/ca.crt.pem
       PLANCK_SECRETS_HOOK: Sidecar.Secrets.AgentVault
       AGENT_VAULT_URL: http://vault:14321
-      AGENT_VAULT_EMAIL: ${AGENT_VAULT_EMAIL}
-      AGENT_VAULT_PASSWORD: ${AGENT_VAULT_PASSWORD}
+      AGENT_VAULT_TOKEN: ${AGENT_VAULT_TOKEN}
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -84,7 +91,7 @@ services:
     restart: unless-stopped
 
   # ── Credential vault — MITM proxy for outbound LLM and tool HTTP calls ─────
-  # Port 14321 (management UI) is intentionally NOT published — all credential
+  # Port 14321 (management API) is intentionally NOT published — all credential
   # management happens through Planck's own secrets modal.
   vault:
     image: infisical/agent-vault:latest

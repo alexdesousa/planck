@@ -21,4 +21,70 @@ if [ ! -f "$PLANCK_DIR/searxng/settings.yml" ]; then
   envsubst < /app/searxng_settings.yml.template > "$PLANCK_DIR/searxng/settings.yml"
 fi
 
+# ── Agent-vault bootstrap ──────────────────────────────────────────────────────
+# Registers the owner account, creates the planck vault, and generates a scoped
+# agent token. The token is written to /planck-home/.env so docker compose can
+# inject it into the planck container on the next (or current) `up` invocation.
+# Skipped if the token is already present or if vault vars are not set.
+if [ -n "$AGENT_VAULT_URL" ] && [ -n "$AGENT_VAULT_EMAIL" ] && [ -n "$AGENT_VAULT_PASSWORD" ]; then
+  PLANCK_ENV=/planck-home/.env
+
+  if grep -q "^AGENT_VAULT_TOKEN=" "$PLANCK_ENV" 2>/dev/null; then
+    echo "[setup] Vault token already present."
+  else
+    echo "[setup] Bootstrapping agent-vault..."
+
+    # Wait up to 30 s for vault to be ready
+    i=0
+    until curl -sf "$AGENT_VAULT_URL/health" >/dev/null 2>&1; do
+      i=$((i + 1))
+      if [ "$i" -ge 30 ]; then
+        echo "[setup] Vault not ready after 30 s — skipping bootstrap."
+        break
+      fi
+      sleep 1
+    done
+
+    if curl -sf "$AGENT_VAULT_URL/health" >/dev/null 2>&1; then
+      # Register owner account (no-op if already registered)
+      curl -sf -X POST "$AGENT_VAULT_URL/v1/auth/register" \
+        -H "Content-Type: application/json" \
+        -d "{\"email\":\"$AGENT_VAULT_EMAIL\",\"password\":\"$AGENT_VAULT_PASSWORD\"}" \
+        >/dev/null 2>&1 || true
+
+      # Login and obtain a session token
+      RESP=$(curl -sf -X POST "$AGENT_VAULT_URL/v1/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"email\":\"$AGENT_VAULT_EMAIL\",\"password\":\"$AGENT_VAULT_PASSWORD\"}" 2>/dev/null)
+      SESSION=$(echo "$RESP" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+      if [ -z "$SESSION" ]; then
+        echo "[setup] Could not login to vault — skipping bootstrap."
+      else
+        # Create vault (idempotent)
+        curl -sf -X POST "$AGENT_VAULT_URL/v1/vaults" \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $SESSION" \
+          -d '{"name":"planck","credential_store":{"kind":"builtin"}}' \
+          >/dev/null 2>&1 || true
+
+        # Create scoped agent (proxy role on the planck vault)
+        RESP=$(curl -sf -X POST "$AGENT_VAULT_URL/v1/agents" \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $SESSION" \
+          -d '{"name":"planck-sidecar","role":"no-access","vaults":[{"vault_name":"planck","vault_role":"proxy"}]}' \
+          2>/dev/null)
+        TOKEN=$(echo "$RESP" | grep -o '"av_agent_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+        if [ -n "$TOKEN" ]; then
+          echo "AGENT_VAULT_TOKEN=$TOKEN" >> "$PLANCK_ENV"
+          echo "[setup] Vault agent token written."
+        else
+          echo "[setup] Could not create agent token — skipping bootstrap."
+        fi
+      fi
+    fi
+  fi
+fi
+
 echo "[setup] Done."
