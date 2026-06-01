@@ -29,6 +29,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:model_selector, nil)
       |> assign(:available_models, [])
       |> assign(:first_run, false)
+      |> assign(:tool_proxy_ui, nil)
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -56,7 +57,8 @@ defmodule Planck.Web.SessionLive do
        |> assign(:teams, teams)
        |> assign(:first_run, first_run)
        |> assign(:setup_visible, first_run)
-       |> assign(:available_models, Headless.available_models())}
+       |> assign(:available_models, Headless.available_models())
+       |> assign(:tool_proxy_ui, config.tool_proxy_ui)}
     else
       {:ok, socket}
     end

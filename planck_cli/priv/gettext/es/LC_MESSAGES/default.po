@@ -691,3 +691,9 @@ msgstr "Prueba 20 para una salida conservadora y centrada en el tema, o 40 para 
 msgctxt "setup help"
 msgid "Try 2048 for most conversations. Increase to 4096 or more if the model cuts off mid-response on long tasks like writing or code generation."
 msgstr "Prueba 2048 para la mayoría de conversaciones. Aumenta a 4096 o más si el modelo se corta a mitad de respuesta en tareas largas como escritura o generación de código."
+
+#: lib/planck/web/live/session_live.html.heex:87
+#, elixir-autogen, elixir-format
+msgctxt "tooltip"
+msgid "Open credential vault"
+msgstr "Abrir almacén de credenciales"

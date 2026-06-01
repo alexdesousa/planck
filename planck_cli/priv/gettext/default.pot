@@ -697,3 +697,9 @@ msgstr ""
 msgctxt "setup help"
 msgid "Try 2048 for most conversations. Increase to 4096 or more if the model cuts off mid-response on long tasks like writing or code generation."
 msgstr ""
+
+#: lib/planck/web/live/session_live.html.heex:87
+#, elixir-autogen, elixir-format
+msgctxt "tooltip"
+msgid "Open credential vault"
+msgstr ""

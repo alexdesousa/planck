@@ -80,6 +80,12 @@
       phx-click="open_setup"
       title={pgettext("tooltip", "Configure models")}
     >⚙</button>
+    <%= if @tool_proxy_ui do %>
+      <a href={@tool_proxy_ui} target="_blank" rel="noopener noreferrer"
+         class="border-t-2 border-l-2 border-black px-3 font-mono text-sm
+                bg-card hover:bg-muted transition-colors flex items-center"
+         title={pgettext("tooltip", "Open credential vault")}>🔐</a>
+    <% end %>
   </div>
 
   <%!-- Agent context overlay — centered panel, not full-screen on large displays --%>
