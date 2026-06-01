@@ -53,6 +53,15 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
 
   @impl true
   @spec update(map(), Socket.t()) :: {:ok, Socket.t()}
+  def update(%{action: :go_back}, %{assigns: %{mode: :add_model}} = socket) do
+    send_update(Planck.Web.Live.SetupModal,
+      id: socket.assigns.parent_id,
+      action: :cancel
+    )
+
+    {:ok, socket}
+  end
+
   def update(%{action: :go_back}, socket) do
     {:ok, assign(socket, :sub_step, :provider)}
   end
@@ -1085,6 +1094,10 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
           </div>
 
         </form>
+      <% end %>
+
+      <%= if @error do %>
+        <p class="font-mono text-xs text-destructive pt-2"><%= @error %></p>
       <% end %>
     </div>
     """

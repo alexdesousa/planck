@@ -16,7 +16,11 @@ defmodule Planck.Web.Live.SetupModal.KeysStep do
   def update(%{action: _} = _msg, socket), do: {:ok, socket}
 
   def update(assigns, socket) do
-    {:ok, keys} = Planck.Headless.Secrets.list()
+    keys =
+      case Planck.Headless.Secrets.list() do
+        {:ok, k} -> k
+        _ -> []
+      end
 
     {:ok,
      socket

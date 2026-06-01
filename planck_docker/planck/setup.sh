@@ -65,27 +65,38 @@ if [ -n "$AGENT_VAULT_URL" ] && [ -n "$AGENT_VAULT_EMAIL" ] && [ -n "$AGENT_VAUL
         echo "[setup] Could not login to vault — skipping bootstrap."
         echo "[setup] Login response: $RESP"
       else
-        # Create vault (idempotent — ignore 409 conflict on re-runs)
-        curl -s -X POST "$AGENT_VAULT_URL/v1/vaults" \
+        # Create vault (idempotent — 409 means it already exists, which is fine)
+        VAULT_RESP=$(curl -s -X POST "$AGENT_VAULT_URL/v1/vaults" \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer $SESSION" \
-          -d '{"name":"planck","credential_store":{"kind":"builtin"}}' \
-          >/dev/null 2>&1 || true
+          -d '{"name":"planck"}' \
+          2>/dev/null) || true
+        echo "[setup] Vault creation response: $VAULT_RESP"
 
-        # Create scoped agent (proxy role on the planck vault)
+        # Create scoped agent with admin role on the planck vault.
+        # If the agent already exists from a previous run, rotate its token instead.
         RESP=$(curl -s -X POST "$AGENT_VAULT_URL/v1/agents" \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer $SESSION" \
-          -d '{"name":"planck-sidecar","role":"no-access","vaults":[{"vault_name":"planck","vault_role":"proxy"}]}' \
+          -d '{"name":"planck-sidecar","role":"no-access","vaults":[{"vault_name":"planck","vault_role":"admin"}]}' \
           2>/dev/null) || true
         TOKEN=$(echo "$RESP" | grep -o '"av_agent_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+        if [ -z "$TOKEN" ]; then
+          echo "[setup] Agent creation response: $RESP"
+          echo "[setup] Agent already exists — rotating token..."
+          RESP=$(curl -s -X POST "$AGENT_VAULT_URL/v1/agents/planck-sidecar/rotate" \
+            -H "Authorization: Bearer $SESSION" \
+            2>/dev/null) || true
+          TOKEN=$(echo "$RESP" | grep -o '"av_agent_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+        fi
 
         if [ -n "$TOKEN" ]; then
           echo "AGENT_VAULT_TOKEN=$TOKEN" >> "$PLANCK_ENV"
           echo "[setup] Vault agent token written."
         else
           echo "[setup] Could not create agent token — skipping bootstrap."
-          echo "[setup] Agent response: $RESP"
+          echo "[setup] Rotate response: $RESP"
         fi
       fi
     fi

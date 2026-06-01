@@ -35,6 +35,7 @@ fi
 # ── Create directory layout ───────────────────────────────────────────────────
 mkdir -p \
   "$DEV_DIR/typesense-data" \
+  "$DEV_DIR/vault-data" \
   "$DEV_DIR/workspace/.planck/skills"
 
 # ── Write .env (add missing keys if it exists) ────────────────────────────────

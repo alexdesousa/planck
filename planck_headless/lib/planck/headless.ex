@@ -1168,23 +1168,35 @@ defmodule Planck.Headless do
 
   @spec maybe_store_api_key(String.t(), String.t() | nil, String.t() | nil, Path.t()) ::
           :ok | {:error, term()}
-  defp maybe_store_api_key(_type, key, _id, _env_path) when key in [nil, ""], do: :ok
+  defp maybe_store_api_key(_type, key, _id, _env_path) when key in [nil, ""] do
+    :ok
+  end
 
   defp maybe_store_api_key(type, api_key, identifier, env_path) do
     case provider_api_key_env_var(type, identifier) do
-      nil ->
+      nil -> :ok
+      env_var -> store_api_key(Planck.Headless.Secrets.resolve(), env_var, api_key, env_path)
+    end
+  end
+
+  # EnvFile uses write_to/3 for scoped writes (local vs global path).
+  defp store_api_key(Planck.Headless.Secrets.EnvFile, env_var, api_key, env_path) do
+    Planck.Headless.Secrets.EnvFile.write_to(env_path, env_var, api_key)
+  end
+
+  # All other backends go through the dispatch layer (RPC to sidecar).
+  # Falls back to EnvFile if the sidecar isn't connected yet —
+  # AgentVault.maybe_migrate/0 will move it to the vault on connect.
+  defp store_api_key(_mod, env_var, api_key, env_path) do
+    case Planck.Headless.Secrets.store(env_var, api_key) do
+      :ok ->
         :ok
 
-      env_var ->
-        # Use the configured secrets hook; EnvFile needs the explicit env_path
-        # for scoped writes (local vs global).
-        case Planck.Headless.Secrets.resolve() do
-          Planck.Headless.Secrets.EnvFile ->
-            Planck.Headless.Secrets.EnvFile.write_to(env_path, env_var, api_key)
+      {:error, :sidecar_not_connected} ->
+        Planck.Headless.Secrets.EnvFile.write_to(env_path, env_var, api_key)
 
-          mod ->
-            mod.store(env_var, api_key)
-        end
+      {:error, _} = error ->
+        error
     end
   end
 

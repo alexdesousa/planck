@@ -59,6 +59,7 @@ fi
 echo "Setting up $PLANCK_HOME..."
 mkdir -p \
   "$PLANCK_HOME/typesense-data" \
+  "$PLANCK_HOME/vault-data" \
   "$PLANCK_HOME/workspace/.planck"
 
 # ── Write .env — create if absent, add missing keys if it exists ──────────────

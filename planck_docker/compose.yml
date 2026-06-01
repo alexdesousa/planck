@@ -34,7 +34,7 @@ services:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
     volumes:
       - ${PLANCK_HOME}/workspace:/workspace
-      - vault-data:/vault-data:ro
+      - ${PLANCK_HOME}/vault-data:/vault-data:ro
     environment:
       WORKSPACE_DIR: /workspace
       TYPESENSE_URL: http://typesense:8108
@@ -97,9 +97,6 @@ services:
     image: infisical/agent-vault:latest
     restart: unless-stopped
     volumes:
-      - vault-data:/root/.agent-vault
+      - ${PLANCK_HOME}/vault-data:/root/.agent-vault
     environment:
       AGENT_VAULT_MASTER_PASSWORD: ${AGENT_VAULT_MASTER_PASSWORD}
-
-volumes:
-  vault-data:

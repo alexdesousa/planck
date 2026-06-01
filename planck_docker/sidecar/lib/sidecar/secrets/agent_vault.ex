@@ -91,8 +91,10 @@ defmodule Sidecar.Secrets.AgentVault do
           %{"type" => "bearer", "key" => credential_key}
       end
 
+    name = String.replace(host, ".", "-")
+
     case post("/v1/vaults/#{vault()}/services", %{
-           "services" => [%{"host" => host, "auth" => auth}]
+           "services" => [%{"name" => name, "host" => host, "auth" => auth}]
          }) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}

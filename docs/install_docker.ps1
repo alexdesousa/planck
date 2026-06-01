@@ -54,7 +54,7 @@ if ($LASTEXITCODE -eq 0) {
 
 # ── Create directory layout ───────────────────────────────────────────────────
 Write-Host "Setting up $PlanckHome..."
-foreach ($dir in "typesense-data", "workspace\.planck") {
+foreach ($dir in "typesense-data", "vault-data", "workspace\.planck") {
     New-Item -ItemType Directory -Force -Path (Join-Path $PlanckHome $dir) | Out-Null
 }
 

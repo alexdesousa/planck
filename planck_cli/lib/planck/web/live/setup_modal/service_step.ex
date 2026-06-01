@@ -53,8 +53,17 @@ defmodule Planck.Web.Live.SetupModal.ServiceStep do
   def update(%{action: _}, socket), do: {:ok, socket}
 
   def update(assigns, socket) do
-    {:ok, keys} = Secrets.list()
-    {:ok, services} = Secrets.list_services()
+    keys =
+      case Secrets.list() do
+        {:ok, k} -> k
+        _ -> []
+      end
+
+    services =
+      case Secrets.list_services() do
+        {:ok, s} -> s
+        _ -> []
+      end
 
     {:ok,
      socket
@@ -181,7 +190,11 @@ defmodule Planck.Web.Live.SetupModal.ServiceStep do
 
     case Secrets.store_service(assigns.host, assigns.auth_type, assigns.selected_key, opts) do
       :ok ->
-        {:ok, services} = Secrets.list_services()
+        services =
+          case Secrets.list_services() do
+            {:ok, s} -> s
+            _ -> socket.assigns.services
+          end
 
         socket
         |> assign(:services, services)
@@ -204,7 +217,11 @@ defmodule Planck.Web.Live.SetupModal.ServiceStep do
   defp do_delete(%{assigns: %{existing_host: host}} = socket) do
     case Secrets.delete_service(host) do
       :ok ->
-        {:ok, services} = Secrets.list_services()
+        services =
+          case Secrets.list_services() do
+            {:ok, s} -> s
+            _ -> []
+          end
 
         socket
         |> assign(:services, services)
