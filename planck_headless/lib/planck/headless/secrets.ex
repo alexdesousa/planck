@@ -34,7 +34,7 @@ defmodule Planck.Headless.Secrets do
   def resolve do
     case Config.secrets_hook!() do
       nil -> __MODULE__.EnvFile
-      mod when is_binary(mod) -> String.to_existing_atom("Elixir.#{mod}")
+      mod when is_binary(mod) -> String.to_atom("Elixir.#{mod}")
     end
   end
 
