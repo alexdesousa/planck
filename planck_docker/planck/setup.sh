@@ -6,8 +6,15 @@ PLANCK_DIR=/workspace/.planck
 
 mkdir -p "$PLANCK_DIR/searxng"
 
+BUNDLED_VERSION=$(cat /app/sidecar/PLANCK_VERSION 2>/dev/null || echo "unknown")
+INSTALLED_VERSION=$(cat "$PLANCK_DIR/sidecar/PLANCK_VERSION" 2>/dev/null || echo "")
+
 if [ ! -d "$PLANCK_DIR/sidecar" ]; then
   echo "[setup] Installing bundled sidecar..."
+  cp -r /app/sidecar "$PLANCK_DIR/sidecar"
+elif [ "$INSTALLED_VERSION" != "$BUNDLED_VERSION" ]; then
+  echo "[setup] Updating sidecar from $INSTALLED_VERSION to $BUNDLED_VERSION..."
+  rm -rf "$PLANCK_DIR/sidecar"
   cp -r /app/sidecar "$PLANCK_DIR/sidecar"
 fi
 

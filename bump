@@ -81,6 +81,7 @@ bump planck_agent/mix.exs               "@version \"$OLD\""           "@version 
 bump planck_headless/mix.exs            "@version \"$OLD\""           "@version \"$NEW\""
 bump planck_cli/mix.exs                 "@version \"$OLD\""           "@version \"$NEW\""
 bump planck_docker/sidecar/mix.exs      "version: \"$OLD\""           "version: \"$NEW\""
+bump planck_docker/sidecar/PLANCK_VERSION "$OLD"                        "$NEW"
 bump planck_docker/compose.yml          "planck:$OLD"                  "planck:$NEW"
 bump skills/planck_setup/SKILL.md       "planck_version: $OLD"        "planck_version: $NEW"
 bump docs/install.sh                    "VERSION=\"$OLD\""             "VERSION=\"$NEW\""
