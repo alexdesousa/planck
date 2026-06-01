@@ -34,46 +34,50 @@ if [ -n "$AGENT_VAULT_URL" ] && [ -n "$AGENT_VAULT_EMAIL" ] && [ -n "$AGENT_VAUL
   else
     echo "[setup] Bootstrapping agent-vault..."
 
-    # Wait up to 30 s for vault to be ready
+    # Wait up to 60 s for vault to accept connections
     i=0
-    until curl -sf "$AGENT_VAULT_URL/health" >/dev/null 2>&1; do
+    until curl -s "$AGENT_VAULT_URL/health" >/dev/null 2>&1; do
       i=$((i + 1))
-      if [ "$i" -ge 30 ]; then
-        echo "[setup] Vault not ready after 30 s — skipping bootstrap."
+      if [ "$i" -ge 60 ]; then
+        echo "[setup] Vault not reachable after 60 s — skipping bootstrap."
         break
       fi
       sleep 1
     done
 
-    if curl -sf "$AGENT_VAULT_URL/health" >/dev/null 2>&1; then
-      # Register owner account (no-op if already registered)
-      curl -sf -X POST "$AGENT_VAULT_URL/v1/auth/register" \
+    if curl -s "$AGENT_VAULT_URL/health" >/dev/null 2>&1; then
+      # Register owner account — succeeds on first run, returns error on subsequent
+      # runs (already registered). Ignore the exit code either way.
+      curl -s -X POST "$AGENT_VAULT_URL/v1/auth/register" \
         -H "Content-Type: application/json" \
         -d "{\"email\":\"$AGENT_VAULT_EMAIL\",\"password\":\"$AGENT_VAULT_PASSWORD\"}" \
         >/dev/null 2>&1 || true
 
-      # Login and obtain a session token
-      RESP=$(curl -sf -X POST "$AGENT_VAULT_URL/v1/auth/login" \
+      # Login and obtain a session token. Use -s (not -sf) so a non-200
+      # response body is still captured rather than causing a script exit.
+      RESP=$(curl -s -X POST "$AGENT_VAULT_URL/v1/auth/login" \
         -H "Content-Type: application/json" \
-        -d "{\"email\":\"$AGENT_VAULT_EMAIL\",\"password\":\"$AGENT_VAULT_PASSWORD\"}" 2>/dev/null)
+        -d "{\"email\":\"$AGENT_VAULT_EMAIL\",\"password\":\"$AGENT_VAULT_PASSWORD\"}" \
+        2>/dev/null) || true
       SESSION=$(echo "$RESP" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
 
       if [ -z "$SESSION" ]; then
         echo "[setup] Could not login to vault — skipping bootstrap."
+        echo "[setup] Login response: $RESP"
       else
-        # Create vault (idempotent)
-        curl -sf -X POST "$AGENT_VAULT_URL/v1/vaults" \
+        # Create vault (idempotent — ignore 409 conflict on re-runs)
+        curl -s -X POST "$AGENT_VAULT_URL/v1/vaults" \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer $SESSION" \
           -d '{"name":"planck","credential_store":{"kind":"builtin"}}' \
           >/dev/null 2>&1 || true
 
         # Create scoped agent (proxy role on the planck vault)
-        RESP=$(curl -sf -X POST "$AGENT_VAULT_URL/v1/agents" \
+        RESP=$(curl -s -X POST "$AGENT_VAULT_URL/v1/agents" \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer $SESSION" \
           -d '{"name":"planck-sidecar","role":"no-access","vaults":[{"vault_name":"planck","vault_role":"proxy"}]}' \
-          2>/dev/null)
+          2>/dev/null) || true
         TOKEN=$(echo "$RESP" | grep -o '"av_agent_token":"[^"]*"' | head -1 | cut -d'"' -f4)
 
         if [ -n "$TOKEN" ]; then
@@ -81,6 +85,7 @@ if [ -n "$AGENT_VAULT_URL" ] && [ -n "$AGENT_VAULT_EMAIL" ] && [ -n "$AGENT_VAUL
           echo "[setup] Vault agent token written."
         else
           echo "[setup] Could not create agent token — skipping bootstrap."
+          echo "[setup] Agent response: $RESP"
         fi
       fi
     fi

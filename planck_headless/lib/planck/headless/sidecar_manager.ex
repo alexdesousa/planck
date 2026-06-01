@@ -148,7 +148,7 @@ defmodule Planck.Headless.SidecarManager do
   @impl true
   def handle_info({:nodeup, node}, %{sidecar_node: nil} = state) do
     if sidecar_node?(node) do
-      Planck.Headless.Secrets.preload_to_env()
+      Planck.Headless.Secrets.preload_to_env(node)
       ResourceStore.reload()
 
       tools = fetch_tools(node)

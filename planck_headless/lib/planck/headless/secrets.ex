@@ -51,13 +51,17 @@ defmodule Planck.Headless.Secrets do
   @doc """
   Load all stored secrets into the OS process environment via `System.put_env/2`.
 
-  Call at application boot and whenever the secrets store changes on disk
-  (EnvFile backend). Does NOT call `ResourceStore.reload/0` — callers are
-  responsible for triggering a Skogsra refresh if needed.
+  When `node` is provided the secrets are fetched directly from that node via
+  RPC, bypassing `SidecarManager.node/0`. This is required when called from
+  within `SidecarManager` itself — calling `SidecarManager.node/0` from inside
+  a GenServer callback would deadlock on a self-call.
+
+  Does NOT call `ResourceStore.reload/0` — callers are responsible for
+  triggering a Skogsra refresh if needed.
   """
-  @spec preload_to_env() :: :ok
-  def preload_to_env do
-    fetch_all()
+  @spec preload_to_env(atom() | nil) :: :ok
+  def preload_to_env(node \\ nil) do
+    dispatch(:fetch_all, [], %{}, node)
     |> Enum.each(fn {key, value} -> System.put_env(key, value) end)
   end
 
@@ -120,18 +124,19 @@ defmodule Planck.Headless.Secrets do
   # Private
   # ---------------------------------------------------------------------------
 
-  @spec dispatch(atom(), [term()], term()) :: term()
-  defp dispatch(function, args, fallback) do
+  @spec dispatch(atom(), [term()], term(), atom() | nil) :: term()
+  defp dispatch(function, args, fallback, node \\ nil) do
     mod = resolve()
+    sidecar = node || SidecarManager.node()
 
     cond do
       mod == __MODULE__.EnvFile ->
         apply(mod, function, args)
 
-      node = SidecarManager.node() ->
-        :rpc.call(node, :code, :ensure_loaded, [mod], @rpc_timeout_ms)
+      sidecar != nil ->
+        :rpc.call(sidecar, :code, :ensure_loaded, [mod], @rpc_timeout_ms)
 
-        case :rpc.call(node, mod, function, args, @rpc_timeout_ms) do
+        case :rpc.call(sidecar, mod, function, args, @rpc_timeout_ms) do
           {:badrpc, reason} ->
             Logger.warning(
               "[Planck.Headless.Secrets] RPC failed (#{mod}.#{function}): #{inspect(reason)}"
