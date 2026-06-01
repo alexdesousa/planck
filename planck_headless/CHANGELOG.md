@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.10
+
+- TODO
+
 ## v0.1.9
 
 ### Config hot-reload fix

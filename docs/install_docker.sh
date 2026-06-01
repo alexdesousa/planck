@@ -2,7 +2,7 @@
 set -e
 
 REPO="alexdesousa/planck"
-VERSION="0.1.9"
+VERSION="0.1.10"
 PLANCK_HOME="$HOME/planck"
 COMPOSE_URL="https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml"
 
