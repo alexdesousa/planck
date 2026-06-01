@@ -316,25 +316,25 @@ msgctxt "chat welcome"
 msgid "**Welcome to Planck**\n\nI'm your orchestrator — ask me anything, or tell me to configure Planck for this project.\n\nA few things I can do:\n- **Read, write, edit files and run commands** — basic coding tools\n- **Spawn and coordinate agents** — use inter-agent tools to build and manage a team of specialists\n- **Load skills** — reusable context from `.planck/skills/`\n- **Start with a team template** — pre-configured multi-agent setups from `.planck/teams/`\n- **Connect a sidecar** — a full Elixir/OTP application at `.planck/sidecar/` that adds custom tools and compactors\n\nAsk me to fetch any of the Planck guides if you want to set something up."
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:70
+#: lib/planck/web/live/setup_modal.html.heex:78
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Back"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:84
+#: lib/planck/web/live/setup_modal.html.heex:92
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Next"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:95
+#: lib/planck/web/live/setup_modal.html.heex:103
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Save"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.html.heex:95
+#: lib/planck/web/live/setup_modal.html.heex:103
 #, elixir-autogen, elixir-format
 msgctxt "setup button"
 msgid "Saving…"
@@ -554,31 +554,31 @@ msgctxt "setup label"
 msgid "Provider type"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:174
+#: lib/planck/web/live/setup_modal.ex:187
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Add a model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:169
+#: lib/planck/web/live/setup_modal.ex:181
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Add a provider"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:168
+#: lib/planck/web/live/setup_modal.ex:178
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Step 1 of 2 — Add a provider"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:173
+#: lib/planck/web/live/setup_modal.ex:184
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Step 2 of 2 — Add a model"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:164
+#: lib/planck/web/live/setup_modal.ex:168
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "What would you like to configure?"
@@ -776,8 +776,116 @@ msgctxt "setup keys"
 msgid "value"
 msgstr ""
 
-#: lib/planck/web/live/setup_modal.ex:177
+#: lib/planck/web/live/setup_modal.ex:170
 #, elixir-autogen, elixir-format
 msgctxt "setup subtitle"
 msgid "Manage secrets"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:363
+#, elixir-autogen, elixir-format
+msgctxt "confirmation"
+msgid "Delete rule for %{host}?"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/choose_step.ex:93
+#, elixir-autogen, elixir-format
+msgctxt "setup action"
+msgid "Configure a service rule"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/choose_step.ex:95
+#, elixir-autogen, elixir-format
+msgctxt "setup action"
+msgid "Route outbound requests through the credential proxy."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:308
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Auth type"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:365
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Delete"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:224
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Failed to delete:"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:196
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Failed to save:"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:323
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Header name"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:297
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Host"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:173
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Host is required."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:261
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "No secrets stored yet. Add one in Manage secrets first."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:354
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Save rule"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:341
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Saved."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:257
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Secret key"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:169
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Select a secret key first."
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:280
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "Service template"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal/service_step.ex:267
+#, elixir-autogen, elixir-format
+msgctxt "setup service"
+msgid "— select a key —"
+msgstr ""
+
+#: lib/planck/web/live/setup_modal.ex:171
+#, elixir-autogen, elixir-format
+msgctxt "setup subtitle"
+msgid "Configure a service rule"
 msgstr ""

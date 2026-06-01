@@ -75,6 +75,29 @@ Hooks.Chat = {
   }
 }
 
+// Repositions the dropdown panel as position:fixed so it escapes any
+// overflow:auto ancestor (e.g. the modal content scroll container).
+// Attach with phx-hook="FloatingDropdown" on the dropdown root element.
+Hooks.FloatingDropdown = {
+  mounted() {
+    const panel = document.getElementById(`${this.el.id}-panel`)
+    const trigger = this.el.querySelector('button[type="button"]')
+    if (!panel || !trigger) return
+
+    const reposition = () => {
+      if (panel.style.display === 'none') return
+      const rect = trigger.getBoundingClientRect()
+      panel.style.top    = `${rect.bottom}px`
+      panel.style.left   = `${rect.left}px`
+      panel.style.width  = `${rect.width}px`
+    }
+
+    this.observer = new MutationObserver(reposition)
+    this.observer.observe(panel, { attributes: true, attributeFilter: ['style'] })
+  },
+  destroyed() { this.observer?.disconnect() }
+}
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken, locale: document.documentElement.lang || navigator.language || "en"},

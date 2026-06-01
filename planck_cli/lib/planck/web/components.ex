@@ -298,7 +298,7 @@ defmodule Planck.Web.Components do
     assigns = assign(assigns, :selected_label, selected_label)
 
     ~H"""
-    <div class="relative">
+    <div id={@id} class="relative" phx-hook="FloatingDropdown">
       <input type="hidden" name={@name} value={@selected} />
 
       <%!-- Trigger --%>
@@ -322,10 +322,10 @@ defmodule Planck.Web.Components do
         phx-click={JS.hide(to: "##{@id}-panel") |> JS.hide(to: "##{@id}-backdrop")}
       />
 
-      <%!-- Options panel --%>
+      <%!-- Options panel — position:fixed so it escapes overflow:auto ancestors --%>
       <div
         id={"#{@id}-panel"}
-        class="absolute z-60 w-full mt-1 border-2 border-black bg-card
+        class="fixed z-[9999] mt-1 border-2 border-black bg-card
                shadow-[4px_4px_0px_#000] max-h-48 overflow-y-auto"
         style="display: none"
       >

@@ -83,6 +83,18 @@ defmodule Planck.Web.Live.SetupModal.ChooseStep do
           <%= pgettext("setup action", "View, edit, or delete stored secrets.") %>
         </p>
       </button>
+
+      <button
+        class="w-full border-2 border-black px-4 py-3 font-mono text-left
+               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+        phx-click={JS.push("choose_action", value: %{action: "service"}, target: @myself)}
+      >
+        <p class="font-bold text-sm"><%= pgettext("setup action", "Configure a service rule") %></p>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          <%= pgettext("setup action", "Route outbound requests through the credential proxy.") %>
+        </p>
+      </button>
     </div>
     """
   end

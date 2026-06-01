@@ -24,7 +24,7 @@ defmodule Planck.Web.Live.SetupModal do
   alias Planck.Headless
   alias Phoenix.LiveView.Socket
 
-  @type step :: :choose | :provider_model | :keys
+  @type step :: :choose | :provider_model | :keys | :service
   @type sub_step :: :provider | :model
   @type provider_model_mode :: :add_provider | :add_model
 
@@ -48,7 +48,8 @@ defmodule Planck.Web.Live.SetupModal do
   @impl true
   def handle_event(event, params, socket)
 
-  def handle_event("back", _, %{assigns: %{step: :keys}} = socket) do
+  def handle_event("back", _, %{assigns: %{step: step}} = socket)
+      when step in [:keys, :service] do
     {:noreply, assign(socket, :step, :choose)}
   end
 
@@ -115,6 +116,10 @@ defmodule Planck.Web.Live.SetupModal do
     {:ok, assign(socket, :step, :keys)}
   end
 
+  def update(%{action: :choose, value: "service"}, socket) do
+    {:ok, assign(socket, :step, :service)}
+  end
+
   def update(%{action: :sub_step, value: sub_step}, socket) do
     {:ok, assign(socket, :sub_step, sub_step)}
   end
@@ -160,24 +165,26 @@ defmodule Planck.Web.Live.SetupModal do
     two_step? = first_run or mode == :add_provider
 
     case {step, sub_step} do
-      {:choose, _} ->
-        pgettext("setup subtitle", "What would you like to configure?")
-
-      {:provider_model, :provider} ->
-        if two_step?,
-          do: pgettext("setup subtitle", "Step 1 of 2 — Add a provider"),
-          else: pgettext("setup subtitle", "Add a provider")
-
-      {:provider_model, :model} ->
-        if two_step?,
-          do: pgettext("setup subtitle", "Step 2 of 2 — Add a model"),
-          else: pgettext("setup subtitle", "Add a model")
-
-      {:keys, _} ->
-        pgettext("setup subtitle", "Manage secrets")
-
-      _ ->
-        ""
+      {:choose, _} -> pgettext("setup subtitle", "What would you like to configure?")
+      {:provider_model, s} -> provider_model_subtitle(s, two_step?)
+      {:keys, _} -> pgettext("setup subtitle", "Manage secrets")
+      {:service, _} -> pgettext("setup subtitle", "Configure a service rule")
+      _ -> ""
     end
   end
+
+  @spec provider_model_subtitle(sub_step(), boolean()) :: String.t()
+  defp provider_model_subtitle(:provider, true),
+    do: pgettext("setup subtitle", "Step 1 of 2 — Add a provider")
+
+  defp provider_model_subtitle(:provider, false),
+    do: pgettext("setup subtitle", "Add a provider")
+
+  defp provider_model_subtitle(:model, true),
+    do: pgettext("setup subtitle", "Step 2 of 2 — Add a model")
+
+  defp provider_model_subtitle(:model, false),
+    do: pgettext("setup subtitle", "Add a model")
+
+  defp provider_model_subtitle(_, _), do: ""
 end
