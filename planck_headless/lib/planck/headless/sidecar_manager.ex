@@ -148,8 +148,12 @@ defmodule Planck.Headless.SidecarManager do
   @impl true
   def handle_info({:nodeup, node}, %{sidecar_node: nil} = state) do
     if sidecar_node?(node) do
+      Planck.Headless.Secrets.preload_to_env()
+      ResourceStore.reload()
+
       tools = fetch_tools(node)
       ResourceStore.put_tools(tools)
+
       broadcast({:connected, node})
       {:noreply, %{state | sidecar_node: node, status: :connected}}
     else

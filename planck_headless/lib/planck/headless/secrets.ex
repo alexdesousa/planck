@@ -10,6 +10,16 @@ defmodule Planck.Headless.Secrets do
   When not set, `Planck.Headless.Secrets.EnvFile` is used — reads and writes
   `.planck/.env` (default behaviour, unchanged from earlier releases).
 
+  ## Process environment sync
+
+  Whenever a secret is stored or deleted, the change is mirrored into the
+  OS process environment via `System.put_env/2` or `System.delete_env/1` and
+  `ResourceStore.reload/0` is called so Skogsra picks up the new value without
+  a restart.
+
+  `preload_to_env/0` loads all stored secrets into the process env at once —
+  call it at application boot and after `.env` file changes (EnvFile backend only).
+
   ## Remote dispatch
 
   When the configured module lives on the sidecar node (e.g.
@@ -25,7 +35,7 @@ defmodule Planck.Headless.Secrets do
   require Logger
 
   alias Planck.Agent.Secrets
-  alias Planck.Headless.{Config, SidecarManager}
+  alias Planck.Headless.{Config, ResourceStore, SidecarManager}
 
   @rpc_timeout_ms 30_000
 
@@ -38,15 +48,34 @@ defmodule Planck.Headless.Secrets do
     end
   end
 
-  @doc "Store a secret using the configured implementation."
+  @doc """
+  Load all stored secrets into the OS process environment via `System.put_env/2`.
+
+  Call at application boot and whenever the secrets store changes on disk
+  (EnvFile backend). Does NOT call `ResourceStore.reload/0` — callers are
+  responsible for triggering a Skogsra refresh if needed.
+  """
+  @spec preload_to_env() :: :ok
+  def preload_to_env do
+    fetch_all()
+    |> Enum.each(fn {key, value} -> System.put_env(key, value) end)
+  end
+
+  @doc "Store a secret and sync to the process environment."
   @spec store(String.t(), String.t()) :: :ok | {:error, term()}
-  def store(key, value), do: dispatch(:store, [key, value], {:error, :sidecar_not_connected})
+  def store(key, value) do
+    with :ok <- dispatch(:store, [key, value], {:error, :sidecar_not_connected}) do
+      System.put_env(key, value)
+      ResourceStore.reload()
+      :ok
+    end
+  end
 
   @doc "Fetch a secret using the configured implementation."
   @spec fetch(String.t()) :: {:ok, String.t()} | :not_found | {:error, term()}
   def fetch(key), do: dispatch(:fetch, [key], {:error, :sidecar_not_connected})
 
-  @doc "Fetch all secrets using the configured implementation."
+  @doc "Fetch all secrets as a map using the configured implementation."
   @spec fetch_all() :: Secrets.t()
   def fetch_all, do: dispatch(:fetch_all, [], %{})
 
@@ -54,9 +83,15 @@ defmodule Planck.Headless.Secrets do
   @spec list() :: {:ok, [String.t()]} | {:error, term()}
   def list, do: dispatch(:list, [], {:error, :sidecar_not_connected})
 
-  @doc "Delete a secret using the configured implementation."
+  @doc "Delete a secret and remove it from the process environment."
   @spec delete(String.t()) :: :ok | {:error, term()}
-  def delete(key), do: dispatch(:delete, [key], {:error, :sidecar_not_connected})
+  def delete(key) do
+    with :ok <- dispatch(:delete, [key], {:error, :sidecar_not_connected}) do
+      System.delete_env(key)
+      ResourceStore.reload()
+      :ok
+    end
+  end
 
   # ---------------------------------------------------------------------------
   # Private

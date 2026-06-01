@@ -74,6 +74,10 @@ defmodule Planck.Headless.Watcher do
   end
 
   def handle_info(:reload, state) do
+    if Planck.Headless.Secrets.resolve() == Planck.Headless.Secrets.EnvFile do
+      Planck.Headless.Secrets.preload_to_env()
+    end
+
     ResourceStore.reload()
     {:noreply, %{state | timer: nil}}
   end
