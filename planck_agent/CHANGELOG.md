@@ -2,7 +2,24 @@
 
 ## v0.1.10
 
-- TODO
+### Tool call loop detection
+
+`Planck.Agent.ToolRunner` tracks consecutive identical `{tool_name, args}` pairs
+within a turn. When the same call is made `@loop_threshold` (3) times in a row, a
+soft nudge is appended to the tool result prompting the agent to change approach.
+The counter resets on every `turn_start`. No hard stop — the agent still receives
+the result.
+
+### `Planck.Agent.Secrets` behaviour
+
+New behaviour for secret storage and credential-proxy service rules:
+
+- Credential callbacks: `store/2`, `fetch/1`, `fetch_all/0`, `list/0`, `delete/1`
+- Service rule callbacks: `store_service/4`, `delete_service/1`, `list_services/0`
+- `service()` type: `%{host, auth_type, credential_key, header}`
+
+Both `planck_headless` (EnvFile) and the Docker sidecar (AgentVault) implement
+this behaviour so credential management is transparent to the caller.
 
 ## v0.1.9
 

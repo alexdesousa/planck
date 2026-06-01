@@ -42,9 +42,9 @@ mix run --no-halt -- --port 8080 --sname my_planck
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/proxy?url=<url>` | Image proxy — forwards HTTP/HTTPS image requests or serves local `file://` paths. Requests are checked against the `proxy_image_domains` and `proxy_image_paths` allowlists; unrecognised sources return `403`. See the [images guide](../../docs/guides/images.md). |
+| `GET` | `/api/proxy?url=<url>` | Image proxy — forwards HTTP/HTTPS image requests or serves local `file://` paths. Requests are checked against the `proxy_image_domains` and `proxy_image_paths` allowlists; unrecognised sources return `403`. See the [images guide](../../skills/planck_setup/references/images.md). |
 
-The full REST/SSE session API is documented in [`docs/guides/api.md`](../../docs/guides/api.md).
+The full REST/SSE session API is documented in [`skills/planck_setup/references/api.md`](../../skills/planck_setup/references/api.md).
 
 ## Sidecar
 

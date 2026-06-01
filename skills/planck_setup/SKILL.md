@@ -29,6 +29,9 @@ when you need details on a specific topic — read it fully before implementing.
   scripts, or CI pipelines via REST + SSE
 - `references/tool-shadowing.md` — override built-in tools with sidecar
   implementations
+- `references/docker.md` — Docker stack services (agent-vault, Typesense,
+  Searxng, Tika), credential proxy, long-term memory, skill reflector, web fetch
+- `references/images.md` — inline image display via the built-in proxy
 
 ## Usage pattern
 

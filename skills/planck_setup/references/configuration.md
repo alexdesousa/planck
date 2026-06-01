@@ -59,6 +59,20 @@ when you control access at the infrastructure level.
 | `providers` | — | Map of named provider entries (see below) |
 | `models` | — | List of model declarations (see below) |
 
+## Credential proxy (Docker stack only)
+
+When running the Docker stack, outbound LLM and tool HTTP calls are routed
+through agent-vault for transparent credential injection. These keys are set by
+the Docker Compose environment and are not typically edited manually.
+
+| Key | Env var | Description |
+|---|---|---|
+| `tool_proxy` | `PLANCK_TOOL_PROXY` | HTTP proxy URL for outbound requests (e.g. `http://vault:14322`) |
+| `tool_proxy_ca_cert` | `PLANCK_TOOL_PROXY_CA_CERT` | Path to the proxy's CA certificate PEM file |
+| `secrets_hook` | `PLANCK_SECRETS_HOOK` | Module implementing `Planck.Agent.Secrets` (default: `EnvFile`; Docker: `Sidecar.Secrets.AgentVault`) |
+
+See the [Docker guide](docker.md) for how credentials and service rules are managed.
+
 ## Image proxy
 
 The image proxy (`GET /api/proxy`) is configured via environment variables only — these

@@ -2,7 +2,38 @@
 
 ## v0.1.10
 
-- TODO
+### Secrets modal — manage API keys
+
+New "Manage secrets" option in the SetupModal choose step. Lists all stored
+secrets with masked values; supports add, edit, and delete. Backed by
+`Planck.Headless.Secrets` — works identically with EnvFile or AgentVault.
+
+### Service rule configuration
+
+New "Configure a service rule" option in the SetupModal choose step. Lets users
+associate a stored secret with an outbound host so the credential proxy injects
+it automatically. Includes a service template dropdown (Anthropic, OpenAI,
+Google, GitHub, Linear, Slack, and Custom) that prefills host, auth type, and
+header for known providers.
+
+### `FloatingDropdown` JS hook
+
+Custom neobrutalism dropdowns now render their option panel at `position: fixed`
+via a `MutationObserver` hook. This escapes the `overflow-y: auto` clipping of
+the modal content area, so dropdowns are never hidden behind the footer bar.
+
+### Bug fixes
+
+- Save error messages now display in the provider/model step (the `@error` assign
+  was set but never rendered).
+- Saving a provider falls back to `EnvFile` when the sidecar is not yet connected,
+  so onboarding succeeds even before the sidecar finishes compiling.
+- Back button from "Configure a model" mode now returns to the choose step instead
+  of the provider sub-step.
+- `Secrets.list/0` and `Secrets.list_services/0` errors are handled gracefully in
+  the modal (show empty list instead of crashing).
+- `destructive-foreground` CSS variable added to Tailwind `@theme` so delete
+  button hover state renders white text correctly.
 
 ## v0.1.9
 

@@ -103,13 +103,17 @@ All targeting tools accept `agent_id` (from `list_team`). Type and name targetin
 
 ## User-facing guides
 
-`docs/guides/` contains guides written for agents configuring a Planck
-environment. Read the relevant guide before implementing:
+`skills/planck_setup/references/` contains guides written for agents configuring
+a Planck environment. The `planck-setup` skill (always present) indexes them.
+Read the relevant guide before implementing:
 
-- `docs/guides/configuration.md` — `.planck/config.json` keys and env vars
-- `docs/guides/teams.md` — TEAM.json structure, agent specs, inter-agent tools
-- `docs/guides/skills.md` — SKILL.md format and skill assignment
-- `docs/guides/sidecar.md` — sidecar scaffold, tools, compactors, PubSub events
+- `references/configuration.md` — `.planck/config.json` keys and env vars
+- `references/teams.md` — TEAM.json structure, agent specs, inter-agent tools
+- `references/skills.md` — SKILL.md format and skill assignment
+- `references/sidecar.md` — sidecar scaffold, tools, compactors, PubSub events
+- `references/hooks.md` — Compactor, Prompt, and TurnEnd hook behaviours
+- `references/docker.md` — Docker stack services, credential proxy, secrets
+- `references/images.md` — inline image display via the built-in proxy
 
 ## Specs
 

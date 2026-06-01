@@ -2,7 +2,17 @@
 
 ## v0.1.10
 
-- TODO
+### Credential-proxy support
+
+LLM requests can now be routed through an HTTPS MITM proxy (e.g. agent-vault).
+Two new config keys in `Planck.AI.Config`:
+
+- `tool_proxy` — HTTP proxy URL (e.g. `http://vault:14322`)
+- `tool_proxy_ca_cert` — path to the proxy's CA certificate PEM file
+
+When set, the Finch pool used for LLM calls is configured with
+`connect_options: [proxy: url]` and `ssl: [cacertfile: path]`, allowing the
+proxy to intercept requests and inject credentials transparently.
 
 ## v0.1.9
 

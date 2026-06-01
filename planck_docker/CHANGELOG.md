@@ -2,7 +2,41 @@
 
 ## v0.1.10
 
-- TODO
+### Agent-vault credential proxy
+
+The Docker stack now includes [Infisical agent-vault](https://github.com/infisical/agent-vault)
+as an internal HTTPS MITM proxy. All outbound LLM and tool HTTP calls from the
+sidecar route through the proxy, which injects credentials transparently. Agents
+never see API keys — the proxy handles authentication unconditionally based on
+host-matching service rules.
+
+Port 14321 (vault management API) is intentionally not published. All credential
+and service-rule management happens through Planck's own secrets modal.
+
+### Vault bootstrap — scoped agent token
+
+The `setup` container now bootstraps agent-vault on first run:
+1. Registers the owner account
+2. Creates the `planck` vault
+3. Creates a scoped `planck-sidecar` agent with `admin` role on the `planck` vault
+4. Writes `AGENT_VAULT_TOKEN` to `$PLANCK_HOME/.env`
+
+The token is picked up by Docker Compose on `up` and injected into the planck
+container environment. The sidecar inherits it via erlexec's additive env. Admin
+credentials (`AGENT_VAULT_EMAIL`, `AGENT_VAULT_PASSWORD`) never leave the setup
+container.
+
+### Vault data as bind-mount
+
+`vault-data` is now a bind-mount directory (`$PLANCK_HOME/vault-data`) rather
+than a named Docker volume. This matches the pattern used by `typesense-data` and
+makes it easy to inspect or delete vault state from the host.
+
+### `Sidecar.Secrets.AgentVault`
+
+New `Planck.Agent.Secrets` implementation backed by the agent-vault management
+API. Manages credentials and service rules; auto-migrates keys from `.env` on
+first sidecar startup.
 
 ## v0.1.9
 

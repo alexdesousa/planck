@@ -127,33 +127,41 @@ defmodule Planck.Headless.Secrets do
   @spec dispatch(atom(), [term()], term(), atom() | nil) :: term()
   defp dispatch(function, args, fallback, node \\ nil) do
     mod = resolve()
-    sidecar = node || SidecarManager.node()
 
-    cond do
-      mod == __MODULE__.EnvFile ->
-        apply(mod, function, args)
+    if local_module?(mod) do
+      apply(mod, function, args)
+    else
+      dispatch_remote(mod, function, args, fallback, node || SidecarManager.node())
+    end
+  end
 
-      sidecar != nil ->
-        :rpc.call(sidecar, :code, :ensure_loaded, [mod], @rpc_timeout_ms)
+  @spec dispatch_remote(module(), atom(), [term()], term(), atom() | nil) :: term()
+  defp dispatch_remote(mod, function, _args, fallback, nil) do
+    Logger.warning(
+      "[Planck.Headless.Secrets] #{mod}.#{function} called but sidecar is not connected"
+    )
 
-        case :rpc.call(sidecar, mod, function, args, @rpc_timeout_ms) do
-          {:badrpc, reason} ->
-            Logger.warning(
-              "[Planck.Headless.Secrets] RPC failed (#{mod}.#{function}): #{inspect(reason)}"
-            )
+    fallback
+  end
 
-            fallback
+  defp dispatch_remote(mod, function, args, fallback, sidecar) do
+    :rpc.call(sidecar, :code, :ensure_loaded, [mod], @rpc_timeout_ms)
 
-          result ->
-            result
-        end
-
-      true ->
+    case :rpc.call(sidecar, mod, function, args, @rpc_timeout_ms) do
+      {:badrpc, reason} ->
         Logger.warning(
-          "[Planck.Headless.Secrets] #{mod}.#{function} called but sidecar is not connected"
+          "[Planck.Headless.Secrets] RPC failed (#{mod}.#{function}): #{inspect(reason)}"
         )
 
         fallback
+
+      result ->
+        result
     end
+  end
+
+  @spec local_module?(module()) :: boolean()
+  defp local_module?(mod) do
+    match?({:module, _}, :code.ensure_loaded(mod))
   end
 end

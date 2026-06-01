@@ -93,7 +93,9 @@ if [ -n "$AGENT_VAULT_URL" ] && [ -n "$AGENT_VAULT_EMAIL" ] && [ -n "$AGENT_VAUL
 
         if [ -n "$TOKEN" ]; then
           echo "AGENT_VAULT_TOKEN=$TOKEN" >> "$PLANCK_ENV"
-          echo "[setup] Vault agent token written."
+          grep -q "^PLANCK_SECRETS_HOOK=" "$PLANCK_ENV" 2>/dev/null || \
+            echo "PLANCK_SECRETS_HOOK=Sidecar.Secrets.AgentVault" >> "$PLANCK_ENV"
+          echo "[setup] Vault agent token and secrets hook written."
         else
           echo "[setup] Could not create agent token — skipping bootstrap."
           echo "[setup] Rotate response: $RESP"

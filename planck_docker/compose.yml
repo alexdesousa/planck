@@ -46,7 +46,7 @@ services:
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
       PLANCK_TOOL_PROXY: http://vault:14322
       PLANCK_TOOL_PROXY_CA_CERT: /vault-data/ca/ca.crt.pem
-      PLANCK_SECRETS_HOOK: Sidecar.Secrets.AgentVault
+      PLANCK_SECRETS_HOOK: ${PLANCK_SECRETS_HOOK}
       AGENT_VAULT_URL: http://vault:14321
       AGENT_VAULT_TOKEN: ${AGENT_VAULT_TOKEN}
     depends_on:

@@ -2,7 +2,35 @@
 
 ## v0.1.10
 
-- TODO
+### Credential proxy + secrets hook
+
+New config keys:
+- `tool_proxy` / `PLANCK_TOOL_PROXY` — route outbound requests through an HTTPS
+  MITM proxy for credential injection
+- `tool_proxy_ca_cert` / `PLANCK_TOOL_PROXY_CA_CERT` — proxy CA certificate path
+- `secrets_hook` / `PLANCK_SECRETS_HOOK` — module implementing
+  `Planck.Agent.Secrets` (default: `EnvFile`)
+
+### `Planck.Headless.Secrets` dispatch module
+
+Routes credential and service-rule operations to the configured backend:
+
+- **`EnvFile`** (default) — reads/writes `.planck/.env`. Credentials stored as
+  `KEY=value` lines; service rules as `# planck-service:` comment lines.
+- **`Sidecar.Secrets.AgentVault`** (Docker) — forwards calls via RPC to the
+  sidecar, which manages credentials and service rules through agent-vault.
+
+`preload_to_env(node \\ nil)` syncs all stored secrets into the OS process
+environment. When called from `SidecarManager.handle_info({:nodeup, node})`, the
+node is passed directly to avoid a GenServer self-call deadlock.
+
+### Bash tool minimal environment
+
+`BuiltinTools.bash_env/0` builds a minimal `:clear`-based env for bash tool
+calls: only `PATH` (release dirs stripped), `HOME`, and proxy vars
+(`HTTP_PROXY`, `HTTPS_PROXY`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
+`REQUESTS_CA_BUNDLE`). API keys and vault credentials are never visible to
+agents via the bash tool.
 
 ## v0.1.9
 

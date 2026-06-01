@@ -476,8 +476,9 @@
     <div class="container">
       <p class="section-label">Self-hosted</p>
       <p style="font-size:0.82rem;color:var(--muted-fg);max-width:560px;margin-bottom:2rem;line-height:1.8;">
-        Run the full Planck stack on your own hardware — local LLM, private web search,
-        workspace indexing, and document extraction. Requires Docker.
+        Run the full Planck stack on your own hardware. One command installs a
+        complete environment: private web search, workspace indexing, document
+        extraction, long-term memory, a credential proxy, and more. Requires Docker.
       </p>
 
       <div class="os-tabs">
@@ -520,12 +521,37 @@
         <div class="step">
           <span class="step-num">INDEX</span>
           <h3>Typesense</h3>
-          <p>Full-text search over your workspace files. Agents search before they fetch.</p>
+          <p>Full-text search over your workspace files. Agents search before they fetch. Session turns are indexed for long-term memory.</p>
         </div>
         <div class="step">
           <span class="step-num">DOCS</span>
           <h3>Apache Tika</h3>
           <p>PDF, DOCX, XLSX, PPTX and more — extracted to plain text for agents to read.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">PROXY</span>
+          <h3>Agent-vault</h3>
+          <p>HTTPS credential proxy. API keys are injected into outbound requests by host — agents never see secrets, even via the bash tool.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">MEMORY</span>
+          <h3>Long-term memory</h3>
+          <p>Past session turns are retrieved on resume and injected into context. The agent remembers previous conversations.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">FOCUS</span>
+          <h3>Short-term memory</h3>
+          <p>Key facts and summaries are kept in a per-agent store that survives compaction and is injected at the start of every turn.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">FETCH</span>
+          <h3>Web fetch</h3>
+          <p>Pages are fetched and converted to clean Markdown before being handed to the agent. Results are cached in Typesense — repeated fetches within a session are instant.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">SKILLS</span>
+          <h3>Skill reflector</h3>
+          <p>After each turn the sidecar captures reusable patterns as skills. The agent becomes progressively more efficient over time.</p>
         </div>
       </div>
     </div>
