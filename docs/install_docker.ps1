@@ -59,11 +59,24 @@ foreach ($dir in "typesense-data", "workspace\.planck") {
 }
 
 # ── Write .env — create if absent, add missing keys if it exists ──────────────
-$rng    = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$bytes  = [byte[]]::new(24)
-$rng.GetBytes($bytes)
-$secret = ([Convert]::ToBase64String($bytes)) -replace '[=+/]'
-$secret = $secret.Substring(0, [Math]::Min(32, $secret.Length))
+function New-RandHex([int]$len) {
+    $rng   = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $bytes = [byte[]]::new([Math]::Ceiling($len / 2))
+    $rng.GetBytes($bytes)
+    return ([BitConverter]::ToString($bytes) -replace '-').ToLower().Substring(0, $len)
+}
+
+function New-RandAlpha([int]$len) {
+    $chars  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    $rng    = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $bytes  = [byte[]]::new($len)
+    $rng.GetBytes($bytes)
+    return -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
+}
+
+$secret       = New-RandHex 32
+$vaultMaster  = New-RandHex 32
+$vaultPassword = New-RandAlpha 24
 
 function Add-IfMissing([string]$Key, [string]$Value) {
     if (-not (Select-String -Quiet -Path $EnvFile -Pattern "^$Key=")) {
@@ -79,6 +92,9 @@ TYPESENSE_API_KEY=planck-internal-key
 PLANCK_BIND_ADDRESS=$Bind
 SEARXNG_SECRET=$secret
 SEARXNG_LANGUAGE=en
+AGENT_VAULT_MASTER_PASSWORD=$vaultMaster
+AGENT_VAULT_EMAIL=admin@planck.local
+AGENT_VAULT_PASSWORD=$vaultPassword
 "@ | Set-Content -Path $EnvFile
     Write-Host "  -> $EnvFile created. Edit SEARXNG_LANGUAGE to change the search language."
 } else {
@@ -88,6 +104,9 @@ SEARXNG_LANGUAGE=en
     Add-IfMissing "PLANCK_BIND_ADDRESS" $Bind
     Add-IfMissing "SEARXNG_SECRET" $secret
     Add-IfMissing "SEARXNG_LANGUAGE" "en"
+    Add-IfMissing "AGENT_VAULT_MASTER_PASSWORD" $vaultMaster
+    Add-IfMissing "AGENT_VAULT_EMAIL" "admin@planck.local"
+    Add-IfMissing "AGENT_VAULT_PASSWORD" $vaultPassword
 }
 
 # ── Download compose.yml ──────────────────────────────────────────────────────

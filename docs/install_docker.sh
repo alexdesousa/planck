@@ -68,7 +68,12 @@ add_if_missing() {
   grep -q "^$1=" "$ENV_FILE" || echo "$1=$2" >> "$ENV_FILE"
 }
 
-SEARXNG_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 32)"
+rand32() { LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32; }
+rand24() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24; }
+
+SEARXNG_SECRET="$(rand32)"
+VAULT_MASTER="$(rand32)"
+VAULT_PASSWORD="$(rand24)"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Writing $ENV_FILE..."
@@ -78,6 +83,9 @@ TYPESENSE_API_KEY=planck-internal-key
 PLANCK_BIND_ADDRESS=$BIND_ADDRESS
 SEARXNG_SECRET=$SEARXNG_SECRET
 SEARXNG_LANGUAGE=en
+AGENT_VAULT_MASTER_PASSWORD=$VAULT_MASTER
+AGENT_VAULT_EMAIL=admin@planck.local
+AGENT_VAULT_PASSWORD=$VAULT_PASSWORD
 EOF
   echo "  → $ENV_FILE created. Edit SEARXNG_LANGUAGE to change the search language."
 else
@@ -87,6 +95,9 @@ else
   add_if_missing PLANCK_BIND_ADDRESS "$BIND_ADDRESS"
   add_if_missing SEARXNG_SECRET "$SEARXNG_SECRET"
   add_if_missing SEARXNG_LANGUAGE "en"
+  add_if_missing AGENT_VAULT_MASTER_PASSWORD "$VAULT_MASTER"
+  add_if_missing AGENT_VAULT_EMAIL "admin@planck.local"
+  add_if_missing AGENT_VAULT_PASSWORD "$VAULT_PASSWORD"
 fi
 
 # ── Download compose.yml ──────────────────────────────────────────────────────

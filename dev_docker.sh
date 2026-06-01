@@ -47,8 +47,11 @@ if [ ! -f "$ENV_FILE" ]; then
 PLANCK_HOME=$PLANCK_HOME
 TYPESENSE_API_KEY=planck-internal-key
 PLANCK_BIND_ADDRESS=127.0.0.1
-SEARXNG_SECRET=test-secret-local
+SEARXNG_SECRET=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)
 SEARXNG_LANGUAGE=en
+AGENT_VAULT_MASTER_PASSWORD=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)
+AGENT_VAULT_EMAIL=admin@planck.local
+AGENT_VAULT_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
 EOF
   echo "  → $ENV_FILE created."
 else
@@ -56,8 +59,11 @@ else
   add_if_missing PLANCK_HOME "$PLANCK_HOME"
   add_if_missing TYPESENSE_API_KEY "planck-internal-key"
   add_if_missing PLANCK_BIND_ADDRESS "127.0.0.1"
-  add_if_missing SEARXNG_SECRET "test-secret-local"
+  add_if_missing SEARXNG_SECRET "$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
   add_if_missing SEARXNG_LANGUAGE "en"
+  add_if_missing AGENT_VAULT_MASTER_PASSWORD "$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
+  add_if_missing AGENT_VAULT_EMAIL "admin@planck.local"
+  add_if_missing AGENT_VAULT_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
 fi
 
 # ── Install planck_setup skill (always — it's repo-managed, not user data) ───

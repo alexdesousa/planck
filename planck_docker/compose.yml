@@ -26,6 +26,7 @@ services:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
     volumes:
       - ${PLANCK_HOME}/workspace:/workspace
+      - vault-data:/vault-data:ro
     environment:
       WORKSPACE_DIR: /workspace
       TYPESENSE_URL: http://typesense:8108
@@ -35,6 +36,12 @@ services:
       TIKA_URL: http://tika:9998
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LANGUAGE: ${SEARXNG_LANGUAGE:-en}
+      PLANCK_TOOL_PROXY: http://vault:14322
+      PLANCK_TOOL_PROXY_CA_CERT: /vault-data/ca/ca.crt.pem
+      PLANCK_SECRETS_HOOK: Sidecar.Secrets.AgentVault
+      AGENT_VAULT_URL: http://vault:14321
+      AGENT_VAULT_EMAIL: ${AGENT_VAULT_EMAIL}
+      AGENT_VAULT_PASSWORD: ${AGENT_VAULT_PASSWORD}
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -43,6 +50,8 @@ services:
       searxng:
         condition: service_started
       tika:
+        condition: service_started
+      vault:
         condition: service_started
     restart: unless-stopped
 
@@ -73,3 +82,17 @@ services:
   tika:
     image: apache/tika:3.3.0.0-full
     restart: unless-stopped
+
+  # ── Credential vault — MITM proxy for outbound LLM and tool HTTP calls ─────
+  # Port 14321 (management UI) is intentionally NOT published — all credential
+  # management happens through Planck's own secrets modal.
+  vault:
+    image: infisical/agent-vault:latest
+    restart: unless-stopped
+    volumes:
+      - vault-data:/root/.agent-vault
+    environment:
+      AGENT_VAULT_MASTER_PASSWORD: ${AGENT_VAULT_MASTER_PASSWORD}
+
+volumes:
+  vault-data:
