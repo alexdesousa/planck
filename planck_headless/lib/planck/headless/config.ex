@@ -132,7 +132,6 @@ defmodule Planck.Headless.Config do
           providers: %{String.t() => map()},
           models: [map()],
           tool_proxy: String.t() | nil,
-          tool_proxy_ui: String.t() | nil,
           tool_proxy_ca_cert: String.t() | nil,
           secrets_hook: String.t() | nil
         }
@@ -146,7 +145,6 @@ defmodule Planck.Headless.Config do
             providers: %{},
             models: [],
             tool_proxy: nil,
-            tool_proxy_ui: nil,
             tool_proxy_ca_cert: nil,
             secrets_hook: nil
 
@@ -253,16 +251,6 @@ defmodule Planck.Headless.Config do
     binding_order: @json
 
   @envdoc """
-  External URL of the proxy management UI (e.g. `"http://localhost:14321"`).
-  When set, a button appears in the Planck UI linking to this address.
-  May differ from `tool_proxy` when running in Docker (internal vs host address).
-  """
-  app_env :tool_proxy_ui, :planck, :tool_proxy_ui,
-    os_env: "PLANCK_TOOL_PROXY_UI",
-    default: nil,
-    binding_order: @json
-
-  @envdoc """
   Path to the proxy CA certificate PEM file (e.g. `"/certs/ca.pem"`).
   Required when using a TLS MITM proxy such as agent-vault. Planck passes
   this to its HTTP client and sets `SSL_CERT_FILE`/`CURL_CA_BUNDLE` for
@@ -345,7 +333,6 @@ defmodule Planck.Headless.Config do
       providers: providers!(),
       models: models!(),
       tool_proxy: tool_proxy!(),
-      tool_proxy_ui: tool_proxy_ui!(),
       tool_proxy_ca_cert: tool_proxy_ca_cert!(),
       secrets_hook: secrets_hook!()
     }

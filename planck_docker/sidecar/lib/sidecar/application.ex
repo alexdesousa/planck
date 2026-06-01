@@ -12,6 +12,10 @@ defmodule Sidecar.Application do
   def start(type, args)
 
   def start(_type, _args) do
+    if Sidecar.Config.agent_vault_url!() do
+      Sidecar.Secrets.AgentVault.maybe_migrate()
+    end
+
     connect_task =
       case System.get_env("PLANCK_HEADLESS_NODE") do
         nil -> []

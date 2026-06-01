@@ -59,4 +59,20 @@ defmodule Sidecar.Config do
   app_env :tika_url, :sidecar, :tika_url,
     os_env: "TIKA_URL",
     default: "http://tika:9998"
+
+  app_env :agent_vault_url, :sidecar, :agent_vault_url,
+    os_env: "AGENT_VAULT_URL",
+    default: nil
+
+  app_env :agent_vault_email, :sidecar, :agent_vault_email,
+    os_env: "AGENT_VAULT_EMAIL",
+    default: nil
+
+  app_env :agent_vault_password, :sidecar, :agent_vault_password,
+    os_env: "AGENT_VAULT_PASSWORD",
+    default: nil
+
+  app_env :agent_vault_vault, :sidecar, :agent_vault_vault,
+    os_env: "AGENT_VAULT_VAULT",
+    default: "planck"
 end

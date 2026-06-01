@@ -9,7 +9,7 @@ defmodule Planck.Headless.Secrets.EnvFile do
   This is the current default behaviour, unchanged from earlier releases.
   """
 
-  @behaviour Planck.Headless.Secrets
+  @behaviour Planck.Agent.Secrets
 
   @local_path ".planck/.env"
   @global_path "~/.planck/.env"
@@ -21,17 +21,26 @@ defmodule Planck.Headless.Secrets.EnvFile do
 
   @impl true
   def fetch(key) do
-    case read_key(key) do
-      nil -> :not_found
+    fetch_all()
+    |> Map.get(key)
+    |> case do
+      nil -> {:error, :not_found}
       value -> {:ok, value}
     end
   end
 
   @impl true
+  def fetch_all do
+    [@global_path, @local_path]
+    |> fetch_all(%{})
+  end
+
+  @impl true
   def list do
     keys =
-      [@local_path, @global_path]
-      |> Enum.flat_map(&read_keys/1)
+      [@global_path, @local_path]
+      |> fetch_all(%{})
+      |> Map.keys()
       |> Enum.uniq()
 
     {:ok, keys}
@@ -39,7 +48,14 @@ defmodule Planck.Headless.Secrets.EnvFile do
 
   @impl true
   def delete(key) do
-    Enum.each([@local_path, @global_path], &delete_key(&1, key))
+    case delete_key(@local_path, key) do
+      :deleted ->
+        :ok
+
+      :not_found ->
+        delete_key(@global_path, key)
+        :ok
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -57,84 +73,61 @@ defmodule Planck.Headless.Secrets.EnvFile do
     expanded = Path.expand(path)
     :ok = ensure_dir(path)
 
-    lines =
+    existing =
       case File.read(expanded) do
-        {:ok, content} -> String.split(content, "\n", trim: true)
-        {:error, :enoent} -> []
+        {:ok, content} -> fetch_all(content)
+        _ -> %{}
       end
 
-    {found, updated} =
-      Enum.reduce(lines, {false, []}, fn line, {found, acc} ->
-        if String.starts_with?(line, "#{key}=") do
-          {true, ["#{key}=#{value}" | acc]}
-        else
-          {found, [line | acc]}
-        end
-      end)
-
-    final = if found, do: updated, else: ["#{key}=#{value}" | updated]
-    File.write(expanded, final |> Enum.reverse() |> Enum.join("\n") |> Kernel.<>("\n"))
+    existing
+    |> Map.put(key, value)
+    |> Enum.map_join("\n", fn {k, v} -> "#{k}=#{v}" end)
+    |> then(&File.write(expanded, &1 <> "\n"))
   end
 
-  # ---------------------------------------------------------------------------
-  # Private
-  # ---------------------------------------------------------------------------
+  @spec fetch_all([Path.t()], variables) :: variables
+        when variables: %{String.t() => String.t()}
+  defp fetch_all(files, acc)
 
-  @spec read_key(String.t()) :: String.t() | nil
-  defp read_key(key) do
-    Enum.find_value([@local_path, @global_path], fn path ->
-      expanded = Path.expand(path)
-
-      case File.read(expanded) do
-        {:ok, content} -> find_value(key, content)
-        _ -> nil
-      end
-    end)
+  defp fetch_all([], acc) do
+    acc
   end
 
-  @spec find_value(String.t(), String.t()) :: String.t() | nil
-  defp find_value(key, content)
-
-  defp find_value(key, content)
-       when is_binary(key) and is_binary(content) do
-    content
-    |> String.split("\n", trim: true)
-    |> Enum.find_value(fn line ->
-      case String.split(line, "=", parts: 2) do
-        [^key, val] -> val
-        _ -> nil
-      end
-    end)
-  end
-
-  @spec read_keys(Path.t()) :: [String.t()]
-  defp read_keys(path) do
-    expanded = Path.expand(path)
+  defp fetch_all([file | rest], acc) do
+    expanded = Path.expand(file)
 
     case File.read(expanded) do
       {:ok, content} ->
-        find_keys(content)
+        variables = fetch_all(content)
+        acc = Map.merge(acc, variables)
+        fetch_all(rest, acc)
 
       _ ->
-        []
+        fetch_all(rest, acc)
     end
   end
 
-  @spec find_keys(String.t()) :: [String.t()]
-  defp find_keys(content)
+  # ---------------------------------------------------------------------------
+  # Private helpers
+  # ---------------------------------------------------------------------------
 
-  defp find_keys(content) when is_binary(content) do
+  @spec fetch_all(String.t()) :: variables
+        when variables: %{String.t() => String.t()}
+  defp fetch_all(content)
+
+  defp fetch_all(content) when is_binary(content) do
     content
     |> String.split("\n", trim: true)
     |> Enum.flat_map(fn line ->
       case String.split(line, "=", parts: 2) do
-        [key, _] -> [key]
+        [k, v] -> [{k, v}]
         _ -> []
       end
     end)
+    |> Map.new()
   end
 
-  @spec delete_key(Path.t(), String.t()) :: :ok | {:error, term()}
+  @spec delete_key(Path.t(), String.t()) :: :deleted | :not_found
   defp delete_key(path, key)
 
   defp delete_key(path, key)
@@ -143,17 +136,30 @@ defmodule Planck.Headless.Secrets.EnvFile do
 
     case File.read(expanded) do
       {:ok, content} ->
-        updated =
-          content
-          |> String.split("\n", trim: true)
-          |> Enum.reject(&String.starts_with?(&1, "#{key}="))
-          |> Enum.join("\n")
-
-        File.write(expanded, updated <> "\n")
+        vars = fetch_all(content)
+        do_delete_key(expanded, key, vars)
 
       _ ->
-        :ok
+        :not_found
     end
+  end
+
+  @spec do_delete_key(Path.t(), String.t(), %{String.t() => String.t()}) ::
+          :not_found
+          | :deleted
+  defp do_delete_key(path, key, vars)
+
+  defp do_delete_key(path, key, vars) when is_map_key(vars, key) do
+    vars
+    |> Map.delete(key)
+    |> Enum.map_join("\n", fn {k, v} -> "#{k}=#{v}" end)
+    |> then(&File.write(path, &1 <> "\n"))
+
+    :deleted
+  end
+
+  defp do_delete_key(_path, _key, _vars) do
+    :not_found
   end
 
   @spec ensure_dir(Path.t()) :: :ok | {:error, term()}
