@@ -232,7 +232,7 @@ defmodule Planck.Agent.BuiltinTools do
   @spec run_bash(String.t(), pos_integer(), Path.t()) ::
           {:ok, String.t()} | {:error, String.t()}
   def run_bash(command, timeout, cwd) do
-    exec_opts = [:sync, :stdout, :stderr, {:cd, String.to_charlist(cwd)}]
+    exec_opts = [:sync, :stdout, :stderr, {:cd, String.to_charlist(cwd)}, {:env, bash_env()}]
     task = Task.async(fn -> :exec.run(command, exec_opts) end)
 
     case Task.yield(task, timeout) || Task.shutdown(task) do
@@ -240,6 +240,47 @@ defmodule Planck.Agent.BuiltinTools do
       {:exit, reason} -> {:error, "Process failed: #{inspect(reason)}"}
       nil -> {:error, "Process timed out after #{timeout}ms"}
     end
+  end
+
+  # Minimal safe environment for bash subprocesses.
+  # Starts clean (`:clear`) then adds only what's needed:
+  # - PATH without release dirs so binaries resolve correctly
+  # - HOME so tools that need it (git, curl) work
+  # - Proxy vars so network calls are routed/audited through the vault proxy
+  # Credentials (API keys, vault passwords, internal config) are intentionally absent.
+  @spec bash_env() :: [:clear | {charlist(), charlist()}]
+  defp bash_env do
+    clean_path =
+      System.get_env("PATH", "/usr/local/bin:/usr/bin:/bin")
+      |> String.split(":")
+      |> Enum.reject(&String.starts_with?(&1, "/app/release"))
+      |> Enum.join(":")
+
+    proxy_vars = [
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "http_proxy",
+      "https_proxy",
+      "SSL_CERT_FILE",
+      "CURL_CA_BUNDLE",
+      "REQUESTS_CA_BUNDLE"
+    ]
+
+    proxy_env =
+      Enum.flat_map(proxy_vars, fn key ->
+        case System.get_env(key) do
+          nil -> []
+          val -> [{to_charlist(key), to_charlist(val)}]
+        end
+      end)
+
+    home_env =
+      case System.get_env("HOME") do
+        nil -> []
+        home -> [{~c"HOME", to_charlist(home)}]
+      end
+
+    [:clear, {~c"PATH", to_charlist(clean_path)}] ++ home_env ++ proxy_env
   end
 
   @spec decode_exec_result({:ok, term()} | {:error, term()}) ::
