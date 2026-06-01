@@ -133,6 +133,7 @@ defmodule Planck.Headless.ResourceStore do
     Config.reload_tool_proxy()
     Config.reload_tool_proxy_ui()
     Config.reload_tool_proxy_ca_cert()
+    Config.reload_secrets_hook()
     Config.reload_anthropic_api_key()
     Config.reload_openai_api_key()
     Config.reload_google_api_key()

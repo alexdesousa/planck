@@ -291,7 +291,7 @@ defmodule Planck.Headless do
     with :ok <- if(id == "", do: {:error, :empty_id}, else: :ok),
          :ok <- ensure_config_dir(config_path),
          :ok <- update_json_config(config_path, config_update),
-         :ok <- maybe_write_provider_api_key(env_path, type, effective_api_key, identifier) do
+         :ok <- maybe_store_api_key(type, effective_api_key, identifier, env_path) do
       reload_resources()
     end
   end
@@ -1169,14 +1169,25 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec maybe_write_provider_api_key(Path.t(), String.t(), String.t() | nil, String.t() | nil) ::
+  @spec maybe_store_api_key(String.t(), String.t() | nil, String.t() | nil, Path.t()) ::
           :ok | {:error, term()}
-  defp maybe_write_provider_api_key(_path, _type, key, _id) when key in [nil, ""], do: :ok
+  defp maybe_store_api_key(_type, key, _id, _env_path) when key in [nil, ""], do: :ok
 
-  defp maybe_write_provider_api_key(path, type, api_key, identifier) do
+  defp maybe_store_api_key(type, api_key, identifier, env_path) do
     case provider_api_key_env_var(type, identifier) do
-      nil -> :ok
-      env_var -> write_env_var(path, env_var, api_key)
+      nil ->
+        :ok
+
+      env_var ->
+        # Use the configured secrets hook; EnvFile needs the explicit env_path
+        # for scoped writes (local vs global).
+        case Planck.Headless.Secrets.resolve() do
+          Planck.Headless.Secrets.EnvFile ->
+            Planck.Headless.Secrets.EnvFile.write_to(env_path, env_var, api_key)
+
+          mod ->
+            mod.store(env_var, api_key)
+        end
     end
   end
 
@@ -1186,34 +1197,4 @@ defmodule Planck.Headless do
   defp provider_api_key_env_var("openai", id) when is_binary(id) and id != "", do: "#{id}_API_KEY"
   defp provider_api_key_env_var("openai", _), do: "OPENAI_API_KEY"
   defp provider_api_key_env_var(_, _), do: nil
-
-  @spec write_env_var(Path.t(), String.t(), String.t()) :: :ok | {:error, term()}
-  defp write_env_var(path, env_var, value) do
-    expanded = Path.expand(path)
-    :ok = ensure_config_dir(path)
-
-    lines =
-      case File.read(expanded) do
-        {:ok, content} -> String.split(content, "\n", trim: true)
-        {:error, :enoent} -> []
-      end
-
-    {found, updated} =
-      Enum.reduce(lines, {false, []}, fn line, {found, acc} ->
-        upsert_env_line(line, env_var, value, found, acc)
-      end)
-
-    final = if found, do: updated, else: ["#{env_var}=#{value}" | updated]
-    File.write(expanded, final |> Enum.reverse() |> Enum.join("\n") |> Kernel.<>("\n"))
-  end
-
-  @spec upsert_env_line(String.t(), String.t(), String.t(), boolean(), [String.t()]) ::
-          {boolean(), [String.t()]}
-  defp upsert_env_line(line, env_var, value, found, acc) do
-    if String.starts_with?(line, "#{env_var}=") do
-      {true, ["#{env_var}=#{value}" | acc]}
-    else
-      {found, [line | acc]}
-    end
-  end
 end

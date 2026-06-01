@@ -133,7 +133,8 @@ defmodule Planck.Headless.Config do
           models: [map()],
           tool_proxy: String.t() | nil,
           tool_proxy_ui: String.t() | nil,
-          tool_proxy_ca_cert: String.t() | nil
+          tool_proxy_ca_cert: String.t() | nil,
+          secrets_hook: String.t() | nil
         }
 
   defstruct default_provider: nil,
@@ -146,7 +147,8 @@ defmodule Planck.Headless.Config do
             models: [],
             tool_proxy: nil,
             tool_proxy_ui: nil,
-            tool_proxy_ca_cert: nil
+            tool_proxy_ca_cert: nil,
+            secrets_hook: nil
 
   @envdoc """
   Colon-separated list of JSON config files to read at boot, in order.
@@ -225,6 +227,17 @@ defmodule Planck.Headless.Config do
   app_env :sidecar, :planck, :sidecar,
     os_env: "PLANCK_SIDECAR",
     default: ".planck/sidecar",
+    binding_order: @json
+
+  @envdoc """
+  Module that implements `Planck.Headless.Secrets` for storing and retrieving
+  API keys. Defaults to `Planck.Headless.Secrets.EnvFile` (reads/writes
+  `.planck/.env`). Set to `"Sidecar.Secrets.AgentVault"` to store credentials
+  in agent-vault instead.
+  """
+  app_env :secrets_hook, :planck, :secrets_hook,
+    os_env: "PLANCK_SECRETS_HOOK",
+    default: nil,
     binding_order: @json
 
   @envdoc """
@@ -333,7 +346,8 @@ defmodule Planck.Headless.Config do
       models: models!(),
       tool_proxy: tool_proxy!(),
       tool_proxy_ui: tool_proxy_ui!(),
-      tool_proxy_ca_cert: tool_proxy_ca_cert!()
+      tool_proxy_ca_cert: tool_proxy_ca_cert!(),
+      secrets_hook: secrets_hook!()
     }
   end
 end
