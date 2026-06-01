@@ -8,7 +8,7 @@
       <div>
         <p class="font-bold font-mono text-sm"><%= pgettext("setup title", "Configure Planck") %></p>
         <p class="font-mono text-xs text-muted-foreground">
-          <%= step_subtitle(@step, @mode) %>
+          <%= step_subtitle(@step, @sub_step, @provider_model_mode, @first_run) %>
         </p>
       </div>
       <%= unless @first_run do %>
@@ -27,390 +27,32 @@
 
         <%!-- Step :choose — returning user action picker --%>
         <% @step == :choose -> %>
-          <div class="space-y-3">
-            <button
-              class="w-full border-2 border-black px-4 py-3 font-mono text-left
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
-              phx-click={JS.push("choose_action", value: %{action: "provider"}, target: @myself)}
-            >
-              <p class="font-bold text-sm"><%= pgettext("setup action", "Configure a provider") %></p>
-              <p class="text-xs text-muted-foreground mt-0.5">
-                <%= pgettext("setup action", "Add or update an API provider and its credentials.") %>
-              </p>
-            </button>
+          <.live_component
+            module={Planck.Web.Live.SetupModal.ChooseStep}
+            id="choose-step"
+            parent_id={@id}
+            first_run={@first_run}
+            configured_providers={@configured_providers}
+          />
 
-            <button
-              class="w-full border-2 border-black px-4 py-3 font-mono text-left
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
-              phx-click={JS.push("choose_action", value: %{action: "model"}, target: @myself)}
-            >
-              <p class="font-bold text-sm"><%= pgettext("setup action", "Configure a model") %></p>
-              <p class="text-xs text-muted-foreground mt-0.5">
-                <%= pgettext("setup action", "Add a model alias from an existing provider.") %>
-              </p>
-            </button>
-          </div>
+        <%!-- Step :keys — API key management --%>
+        <% @step == :keys -> %>
+          <.live_component
+            module={Planck.Web.Live.SetupModal.KeysStep}
+            id="keys-step"
+            parent_id={@id}
+          />
 
-        <%!-- Step :provider — Provider & credentials --%>
-        <% @step == :provider -> %>
-          <div class="space-y-3">
-
-            <%!-- Provider type picker --%>
-            <div>
-              <label class="font-mono text-xs text-muted-foreground block mb-1">
-                <%= pgettext("setup label", "Provider type") %>
-              </label>
-              <.dropdown
-                id="setup-provider"
-                name="provider"
-                options={all_providers()}
-                selected={if @provider, do: to_string(@provider), else: ""}
-                on_select="select_provider"
-                target={@myself}
-              />
-            </div>
-
-            <%!-- Cloud providers: API key --%>
-            <%= if @provider && cloud_provider?(@provider) do %>
-              <div>
-                <label class="font-mono text-xs text-muted-foreground block mb-1">
-                  <%= credential_label(@provider) %>
-                  <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional — set via env var instead)") %></span>
-                </label>
-                <form phx-change="update_provider_fields" phx-target={@myself}>
-                  <input
-                    type="password"
-                    name="api_key"
-                    value={@api_key}
-                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                           placeholder:text-muted-foreground"
-                    placeholder={credential_placeholder(@provider)}
-                  />
-                </form>
-              </div>
-            <% end %>
-
-            <%!-- OpenAI-compatible: preset picker --%>
-            <%= if @provider == :openai_compat do %>
-              <div>
-                <label class="font-mono text-xs text-muted-foreground block mb-1">
-                  <%= pgettext("setup label", "Preset") %>
-                </label>
-                <.dropdown
-                  id="setup-preset"
-                  name="preset"
-                  options={openai_compat_presets()}
-                  selected={@preset || ""}
-                  on_select="select_preset"
-                  target={@myself}
-                />
-              </div>
-
-              <%= if @preset do %>
-                <form phx-change="update_provider_fields" phx-target={@myself} class="space-y-3">
-
-                  <%!-- Base URL --%>
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground block mb-1">
-                      <%= pgettext("setup label", "Base URL") %>
-                    </label>
-                    <input
-                      type="text"
-                      name="base_url"
-                      value={@base_url}
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                             bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                             placeholder:text-muted-foreground"
-                      placeholder="http://localhost:11434/v1"
-                    />
-                    <p class="font-mono text-xs text-muted-foreground mt-1">
-                      <%= pgettext("setup help", "Must include /v1 — e.g. http://localhost:11434/v1") %>
-                    </p>
-                  </div>
-
-                  <%!-- Identifier — always shown, used as provider key --%>
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground block mb-1">
-                      <%= pgettext("setup label", "Identifier") %>
-                      <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
-                    </label>
-                    <input
-                      type="text"
-                      name="identifier"
-                      value={@identifier}
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                             bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                             placeholder:text-muted-foreground"
-                      placeholder={if @has_api_key, do: "NVIDIA", else: "my-ollama"}
-                    />
-                    <p class="font-mono text-xs text-muted-foreground mt-1">
-                      <%= if @has_api_key do %>
-                        <%= pgettext("setup help", "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY). Also used as the provider key.") %>
-                      <% else %>
-                        <%= pgettext("setup help", "Used as the provider key. Set one if you plan to add multiple instances of this backend.") %>
-                      <% end %>
-                    </p>
-                  </div>
-
-                  <%!-- API key (only for presets that require one) --%>
-                  <%= if @has_api_key do %>
-                    <div>
-                      <label class="font-mono text-xs text-muted-foreground block mb-1">
-                        <%= if @identifier != "" do %>
-                          <%= String.upcase(@identifier) %>_API_KEY
-                        <% else %>
-                          <%= pgettext("setup label", "API Key") %>
-                          <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
-                        <% end %>
-                      </label>
-                      <input
-                        type="password"
-                        name="api_key"
-                        value={@api_key}
-                        class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                               bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                               placeholder:text-muted-foreground"
-                        placeholder="..."
-                      />
-                    </div>
-                  <% end %>
-                </form>
-              <% end %>
-            <% end %>
-
-            <%!-- Free-tier links --%>
-            <div class="border-2 border-border p-3 bg-muted space-y-2">
-              <p class="font-mono text-xs font-bold">
-                <%= pgettext("setup help", "Get started for free") %>
-              </p>
-              <div class="space-y-1.5">
-                <a href="https://build.nvidia.com/" target="_blank"
-                   class="block font-mono text-xs hover:underline">
-                  <span class="font-bold">NVIDIA NIM</span>
-                  <span class="text-muted-foreground ml-1">— Llama 3.3 70B, Nemotron</span>
-                </a>
-                <a href="https://console.groq.com/" target="_blank"
-                   class="block font-mono text-xs hover:underline">
-                  <span class="font-bold">Groq</span>
-                  <span class="text-muted-foreground ml-1">— Fast Llama / Gemma models</span>
-                </a>
-                <a href="https://aistudio.google.com/" target="_blank"
-                   class="block font-mono text-xs hover:underline">
-                  <span class="font-bold">Google AI Studio</span>
-                  <span class="text-muted-foreground ml-1">— Gemini 2.5 Flash</span>
-                </a>
-              </div>
-            </div>
-
-          </div>
-
-        <%!-- Step :model — Model details --%>
+        <%!-- Step :provider_model — provider + model flow --%>
         <% true -> %>
-          <form phx-change="update_model_fields" phx-target={@myself} class="space-y-3">
+          <.live_component
+            module={Planck.Web.Live.SetupModal.ProviderModelStep}
+            id="provider-model-step"
+            parent_id={@id}
+            mode={@provider_model_mode}
+            configured_providers={@configured_providers}
+          />
 
-            <%!-- Configured-provider picker (add_model mode only) --%>
-            <%= if @mode == :add_model do %>
-              <div>
-                <label class="font-mono text-xs text-muted-foreground block mb-1">
-                  <%= pgettext("setup label", "Provider") %>
-                </label>
-                <.dropdown
-                  id="setup-configured-provider"
-                  name="configured_provider"
-                  options={Enum.map(@configured_providers, &{&1, &1})}
-                  selected={@provider_key}
-                  on_select="select_configured_provider"
-                  target={@myself}
-                />
-              </div>
-            <% end %>
-
-            <%!-- Model identifier — dropdown for cloud, text input otherwise --%>
-            <div>
-              <label class="font-mono text-xs text-muted-foreground block mb-1">
-                <%= pgettext("setup label", "Model") %>
-              </label>
-              <%= if @models != [] do %>
-                <.dropdown
-                  id="setup-model"
-                  name="model"
-                  options={@models}
-                  selected={@model_api_id}
-                  on_select="select_model"
-                  target={@myself}
-                />
-              <% else %>
-                <input
-                  type="text"
-                  name="model_api_id"
-                  value={@model_api_id}
-                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                         placeholder:text-muted-foreground"
-                  placeholder="llama3.2"
-                />
-                <p class="font-mono text-xs text-muted-foreground mt-1">
-                  <%= pgettext("setup help", "Exact model identifier as it appears in the provider API.") %>
-                </p>
-              <% end %>
-            </div>
-
-            <%!-- Alias --%>
-            <div>
-              <label class="font-mono text-xs text-muted-foreground block mb-1">
-                <%= pgettext("setup label", "Alias") %>
-                <span class="opacity-50 ml-1"><%= pgettext("setup label", "(your shorthand for this model)") %></span>
-              </label>
-              <input
-                type="text"
-                name="model_alias"
-                value={@model_alias}
-                class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                       bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                       placeholder:text-muted-foreground"
-                placeholder={@model_api_id}
-              />
-            </div>
-
-            <%!-- Set as default + scope --%>
-            <div class="flex items-center justify-between gap-4">
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={@set_default}
-                  phx-click={JS.push("toggle_default", target: @myself)}
-                  class="accent-black w-4 h-4"
-                />
-                <span class="font-mono text-sm">
-                  <%= pgettext("setup label", "Set as default model") %>
-                </span>
-              </label>
-
-              <div class="flex-shrink-0">
-                <.dropdown
-                  id="setup-scope"
-                  name="scope"
-                  options={scope_options()}
-                  selected={to_string(@scope)}
-                  on_select="select_scope"
-                  target={@myself}
-                />
-              </div>
-            </div>
-
-            <%!-- Parameters (collapsible) --%>
-            <div class="border-2 border-black">
-              <button type="button"
-                phx-click="toggle_params"
-                phx-target={@myself}
-                class="w-full px-3 py-2 font-mono text-sm font-bold flex items-center
-                       justify-between hover:bg-muted">
-                <span><%= pgettext("setup label", "Parameters") %></span>
-                <span class={["text-xs opacity-50", if(@params_open, do: "rotate-180", else: "")]}>▾</span>
-              </button>
-
-              <div class={["p-3 space-y-3 border-t-2 border-black", unless(@params_open, do: "hidden")]}>
-
-                <%!-- Row 1: context_window / max_tokens --%>
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <%= pgettext("setup label", "Context window") %>
-                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
-                        title={pgettext("setup help", "Match this to your model's actual context size — e.g. 4096 for most 7B models, 32768 for larger ones. Planck uses it to decide when to summarise the conversation history.")}>?</button>
-                    </label>
-                    <input type="number" name="param_context_window" value={@param_context_window} min="0" step="1"
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-                      placeholder="e.g. 4096" />
-                  </div>
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <%= pgettext("setup label", "Max output tokens") %>
-                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
-                        title={pgettext("setup help", "Try 2048 for most conversations. Increase to 4096 or more if the model cuts off mid-response on long tasks like writing or code generation.")}>?</button>
-                    </label>
-                    <input type="number" name="param_max_tokens" value={@param_max_tokens} min="0" step="1"
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-                      placeholder="e.g. 2048" />
-                  </div>
-                </div>
-
-                <%!-- Row 2: temperature / top_k --%>
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <%= pgettext("setup label", "Temperature") %>
-                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
-                        title={pgettext("setup help", "Try 0.2 for precise code generation or factual answers. Try 0.7–0.8 for writing tasks. Use 1.0+ for open-ended brainstorming. Higher values may produce incoherent output.")}>?</button>
-                    </label>
-                    <input type="number" name="param_temperature" value={@param_temperature} min="0" max="2" step="0.1"
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-                      placeholder="1.0" />
-                  </div>
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <%= pgettext("setup label", "Top K") %>
-                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
-                        title={pgettext("setup help", "Try 20 for conservative, on-topic output or 40 for a good balance. Very low values (< 10) may make the model repetitive. Leave at 0 if using Top P instead.")}>?</button>
-                    </label>
-                    <input type="number" name="param_top_k" value={@param_top_k} min="0" step="1"
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-                      placeholder="0" />
-                  </div>
-                </div>
-
-                <%!-- Row 3: top_p / min_p --%>
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <%= pgettext("setup label", "Top P") %>
-                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
-                        title={pgettext("setup help", "Try 0.9 to cut off unlikely words while keeping variety, or 0.5 for more focused output. Leave at 1.0 if using Top K instead.")}>?</button>
-                    </label>
-                    <input type="number" name="param_top_p" value={@param_top_p} min="0" max="1" step="0.05"
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-                      placeholder="1.0" />
-                  </div>
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <%= pgettext("setup label", "Min P") %>
-                      <button type="button" class="border border-black px-1 font-mono text-xs opacity-40 hover:opacity-100 leading-none"
-                        title={pgettext("setup help", "Try 0.05 to silently filter out clearly wrong word choices without affecting the overall style. Most models work fine at 0.0 (disabled).")}>?</button>
-                    </label>
-                    <input type="number" name="param_min_p" value={@param_min_p} min="0" max="1" step="0.01"
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm bg-background focus:outline-none shadow-[2px_2px_0px_#000]"
-                      placeholder="0.0" />
-                  </div>
-                </div>
-
-                <%!-- Additional params (JSON) --%>
-                <div>
-                  <label class="font-mono text-xs text-muted-foreground block mb-1">
-                    <%= pgettext("setup label", "Additional parameters") %>
-                    <span class="opacity-50 ml-1"><%= pgettext("setup label", "(JSON, optional)") %></span>
-                  </label>
-                  <textarea
-                    name="advanced_opts"
-                    rows="3"
-                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-xs
-                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                           placeholder:text-muted-foreground resize-none"
-                    placeholder={"{\n  \"receive_timeout\": 600000\n}"}
-                  ><%= @advanced_opts %></textarea>
-                </div>
-
-              </div>
-            </div>
-
-          </form>
-      <% end %>
-
-      <%!-- Error --%>
-      <%= if @error do %>
-        <p class="font-mono text-xs text-destructive"><%= @error %></p>
       <% end %>
 
     </div>
@@ -418,7 +60,7 @@
     <%!-- Buttons --%>
     <div class="flex justify-between p-4 border-t-2 border-border flex-shrink-0">
       <div>
-        <%= if @step == :model do %>
+        <%= if (@step == :provider_model and @sub_step == :model) or @step == :keys do %>
           <button
             class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                    shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -431,7 +73,7 @@
 
       <div>
         <%= cond do %>
-          <% @step == :provider -> %>
+          <% @step == :provider_model and @sub_step == :provider -> %>
             <button
               class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                      shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -441,7 +83,7 @@
               phx-target={@myself}
             ><%= pgettext("setup button", "Next") %></button>
 
-          <% @step in [:provider, :model] -> %>
+          <% @step == :provider_model and @sub_step == :model -> %>
             <button
               class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
                      shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
