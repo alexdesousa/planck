@@ -208,7 +208,11 @@ defmodule Planck.Web.Live.ChatComponent do
         "error-#{:erlang.unique_integer([:positive])}"
       )
 
-    update(socket, :entries, &(&1 ++ [entry]))
+    socket
+    |> update(:entries, &(&1 ++ [entry]))
+    |> assign(:streaming, false)
+    |> assign(:waiting, false)
+    |> assign(:streaming_agent_id, nil)
   end
 
   defp handle_agent_event(socket, {:agent_event, :compacting, _}) do

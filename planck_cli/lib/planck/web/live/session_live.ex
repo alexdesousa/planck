@@ -105,7 +105,12 @@ defmodule Planck.Web.SessionLive do
 
   def handle_info({:agent_event, :error, %{agent_id: agent_id}} = event, socket) do
     send_to_chats(socket, agent_id, event)
-    {:noreply, socket}
+
+    if orchestrator_event?(agent_id, socket) do
+      {:noreply, socket |> assign(:streaming, false) |> assign(:waiting, false)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:agent_event, :compacting, %{agent_id: agent_id}} = event, socket) do
@@ -357,7 +362,12 @@ defmodule Planck.Web.SessionLive do
   defp do_turn_start(agent_id, event, socket) do
     send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
-    socket |> assign(:streaming, true) |> assign(:waiting, false)
+
+    if orchestrator_event?(agent_id, socket) do
+      socket |> assign(:streaming, true) |> assign(:waiting, false)
+    else
+      socket
+    end
   end
 
   @spec do_turn_end(String.t(), tuple(), Phoenix.LiveView.Socket.t()) ::
@@ -366,11 +376,15 @@ defmodule Planck.Web.SessionLive do
     send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
 
-    socket = socket |> assign(:streaming, false) |> assign(:waiting, false)
+    if orchestrator_event?(agent_id, socket) do
+      socket = socket |> assign(:streaming, false) |> assign(:waiting, false)
 
-    case socket.assigns.prompt_queue do
-      [next | rest] -> socket |> assign(:prompt_queue, rest) |> do_send_prompt(next)
-      [] -> socket
+      case socket.assigns.prompt_queue do
+        [next | rest] -> socket |> assign(:prompt_queue, rest) |> do_send_prompt(next)
+        [] -> socket
+      end
+    else
+      socket
     end
   end
 
@@ -678,6 +692,14 @@ defmodule Planck.Web.SessionLive do
   end
 
   @spec orchestrator_active?(%{String.t() => map()}, String.t() | nil) :: boolean()
+  # True when the event comes from the orchestrator (or when no orchestrator is
+  # known yet, treating any agent as authoritative for streaming state).
+  @spec orchestrator_event?(String.t(), Phoenix.LiveView.Socket.t()) :: boolean()
+  defp orchestrator_event?(agent_id, socket) do
+    orch_id = socket.assigns[:orchestrator_id]
+    is_nil(orch_id) or agent_id == orch_id
+  end
+
   defp orchestrator_active?(_agents, nil), do: false
 
   defp orchestrator_active?(agents, orchestrator_id) do
