@@ -24,7 +24,7 @@ $ComposeFile = Join-Path $PlanckHome "compose.yml"
 $EnvFile     = Join-Path $PlanckHome ".env"
 
 function Invoke-Compose {
-    & $script:Compose @args
+    & $script:ComposeCmd @args
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -41,12 +41,16 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-docker compose version 2>&1 | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    $script:Compose = @("docker", "compose")
-} elseif (Get-Command docker-compose -ErrorAction SilentlyContinue) {
-    $script:Compose = @("docker-compose")
-} else {
+if (Get-Command docker-compose -ErrorAction SilentlyContinue) {
+    $script:ComposeCmd = @("docker-compose")
+} elseif (Get-Command docker -ErrorAction SilentlyContinue) {
+    docker compose version 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $script:ComposeCmd = @("docker", "compose")
+    }
+}
+
+if (-not $script:ComposeCmd) {
     Write-Host "Neither 'docker compose' nor 'docker-compose' found."
     Write-Host "Install Docker Compose: https://docs.docker.com/compose/install/"
     exit 1
