@@ -87,7 +87,7 @@ bump skills/planck_setup/SKILL.md       "planck_version: $OLD"        "planck_ve
 bump docs/install.sh                    "VERSION=\"$OLD\""             "VERSION=\"$NEW\""
 bump docs/install_docker.sh             "VERSION=\"$OLD\""             "VERSION=\"$NEW\""
 bump docs/install.ps1                   "\$Version = \"$OLD\""        "\$Version = \"$NEW\""
-bump docs/install_docker.ps1            "\$Version = \"$OLD\""        "\$Version = \"$NEW\""
+bump docs/install_docker.ps1            "\$Version     = \"$OLD\""        "\$Version     = \"$NEW\""
 
 # ── CHANGELOG stubs ────────────────────────────────────────────────────────────
 
