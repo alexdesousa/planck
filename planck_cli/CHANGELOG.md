@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.11
+
+### Bug fixes
+
+- Streaming indicator (`agent ...`) no longer gets stuck after an agent error.
+  Previously the `:error` event did not clear `streaming` state in either
+  `SessionLive` or `ChatComponent`, leaving the indicator visible until page
+  refresh.
+- Worker `turn_end` no longer incorrectly clears the orchestrator's streaming
+  indicator or drains the prompt queue. State updates are now gated on
+  `orchestrator_event?/2` so only the orchestrator's lifecycle events affect
+  the UI streaming state.
+
 ## v0.1.10
 
 ### Secrets modal — manage API keys
