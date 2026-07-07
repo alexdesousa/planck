@@ -113,7 +113,71 @@ Models are declared in two parts: a `providers` map that defines backends, and a
 | `provider` | yes | Key referencing an entry in the `providers` map |
 | `context_window` | no | Model's context window in tokens; used by the compactor to decide when to summarise |
 | `max_tokens` | no | Maximum tokens the model may generate per response |
-| `params` | no | Additional inference parameters (`temperature`, `top_p`, `top_k`, `min_p`, `receive_timeout`, etc.) |
+| `params` | no | Additional inference parameters — see [Model params](#model-params) below |
+
+### Model params
+
+The `params` object on a model entry is passed directly to the inference call. Any key
+that maps to a known option is forwarded; unknown keys are silently dropped — except for
+`extra_body` (see below).
+
+**Common inference parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `temperature` | float | Sampling temperature |
+| `top_p` | float | Nucleus sampling threshold |
+| `top_k` | integer | Top-k sampling |
+| `min_p` | float | Minimum probability threshold |
+| `max_tokens` | integer | Maximum tokens per response |
+| `receive_timeout` | integer | HTTP receive timeout in milliseconds (default: 30 000; use 600 000 for slow frontier models) |
+
+**Anthropic prompt caching**
+
+Anthropic caches your system prompt and conversation history to reduce latency and cost
+on long sessions. By default every model already gets 5-minute ephemeral caching when the
+context is large enough. You can extend the cache lifetime to **1 hour** — useful for
+long-running coding or research sessions. Note: the 1-hour TTL charges 2× the base input
+rate on cache writes.
+
+| Param | Type | Description |
+|---|---|---|
+| `anthropic_prompt_cache` | boolean | Enable prompt caching (`true` adds cache breakpoints to the system prompt and last message) |
+| `anthropic_prompt_cache_ttl` | string | Cache lifetime: `"1h"` for one hour; omit for the default ~5 minutes |
+
+```json
+{ "id": "sonnet", "model": "claude-sonnet-4-6", "provider": "anthropic",
+  "params": { "anthropic_prompt_cache": true, "anthropic_prompt_cache_ttl": "1h" } }
+```
+
+**Extra body fields (`extra_body`)**
+
+For providers that accept non-standard request body fields not covered by the params
+above, use `extra_body`. Its value is merged verbatim into the HTTP request body just
+before it is sent.
+
+Useful for:
+- **NVIDIA NIM / llama.cpp** — disable chain-of-thought on reasoning models
+- **vLLM** — any `chat_template_kwargs` your deployment supports
+- Any OpenAI-compatible endpoint with vendor-specific extensions
+
+```json
+{ "id": "deepseek", "model": "deepseek-ai/deepseek-v4-pro", "provider": "nvidia",
+  "params": {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "extra_body": { "chat_template_kwargs": { "thinking": false } }
+  }
+}
+```
+
+```json
+{ "id": "qwen-local", "model": "qwen3:32b", "provider": "local-ollama",
+  "params": {
+    "extra_body": { "chat_template_kwargs": { "enable_thinking": false } }
+  }
+}
+```
 
 ### Example
 
@@ -144,8 +208,9 @@ Models are declared in two parts: a `providers` map that defines backends, and a
     { "id": "sonnet",   "model": "claude-sonnet-4-6",           "provider": "anthropic" },
     { "id": "gpt-4o",   "model": "gpt-4o",                     "provider": "openai" },
     { "id": "flash",    "model": "gemini-2.5-flash",            "provider": "google" },
-    { "id": "llama70b", "model": "meta/llama-3.3-70b-instruct", "provider": "nvidia",
-      "params": { "temperature": 0.6, "receive_timeout": 600000 } },
+    { "id": "deepseek", "model": "deepseek-ai/deepseek-v4-pro", "provider": "nvidia",
+      "params": { "temperature": 1.0, "top_p": 0.95, "receive_timeout": 600000,
+                  "extra_body": { "chat_template_kwargs": { "thinking": false } } } },
     { "id": "llama3.2", "model": "llama3.2",                    "provider": "local-ollama" }
   ]
 }

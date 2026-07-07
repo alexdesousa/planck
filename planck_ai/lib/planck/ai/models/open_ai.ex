@@ -18,7 +18,7 @@ defmodule Planck.AI.Models.OpenAI do
       )
 
       # Build a single model struct
-      Planck.AI.Models.OpenAI.model("meta/llama-3.3-70b-instruct",
+      Planck.AI.Models.OpenAI.model("deepseek-ai/deepseek-v4-pro",
         base_url: "https://integrate.api.nvidia.com/v1",
         identifier: "NVIDIA",
         context_window: 128_000
