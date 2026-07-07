@@ -111,6 +111,24 @@ defmodule Planck.AI.ConfigTest do
       assert m.input_types == [:text]
     end
 
+    test "extra_body in params is preserved as a map in default_opts" do
+      models = [
+        %{
+          "id" => "deepseek",
+          "model" => "deepseek-ai/deepseek-v4-pro",
+          "provider" => "nvidia",
+          "params" => %{
+            "temperature" => 1.0,
+            "extra_body" => %{"chat_template_kwargs" => %{"thinking" => false}}
+          }
+        }
+      ]
+
+      [m] = Config.from_config(@providers, models)
+      assert m.default_opts[:temperature] == 1.0
+      assert m.default_opts[:extra_body] == %{"chat_template_kwargs" => %{"thinking" => false}}
+    end
+
     test "drops unknown default_opt keys" do
       models = [
         %{

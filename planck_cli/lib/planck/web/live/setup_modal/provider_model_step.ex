@@ -350,12 +350,12 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
     provider_key = compute_provider_key(a.provider, a.identifier, a.preset)
 
     preset_default_params = %{
-      "nvidia" => %{"temperature" => 0.7, "top_p" => 0.8, "receive_timeout" => 600_000},
+      "nvidia" => %{"temperature" => 1.0, "top_p" => 0.95, "receive_timeout" => 600_000},
       "groq" => %{"temperature" => 0.5, "top_p" => 0.9}
     }
 
     preset_default_models = %{
-      "nvidia" => "qwen/qwen3-coder-480b-a35b-instruct",
+      "nvidia" => "deepseek-ai/deepseek-v4-pro",
       "groq" => "llama-3.3-70b-versatile"
     }
 

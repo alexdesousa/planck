@@ -35,6 +35,7 @@ defmodule Planck.AI.Adapter do
   def to_req_llm(model, context, opts)
 
   def to_req_llm(%Model{} = model, %Context{} = context, opts) do
+    {extra_body, opts} = Keyword.pop(opts, :extra_body)
     model_spec = build_model_spec(model)
     req_context = build_context(context)
 
@@ -42,6 +43,7 @@ defmodule Planck.AI.Adapter do
       opts
       |> add_base_url(model)
       |> add_tools(context.tools)
+      |> add_extra_body(extra_body)
 
     {model_spec, req_context, req_opts}
   end
@@ -131,6 +133,19 @@ defmodule Planck.AI.Adapter do
       [_ | _] = req_tools ->
         Keyword.put(opts, :tools, req_tools)
     end
+  end
+
+  @spec add_extra_body(keyword(), map() | nil) :: keyword()
+  defp add_extra_body(opts, extra_body)
+
+  defp add_extra_body(opts, nil), do: opts
+  defp add_extra_body(opts, extra) when map_size(extra) == 0, do: opts
+
+  defp add_extra_body(opts, extra) do
+    Keyword.put(opts, :on_finch_request, fn %Finch.Request{} = req ->
+      body = req.body |> Jason.decode!() |> Map.merge(extra) |> Jason.encode!()
+      %{req | body: body}
+    end)
   end
 
   @spec build_req_llm_tool(Tool.t()) :: {:ok, ReqLLM.Tool.t()} | {:error, term()}

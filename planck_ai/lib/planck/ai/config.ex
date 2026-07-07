@@ -179,15 +179,20 @@ defmodule Planck.AI.Config do
   defp parse_default_opts(options)
 
   defp parse_default_opts(map) when is_map(map) do
-    Enum.flat_map(map, fn {k, v} ->
-      try do
-        [{String.to_existing_atom(k), v}]
-      rescue
-        ArgumentError ->
-          Logger.warning("[Planck.AI.Config] unknown default_opt key #{inspect(k)}, skipping")
-          []
-      end
-    end)
+    {extra_body, rest} = Map.pop(map, "extra_body")
+
+    opts =
+      Enum.flat_map(rest, fn {k, v} ->
+        try do
+          [{String.to_existing_atom(k), v}]
+        rescue
+          ArgumentError ->
+            Logger.warning("[Planck.AI.Config] unknown default_opt key #{inspect(k)}, skipping")
+            []
+        end
+      end)
+
+    if is_map(extra_body), do: [{:extra_body, extra_body} | opts], else: opts
   end
 
   defp parse_default_opts(_) do

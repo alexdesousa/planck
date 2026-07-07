@@ -165,6 +165,81 @@ defmodule Planck.AI.AdapterTest do
     end
   end
 
+  # --- extra_body ---
+
+  describe "extra_body" do
+    test "no on_finch_request when extra_body is absent" do
+      {_, _, opts} = to_req_llm(model(:anthropic))
+      refute Keyword.has_key?(opts, :on_finch_request)
+    end
+
+    test "no on_finch_request when extra_body is empty map" do
+      {_, _, opts} = to_req_llm(model(:anthropic), nil, extra_body: %{})
+      refute Keyword.has_key?(opts, :on_finch_request)
+    end
+
+    test "on_finch_request is injected when extra_body has fields" do
+      {_, _, opts} =
+        to_req_llm(model(:anthropic), nil,
+          extra_body: %{"chat_template_kwargs" => %{"thinking" => false}}
+        )
+
+      assert is_function(opts[:on_finch_request], 1)
+    end
+
+    test "on_finch_request merges extra fields into the encoded request body" do
+      {_, _, opts} =
+        to_req_llm(model(:anthropic), nil,
+          extra_body: %{"chat_template_kwargs" => %{"thinking" => false}}
+        )
+
+      original_body = Jason.encode!(%{"model" => "test", "messages" => []})
+
+      request = %Finch.Request{
+        scheme: :https,
+        host: "api.anthropic.com",
+        port: 443,
+        method: "POST",
+        path: "/v1/messages",
+        headers: [],
+        body: original_body,
+        query: nil
+      }
+
+      patched = opts[:on_finch_request].(request)
+      decoded = Jason.decode!(patched.body)
+
+      assert decoded["model"] == "test"
+      assert decoded["chat_template_kwargs"] == %{"thinking" => false}
+    end
+
+    test "on_finch_request preserves existing body fields" do
+      {_, _, opts} =
+        to_req_llm(model(:anthropic), nil,
+          extra_body: %{"chat_template_kwargs" => %{"thinking" => false}}
+        )
+
+      original_body = Jason.encode!(%{"model" => "x", "temperature" => 1.0, "messages" => []})
+
+      request = %Finch.Request{
+        scheme: :https,
+        host: "api.example.com",
+        port: 443,
+        method: "POST",
+        path: "/v1/chat/completions",
+        headers: [],
+        body: original_body,
+        query: nil
+      }
+
+      patched = opts[:on_finch_request].(request)
+      decoded = Jason.decode!(patched.body)
+
+      assert decoded["temperature"] == 1.0
+      assert decoded["messages"] == []
+    end
+  end
+
   # --- context / system ---
 
   describe "build_context" do
