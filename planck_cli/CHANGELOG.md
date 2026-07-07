@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.12
+
+### NVIDIA NIM defaults updated in SetupModal
+
+The SetupModal now defaults NVIDIA NIM to `deepseek-ai/deepseek-v4-pro` with
+`temperature: 1.0` and `top_p: 0.95` when configuring a new provider.
+
 ## v0.1.11
 
 ### Bug fixes

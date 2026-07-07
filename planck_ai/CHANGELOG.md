@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.1.12
+
+### `extra_body` support in model params
+
+Models can now include an `extra_body` key in their `params` config. Its value
+is a map that gets merged verbatim into the HTTP request body just before it is
+sent, enabling provider-specific fields that Planck and req_llm don't expose
+natively.
+
+Primary use cases:
+- **NVIDIA NIM / llama.cpp / vLLM** — `chat_template_kwargs` to control
+  per-request template behaviour (e.g. `{"thinking": false}` to disable
+  chain-of-thought on DeepSeek/Qwen3 models)
+- Any OpenAI-compatible endpoint with vendor extensions
+
+```json
+{ "id": "deepseek", "model": "deepseek-ai/deepseek-v4-pro", "provider": "nvidia",
+  "params": { "extra_body": { "chat_template_kwargs": { "thinking": false } } } }
+```
+
+### NVIDIA NIM default model updated
+
+Default model for new NVIDIA NIM providers changed from
+`qwen/qwen3-coder-480b-a35b-instruct` to `deepseek-ai/deepseek-v4-pro`.
+Default `temperature` updated to `1.0` and `top_p` to `0.95` to match
+NVIDIA's recommended settings for this model.
+
 ## v0.1.11
 
 - Version bump to stay in sync with the monorepo release; no functional changes.
