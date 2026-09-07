@@ -271,29 +271,58 @@ defmodule Planck.Headless do
     type = Keyword.fetch!(opts, :type)
     scope = Keyword.get(opts, :scope, :local)
     api_key = Keyword.get(opts, :api_key)
-    base_url = Keyword.get(opts, :base_url)
-    identifier = Keyword.get(opts, :identifier)
+    raw_identifier = Keyword.get(opts, :identifier)
     has_api_key = Keyword.get(opts, :has_api_key, true)
 
     config_path = Keyword.get(opts, :config_file) || config_path_for(scope)
     env_path = Keyword.get(opts, :env_file) || env_path_for(scope)
 
-    entry =
-      %{"type" => type}
-      |> maybe_put("base_url", base_url)
-      |> maybe_put("identifier", identifier)
-      |> then(fn m -> if has_api_key, do: m, else: Map.put(m, "has_api_key", false) end)
-
-    config_update = %{"providers" => %{id => entry}}
-
-    effective_api_key = if has_api_key, do: api_key, else: nil
-
     with :ok <- if(id == "", do: {:error, :empty_id}, else: :ok),
+         {:ok, identifier} <- sanitize_provider_identifier(type, raw_identifier),
+         entry = provider_entry(identifier, opts),
+         config_update = %{"providers" => %{id => entry}},
+         effective_api_key = if(has_api_key, do: api_key, else: nil),
          :ok <- ensure_config_dir(config_path),
          :ok <- update_json_config(config_path, config_update),
          :ok <- maybe_store_api_key(type, effective_api_key, identifier, env_path) do
       reload_resources()
     end
+  end
+
+  # Normalizes the identifier before it's ever written to config.json, using
+  # the same rule Planck.AI.Config applies at load time — so the persisted
+  # identifier and the .env key it derives (provider_api_key_env_var/2) always
+  # agree, instead of drifting apart (e.g. a lowercase identifier writing a
+  # mismatched-case .env key that the uppercased, loaded Model can't find).
+  @spec sanitize_provider_identifier(String.t(), String.t() | nil) ::
+          {:ok, String.t() | nil} | {:error, :invalid_identifier}
+  defp sanitize_provider_identifier("openai", raw) when is_binary(raw) do
+    case Planck.AI.Config.sanitize_identifier(raw) do
+      {:ok, cleaned} -> {:ok, cleaned}
+      :error -> {:error, :invalid_identifier}
+    end
+  end
+
+  defp sanitize_provider_identifier(_type, raw) do
+    {:ok, raw}
+  end
+
+  @spec provider_entry(nil | binary(), keyword()) :: map()
+  defp provider_entry(identifier, opts)
+
+  defp provider_entry(identifier, opts) when is_list(opts) do
+    type = Keyword.fetch!(opts, :type)
+    base_url = Keyword.get(opts, :base_url)
+    has_api_key = Keyword.get(opts, :has_api_key, true)
+
+    %{"type" => type}
+    |> maybe_put("base_url", base_url)
+    |> maybe_put("identifier", identifier)
+    |> then(fn entry ->
+      if has_api_key,
+        do: entry,
+        else: Map.put(entry, "has_api_key", false)
+    end)
   end
 
   @doc """

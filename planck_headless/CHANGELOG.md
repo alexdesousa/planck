@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.13
+
+### `configure_provider/1` sanitizes the identifier before writing config
+
+Previously, `configure_provider/1` wrote the given `identifier` to
+`config.json` and derived the `.env` API key name from it verbatim — while
+`Planck.AI.Config` upcased the identifier when loading it back. A lowercase
+identifier (e.g. `"nvidia"`) would write `nvidia_API_KEY` to `.env` but the
+loaded model would look for `NVIDIA_API_KEY`, silently failing to find the
+key. `configure_provider/1` now normalizes the identifier the same way
+`Planck.AI.Config` does before writing either file, so they always agree. An
+identifier with no letters at all is now rejected with
+`{:error, :invalid_identifier}` before anything is written.
+
 ## v0.1.12
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

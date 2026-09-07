@@ -57,13 +57,32 @@ sedi() {
   fi
 }
 
+FAILURES=0
+
 bump() {
   local file=$1 pattern=$2 replacement=$3
-  if [ -f "$file" ]; then
-    sedi "s|$pattern|$replacement|g" "$file"
-    echo "  ✓ $file"
+
+  if [ ! -f "$file" ]; then
+    echo "  ✗ $file — file not found, skipping"
+    FAILURES=$((FAILURES + 1))
+    return
+  fi
+
+  # Compare content before/after rather than pre-checking the pattern with
+  # grep: these patterns contain characters (e.g. a literal "$" for
+  # PowerShell variables) whose regex meaning differs between grep -E and
+  # sed on some platforms, which false-flagged even matching files. Reusing
+  # sed's own substitution as the check avoids that mismatch entirely.
+  local before after
+  before=$(cat "$file")
+  sedi "s|$pattern|$replacement|g" "$file"
+  after=$(cat "$file")
+
+  if [ "$before" = "$after" ]; then
+    echo "  ✗ $file — pattern not found (already drifted?), needs manual fix"
+    FAILURES=$((FAILURES + 1))
   else
-    echo "  ✗ $file — not found, skipping"
+    echo "  ✓ $file"
   fi
 }
 
@@ -119,6 +138,15 @@ add_stub planck_docker/CHANGELOG.md
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
+
+if [ "$FAILURES" -gt 0 ]; then
+  echo "$FAILURES version reference(s) could not be bumped — see ✗ lines above."
+  echo "These files have drifted from the version scheme and need a manual fix"
+  echo "before this release goes out, or they'll keep silently pointing at an"
+  echo "old version."
+  exit 1
+fi
+
 echo "Done. Review the changes, update the CHANGELOG stubs, then:"
 echo "  ./check"
 echo "  git commit -m \":sparkles: v$NEW: ...\""

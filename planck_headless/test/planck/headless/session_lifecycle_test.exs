@@ -674,6 +674,41 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert content =~ "NVIDIA_API_KEY=nvapi-secret"
     end
 
+    test "sanitizes a messy identifier before writing config.json and .env", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "qwen",
+        type: "openai",
+        identifier: "qwen 3.6 27b",
+        base_url: "https://qwen.coroto.net/v1",
+        api_key: "sk-test",
+        config_file: config_path,
+        env_file: env_path
+      )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["providers"]["qwen"]["identifier"] == "QWEN_3_6_27B"
+
+      env_content = File.read!(env_path)
+      assert env_content =~ "QWEN_3_6_27B_API_KEY=sk-test"
+    end
+
+    test "rejects an identifier with no letters", %{tmp_dir: dir} do
+      assert {:error, :invalid_identifier} =
+               Headless.configure_provider(
+                 id: "qwen",
+                 type: "openai",
+                 identifier: "3.6",
+                 config_file: Path.join(dir, "config.json"),
+                 env_file: Path.join(dir, ".env")
+               )
+
+      refute File.exists?(Path.join(dir, "config.json"))
+    end
+
     test "updating an existing API key replaces the line in .env", %{tmp_dir: dir} do
       env_path = Path.join(dir, ".env")
       File.write!(env_path, "ANTHROPIC_API_KEY=old-key\nOTHER=value\n")

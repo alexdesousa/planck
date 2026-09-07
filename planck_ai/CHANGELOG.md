@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.1.13
+
+### Provider identifiers are sanitized instead of rejected
+
+A provider's `identifier` (the tag used to derive its `.env` API key, e.g.
+`"NVIDIA"` → `NVIDIA_API_KEY`) no longer fails the whole model load when it
+contains spaces, punctuation, or lowercase letters. `Planck.AI.Config` now
+normalizes it instead: upcased, disallowed characters replaced with `_`, and
+leading non-letters stripped — e.g. `"Qwen 3.6 27B"` becomes `"QWEN_3_6_27B"`.
+An identifier with no letters at all (e.g. `"3.6"`) still fails to load.
+
+### Unknown model params are forwarded via `extra_body` instead of dropped
+
+Previously, any key in a model's `params` map that wasn't a recognized
+`req_llm` option (`temperature`, `max_tokens`, `top_p`, `top_k`, `min_p`,
+`receive_timeout`, `anthropic_prompt_cache`, `anthropic_prompt_cache_ttl`) was
+silently dropped with a log warning — losing backend-specific sampler knobs
+like llama.cpp's `repetition_penalty` or `presence_penalty`. These are now
+automatically merged into `extra_body` and forwarded verbatim in the request
+body, same as if you'd nested them there yourself. Nothing you put in `params`
+is silently lost anymore.
+
 ## v0.1.12
 
 ### `extra_body` support in model params

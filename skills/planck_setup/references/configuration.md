@@ -117,9 +117,11 @@ Models are declared in two parts: a `providers` map that defines backends, and a
 
 ### Model params
 
-The `params` object on a model entry is passed directly to the inference call. Any key
-that maps to a known option is forwarded; unknown keys are silently dropped — except for
-`extra_body` (see below).
+The `params` object on a model entry is passed directly to the inference call. Keys that
+match one of the common inference parameters below are forwarded as request options. Any
+other key is not dropped — it's automatically merged into `extra_body` (see below), so
+model- or backend-specific sampler fields (llama.cpp's `repetition_penalty`, `presence_penalty`,
+`mirostat_tau`, etc.) can be set flat here without nesting them under `extra_body` yourself.
 
 **Common inference parameters**
 

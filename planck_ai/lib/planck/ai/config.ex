@@ -124,12 +124,9 @@ defmodule Planck.AI.Config do
   end
 
   defp parse_identifier(:openai, raw) when is_binary(raw) do
-    upcased = String.upcase(raw)
-
-    if Regex.match?(~r/^[A-Z][A-Z0-9]*$/, upcased) do
-      {:ok, upcased}
-    else
-      {:error, "identifier must match [A-Z][A-Z0-9]*: #{inspect(raw)}"}
+    case sanitize_identifier(raw) do
+      {:ok, cleaned} -> {:ok, cleaned}
+      :error -> {:error, "identifier must contain at least one letter: #{inspect(raw)}"}
     end
   end
 
@@ -139,6 +136,35 @@ defmodule Planck.AI.Config do
 
   defp parse_identifier(_provider, raw) do
     {:ok, raw}
+  end
+
+  @doc """
+  Normalizes a user-supplied identifier into a valid env-var tag: upcased,
+  characters outside `A-Z0-9` replaced with `_`, and leading non-letter
+  characters stripped (env var names must start with a letter).
+
+  Used both when loading config (so a typo'd identifier degrades to a
+  usable tag instead of dropping the model) and when writing config via
+  `Planck.Headless.configure_provider/1` (so the persisted identifier and
+  the `.env` key it derives always agree).
+
+  Returns `:error` only when nothing but non-letters remains (e.g. `"3.6"`).
+
+      iex> Planck.AI.Config.sanitize_identifier("Qwen 3.6 27B")
+      {:ok, "QWEN_3_6_27B"}
+
+      iex> Planck.AI.Config.sanitize_identifier("nvidia")
+      {:ok, "NVIDIA"}
+  """
+  @spec sanitize_identifier(String.t()) :: {:ok, String.t()} | :error
+  def sanitize_identifier(raw) do
+    cleaned =
+      raw
+      |> String.upcase()
+      |> String.replace(~r/[^A-Z0-9]/, "_")
+      |> String.replace(~r/^[^A-Z]+/, "")
+
+    if cleaned == "", do: :error, else: {:ok, cleaned}
   end
 
   @spec parse_provider(String.t()) :: {:ok, atom()} | {:error, String.t()}
@@ -179,23 +205,56 @@ defmodule Planck.AI.Config do
   defp parse_default_opts(options)
 
   defp parse_default_opts(map) when is_map(map) do
-    {extra_body, rest} = Map.pop(map, "extra_body")
+    {explicit_extra_body, rest} = Map.pop(map, "extra_body")
+    explicit_extra_body = if is_map(explicit_extra_body), do: explicit_extra_body, else: %{}
 
-    opts =
-      Enum.flat_map(rest, fn {k, v} ->
-        try do
-          [{String.to_existing_atom(k), v}]
-        rescue
-          ArgumentError ->
-            Logger.warning("[Planck.AI.Config] unknown default_opt key #{inspect(k)}, skipping")
-            []
+    {opts, promoted} =
+      Enum.reduce(rest, {[], %{}}, fn {k, v}, {opts, promoted} ->
+        case known_default_opt_key(k) do
+          {:ok, atom} -> {[{atom, v} | opts], promoted}
+          :error -> {opts, Map.put(promoted, k, v)}
         end
       end)
 
-    if is_map(extra_body), do: [{:extra_body, extra_body} | opts], else: opts
+    extra_body = Map.merge(promoted, explicit_extra_body)
+
+    if extra_body == %{}, do: opts, else: [{:extra_body, extra_body} | opts]
   end
 
   defp parse_default_opts(_) do
     []
   end
+
+  # Checks whether `key` is one of the inference params req_llm recognizes as
+  # real options (temperature, max_tokens, top_p, top_k, min_p,
+  # receive_timeout, anthropic_prompt_cache, anthropic_prompt_cache_ttl — the
+  # set documented in configuration.md's "Model params" table).
+  #
+  # Any other key found flat in a model's params map is not a req_llm option
+  # at all — it's forwarded as-is into extra_body (merged verbatim into the
+  # request's JSON body) rather than dropped, since which sampler knobs a
+  # backend accepts (llama.cpp's repetition_penalty, vLLM's
+  # chat_template_kwargs, ...) varies by model and arch and isn't something
+  # Planck can enumerate. receive_timeout and anthropic_prompt_cache* are
+  # excluded from that passthrough on purpose: they're consumed by req_llm
+  # itself (an HTTP timeout, a cache-breakpoint flag) rather than sent to the
+  # provider, so routing them into the request body would silently do nothing.
+  #
+  # Implemented as literal atom clauses rather than String.to_existing_atom/1:
+  # that would depend on whether some unrelated module has already loaded a
+  # matching atom literal, which is incidental VM state, not a real validity
+  # check. Every atom here is guaranteed to exist because it is written
+  # directly in this module.
+  @spec known_default_opt_key(String.t()) :: {:ok, atom()} | :error
+  defp known_default_opt_key(key)
+
+  defp known_default_opt_key("temperature"), do: {:ok, :temperature}
+  defp known_default_opt_key("max_tokens"), do: {:ok, :max_tokens}
+  defp known_default_opt_key("top_p"), do: {:ok, :top_p}
+  defp known_default_opt_key("top_k"), do: {:ok, :top_k}
+  defp known_default_opt_key("min_p"), do: {:ok, :min_p}
+  defp known_default_opt_key("receive_timeout"), do: {:ok, :receive_timeout}
+  defp known_default_opt_key("anthropic_prompt_cache"), do: {:ok, :anthropic_prompt_cache}
+  defp known_default_opt_key("anthropic_prompt_cache_ttl"), do: {:ok, :anthropic_prompt_cache_ttl}
+  defp known_default_opt_key(_), do: :error
 end

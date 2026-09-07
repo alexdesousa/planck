@@ -129,7 +129,7 @@ defmodule Planck.AI.ConfigTest do
       assert m.default_opts[:extra_body] == %{"chat_template_kwargs" => %{"thinking" => false}}
     end
 
-    test "drops unknown default_opt keys" do
+    test "promotes unknown default_opt keys into extra_body instead of dropping them" do
       models = [
         %{
           "id" => "sonnet",
@@ -140,7 +140,30 @@ defmodule Planck.AI.ConfigTest do
       ]
 
       [m] = Config.from_config(@providers, models)
-      assert m.default_opts == [temperature: 1.0]
+      assert m.default_opts[:temperature] == 1.0
+      assert m.default_opts[:extra_body] == %{"not_a_real_param_xyz123" => 99}
+    end
+
+    test "merges promoted unknown keys with an explicit extra_body map" do
+      models = [
+        %{
+          "id" => "qwen",
+          "model" => "qwen3.6-27b",
+          "provider" => "anthropic",
+          "params" => %{
+            "temperature" => 7.0,
+            "presence_penalty" => 0.0,
+            "extra_body" => %{"chat_template_kwargs" => %{"thinking" => false}}
+          }
+        }
+      ]
+
+      [m] = Config.from_config(@providers, models)
+
+      assert m.default_opts[:extra_body] == %{
+               "presence_penalty" => 0.0,
+               "chat_template_kwargs" => %{"thinking" => false}
+             }
     end
 
     test "accepts all three provider types" do
