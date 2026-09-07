@@ -133,7 +133,12 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.5"
-          otp-version: "28.5.0"
+          # Pinned to an exact hotfix, not just "28.5": ubuntu-latest's package
+          # for that line resolves any looser pin ("28.5", "28.5.0") to its
+          # latest hotfix, and beam-machine.b-cdn.net (Burrito's Linux ERTS
+          # mirror) lags behind — 28.5.0.6 isn't built there yet, only up to
+          # 28.5.0.5. Verify before bumping: see specs/releases-and-distribution.md.
+          otp-version: "28.5.0.5"
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.15.2"
@@ -211,7 +216,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.5"
-          otp-version: "28.5.0"
+          otp-version: "28.5"
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.15.2"
