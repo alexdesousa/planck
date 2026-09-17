@@ -39,6 +39,31 @@ defmodule Planck.Agent.ToolTest do
       assert tool.parameters == params()
       assert tool.execute_fn == fun
     end
+
+    test "defaults :widget to nil when not given" do
+      tool =
+        Tool.new(
+          name: "read",
+          description: "Read a file",
+          parameters: params(),
+          execute_fn: execute_fn()
+        )
+
+      assert tool.widget == nil
+    end
+
+    test "sets :widget when given" do
+      tool =
+        Tool.new(
+          name: "tool_with_widget",
+          description: "A tool with a widget",
+          parameters: params(),
+          execute_fn: execute_fn(),
+          widget: MyWidgetModule
+        )
+
+      assert tool.widget == MyWidgetModule
+    end
   end
 
   describe "to_ai_tool/1" do

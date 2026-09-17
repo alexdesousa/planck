@@ -31,16 +31,20 @@ defmodule Planck.Agent.Tool do
     here directly affects how reliably the model uses the tool
   - `:parameters` — JSON Schema object describing the accepted arguments
   - `:execute_fn` — the function called with the agent id, tool call id, and decoded args
+  - `:widget` — optional module implementing `Planck.Agent.Widget`, pairing this
+    tool with a UI widget. `nil` for most tools. See `Planck.Agent.Sidecar.list_widgets/0`,
+    which derives the sidecar's widget list from tools that set this field.
   """
   @type t :: %__MODULE__{
           name: String.t(),
           description: String.t(),
           parameters: map(),
-          execute_fn: execute_fn()
+          execute_fn: execute_fn(),
+          widget: module() | nil
         }
 
   @enforce_keys [:name, :description, :parameters, :execute_fn]
-  defstruct [:name, :description, :parameters, :execute_fn]
+  defstruct [:name, :description, :parameters, :execute_fn, :widget]
 
   @doc """
   Build a `Planck.Agent.Tool` from keyword options.
@@ -61,7 +65,8 @@ defmodule Planck.Agent.Tool do
       name: opts[:name],
       description: opts[:description],
       parameters: opts[:parameters],
-      execute_fn: opts[:execute_fn]
+      execute_fn: opts[:execute_fn],
+      widget: opts[:widget]
     }
   end
 

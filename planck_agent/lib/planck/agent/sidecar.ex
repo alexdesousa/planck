@@ -24,12 +24,24 @@ defmodule Planck.Agent.Sidecar do
   - `list_tools/1` — same but takes an explicit module; intended for tests.
   - `execute_tool/3` — discovers the entry module and executes a named tool.
   - `execute_tool/4` — same but takes an explicit module; intended for tests.
+  - `list_widgets/0` — discovers the entry module and returns the widget
+    modules paired with its tools via each tool's `:widget` field. There is no
+    separate `widgets/0` callback; see `Planck.Agent.Widget`.
+  - `list_widgets/1` — same but takes an explicit module; intended for tests.
+  - `widget_render/2` — discovers the entry module and renders a widget by id.
+  - `widget_action/3` — discovers the entry module and dispatches an action to
+    a widget by id.
 
   planck_headless calls:
 
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_tools, [])
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :execute_tool,
                 [tool_name, agent_id, args], timeout)
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_widgets, [])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_render,
+                [widget_id, myself])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_action,
+                [widget_id, action, args])
 
   ## Minimal example
 
@@ -63,7 +75,8 @@ defmodule Planck.Agent.Sidecar do
         end
       end
 
-  See `specs/sidecar.md` for the full design.
+  See `specs/sidecar.md` for the full sidecar design, and `specs/widgets.md`
+  for the widget mechanism specifically.
   """
 
   @doc """
@@ -243,6 +256,79 @@ defmodule Planck.Agent.Sidecar do
     case Enum.find(module.tools(), &(&1.name == tool_name)) do
       nil -> {:error, "unknown tool: #{tool_name}"}
       tool -> tool.execute_fn.(agent_id, tool_call_id, args)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Widgets — derived from tools/0, not a second declared list
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Discover the sidecar entry module and return the widget modules paired with
+  its tools via their `:widget` field.
+
+  Combines `discover/0` and `list_widgets/1`. Returns `[]` if no entry module
+  is found. There is no separate `widgets/0` callback — a widget is declared
+  by setting a `Planck.Agent.Tool.t()`'s `:widget` field, and this just
+  filters `tools/0` for tools that have one.
+
+  Called by planck_headless on the sidecar node:
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_widgets, [])
+  """
+  @spec list_widgets() :: [module()]
+  def list_widgets do
+    case discover() do
+      nil -> []
+      module -> list_widgets(module)
+    end
+  end
+
+  @doc """
+  Return the widget modules paired with an explicit module's `tools/0`.
+
+  Intended for tests. Production code should use `list_widgets/0`.
+  """
+  @spec list_widgets(module()) :: [module()]
+  def list_widgets(module) do
+    module.tools()
+    |> Enum.filter(& &1.widget)
+    |> Enum.map(& &1.widget)
+  end
+
+  @doc """
+  Render a widget by id, via the discovered entry module.
+
+  `myself` is passed through opaquely — see `Planck.Agent.Widget.render/1`.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_render,
+                [widget_id, myself])
+  """
+  @spec widget_render(String.t(), term()) :: {:ok, term()} | {:error, term()}
+  def widget_render(widget_id, myself) do
+    with {:ok, widget_module} <- fetch_widget(widget_id) do
+      {:ok, widget_module.render(myself)}
+    end
+  end
+
+  @doc """
+  Dispatch an action to a widget by id, via the discovered entry module.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_action,
+                [widget_id, action, args])
+  """
+  @spec widget_action(String.t(), String.t(), map()) :: :ok | {:error, term()}
+  def widget_action(widget_id, action, args) do
+    with {:ok, widget_module} <- fetch_widget(widget_id) do
+      widget_module.handle_action(action, args)
+    end
+  end
+
+  @spec fetch_widget(String.t()) :: {:ok, module()} | {:error, term()}
+  defp fetch_widget(widget_id) do
+    case Enum.find(list_widgets(), &(&1.id() == widget_id)) do
+      nil -> {:error, "unknown widget: #{widget_id}"}
+      module -> {:ok, module}
     end
   end
 end

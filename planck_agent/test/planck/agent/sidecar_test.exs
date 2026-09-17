@@ -5,6 +5,20 @@ defmodule Planck.Agent.SidecarTest do
 
   @pt_key {Planck.Agent.Sidecar, :entry_module}
 
+  defmodule TestWidget do
+    @behaviour Planck.Agent.Widget
+
+    @impl true
+    def id, do: "counter"
+
+    @impl true
+    def render(myself), do: "<div myself=\"#{inspect(myself)}\">rendered</div>"
+
+    @impl true
+    def handle_action("increment", _args), do: :ok
+    def handle_action("boom", _args), do: {:error, "intentional"}
+  end
+
   defmodule TestSidecar do
     use Planck.Agent.Sidecar
 
@@ -24,6 +38,13 @@ defmodule Planck.Agent.SidecarTest do
           description: "Always fails.",
           parameters: %{"type" => "object", "properties" => %{}},
           execute_fn: fn _agent_id, _id, _args -> {:error, "intentional"} end
+        ),
+        Tool.new(
+          name: "tool_with_widget",
+          description: "A tool paired with a widget.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "no beads ready"} end,
+          widget: TestWidget
         )
       ]
     end
@@ -40,7 +61,7 @@ defmodule Planck.Agent.SidecarTest do
   describe "tools/0 callback" do
     test "returns Planck.Agent.Tool structs with execute_fn" do
       tools = TestSidecar.tools()
-      assert length(tools) == 2
+      assert length(tools) == 3
       assert Enum.all?(tools, fn t -> match?(%Planck.Agent.Tool{}, t) end)
       assert hd(tools).name == "echo"
     end
@@ -51,7 +72,12 @@ defmodule Planck.Agent.SidecarTest do
   describe "list_tools/1" do
     test "returns Planck.AI.Tool structs — no execute_fn, serialisable" do
       tools = Sidecar.list_tools(TestSidecar)
-      assert [%Planck.AI.Tool{name: "echo"}, %Planck.AI.Tool{name: "fail"}] = tools
+
+      assert [
+               %Planck.AI.Tool{name: "echo"},
+               %Planck.AI.Tool{name: "fail"},
+               %Planck.AI.Tool{name: "tool_with_widget"}
+             ] = tools
     end
 
     test "preserves name, description, and parameters" do
@@ -110,7 +136,12 @@ defmodule Planck.Agent.SidecarTest do
     test "returns AI tools via the discovered module" do
       :persistent_term.put(@pt_key, TestSidecar)
       tools = Sidecar.list_tools()
-      assert [%Planck.AI.Tool{name: "echo"}, %Planck.AI.Tool{name: "fail"}] = tools
+
+      assert [
+               %Planck.AI.Tool{name: "echo"},
+               %Planck.AI.Tool{name: "fail"},
+               %Planck.AI.Tool{name: "tool_with_widget"}
+             ] = tools
     end
 
     test "returns [] when no module is discovered" do
@@ -144,6 +175,62 @@ defmodule Planck.Agent.SidecarTest do
 
       assert {:error, "no sidecar entry module found"} =
                Sidecar.execute_tool("echo", "agent-1", "tc1", %{})
+    end
+  end
+
+  # --- list_widgets/1 ---
+
+  describe "list_widgets/1" do
+    test "returns only the widget modules of tools that set :widget" do
+      assert Sidecar.list_widgets(TestSidecar) == [TestWidget]
+    end
+  end
+
+  # --- list_widgets/0 ---
+
+  describe "list_widgets/0" do
+    test "returns widget modules via the discovered module" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert Sidecar.list_widgets() == [TestWidget]
+    end
+
+    test "returns [] when no module is discovered" do
+      :persistent_term.put(@pt_key, nil)
+      assert Sidecar.list_widgets() == []
+    end
+  end
+
+  # --- widget_render/2 ---
+
+  describe "widget_render/2" do
+    test "renders the widget via the discovered module, passing myself through opaquely" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert {:ok, html} = Sidecar.widget_render("counter", 42)
+      assert html =~ "42"
+    end
+
+    test "returns error for unknown widget" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert {:error, "unknown widget: ghost"} = Sidecar.widget_render("ghost", nil)
+    end
+  end
+
+  # --- widget_action/3 ---
+
+  describe "widget_action/3" do
+    test "dispatches the action via the discovered module" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert :ok = Sidecar.widget_action("counter", "increment", %{})
+    end
+
+    test "returns the widget's error result" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert {:error, "intentional"} = Sidecar.widget_action("counter", "boom", %{})
+    end
+
+    test "returns error for unknown widget" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert {:error, "unknown widget: ghost"} = Sidecar.widget_action("ghost", "increment", %{})
     end
   end
 end
