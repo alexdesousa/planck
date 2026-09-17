@@ -27,7 +27,7 @@ defmodule Planck.Headless.Widgets do
   @doc """
   Render a widget by id.
 
-  `myself` is passed through opaquely — see `Planck.Agent.Widget.render/1`.
+  `myself` is passed through opaquely — see `c:Planck.Agent.Widget.render/1`.
   """
   @spec render(String.t(), term()) :: {:ok, term()} | {:error, term()}
   def render(widget_id, myself) do
@@ -38,6 +38,15 @@ defmodule Planck.Headless.Widgets do
   @spec dispatch_action(String.t(), String.t(), map()) :: :ok | {:error, term()}
   def dispatch_action(widget_id, action, args) do
     rpc(:widget_action, [widget_id, action, args], {:error, :sidecar_not_connected})
+  end
+
+  @doc """
+  Return a widget's declared container type by id — see
+  `c:Planck.Agent.Widget.container/0`.
+  """
+  @spec container(String.t()) :: {:ok, Planck.Agent.Widget.container()} | {:error, term()}
+  def container(widget_id) do
+    rpc(:widget_container, [widget_id], {:error, :sidecar_not_connected})
   end
 
   # ---------------------------------------------------------------------------

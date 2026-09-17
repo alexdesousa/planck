@@ -6,7 +6,7 @@ defmodule Planck.Agent.SidecarTest do
   @pt_key {Planck.Agent.Sidecar, :entry_module}
 
   defmodule TestWidget do
-    @behaviour Planck.Agent.Widget
+    use Planck.Agent.Widget
 
     @impl true
     def id, do: "counter"
@@ -231,6 +231,23 @@ defmodule Planck.Agent.SidecarTest do
     test "returns error for unknown widget" do
       :persistent_term.put(@pt_key, TestSidecar)
       assert {:error, "unknown widget: ghost"} = Sidecar.widget_action("ghost", "increment", %{})
+    end
+  end
+
+  # --- widget_container/1 ---
+
+  describe "widget_container/1" do
+    test "returns :modal for a widget that doesn't override container/0" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert {:ok, :modal} = Sidecar.widget_container("counter")
+      # Same default, called directly — proves it's a real injected function,
+      # not something only widget_container/1 papers over.
+      assert TestWidget.container() == :modal
+    end
+
+    test "returns error for unknown widget" do
+      :persistent_term.put(@pt_key, TestSidecar)
+      assert {:error, "unknown widget: ghost"} = Sidecar.widget_container("ghost")
     end
   end
 end

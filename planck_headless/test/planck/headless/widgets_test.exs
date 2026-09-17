@@ -28,4 +28,10 @@ defmodule Planck.Headless.WidgetsTest do
                Widgets.dispatch_action("counter", "increment", %{})
     end
   end
+
+  describe "container/1" do
+    test "returns {:error, :sidecar_not_connected} when no sidecar is connected" do
+      assert {:error, :sidecar_not_connected} = Widgets.container("counter")
+    end
+  end
 end

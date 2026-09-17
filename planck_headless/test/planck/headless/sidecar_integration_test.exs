@@ -150,6 +150,16 @@ defmodule Planck.Headless.SidecarIntegrationTest do
     end
   end
 
+  describe "Widgets.container/1" do
+    test "defaults to :modal for a widget that doesn't implement container/0" do
+      assert {:ok, :modal} = Widgets.container("counter")
+    end
+
+    test "returns an error for an unknown widget" do
+      assert {:error, "unknown widget: ghost"} = Widgets.container("ghost")
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Remote compaction
   # ---------------------------------------------------------------------------

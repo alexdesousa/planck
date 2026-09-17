@@ -31,6 +31,8 @@ defmodule Planck.Agent.Sidecar do
   - `widget_render/2` — discovers the entry module and renders a widget by id.
   - `widget_action/3` — discovers the entry module and dispatches an action to
     a widget by id.
+  - `widget_container/1` — discovers the entry module and returns a widget's
+    declared container type by id (`:modal` if unset).
 
   planck_headless calls:
 
@@ -42,6 +44,8 @@ defmodule Planck.Agent.Sidecar do
                 [widget_id, myself])
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_action,
                 [widget_id, action, args])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_container,
+                [widget_id])
 
   ## Minimal example
 
@@ -299,7 +303,7 @@ defmodule Planck.Agent.Sidecar do
   @doc """
   Render a widget by id, via the discovered entry module.
 
-  `myself` is passed through opaquely — see `Planck.Agent.Widget.render/1`.
+  `myself` is passed through opaquely — see `c:Planck.Agent.Widget.render/1`.
 
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_render,
                 [widget_id, myself])
@@ -321,6 +325,20 @@ defmodule Planck.Agent.Sidecar do
   def widget_action(widget_id, action, args) do
     with {:ok, widget_module} <- fetch_widget(widget_id) do
       widget_module.handle_action(action, args)
+    end
+  end
+
+  @doc """
+  Return a widget's declared container type by id — `:modal`, `:drawer`, or
+  `:fullscreen`. See `c:Planck.Agent.Widget.container/0`. Defaults to
+  `:modal` if the widget doesn't implement `container/0`.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_container, [widget_id])
+  """
+  @spec widget_container(String.t()) :: {:ok, Planck.Agent.Widget.container()} | {:error, term()}
+  def widget_container(widget_id) do
+    with {:ok, widget_module} <- fetch_widget(widget_id) do
+      {:ok, widget_module.container()}
     end
   end
 

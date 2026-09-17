@@ -5,7 +5,7 @@ defmodule PlanckTestSidecar.Widgets.Counter do
   and only the WebUI is expected to interpret it as markup.
   """
 
-  @behaviour Planck.Agent.Widget
+  use Planck.Agent.Widget
 
   @impl true
   def id, do: "counter"

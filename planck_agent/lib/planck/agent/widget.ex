@@ -32,7 +32,7 @@ defmodule Planck.Agent.Widget do
   ## Minimal example
 
       defmodule MySidecar.Widgets.Counter do
-        @behaviour Planck.Agent.Widget
+        use Planck.Agent.Widget
 
         def id, do: "counter"
         def render(_myself), do: "<div>count: \#{count()}</div>"
@@ -41,6 +41,19 @@ defmodule Planck.Agent.Widget do
 
   Paired with a tool via `widget: MySidecar.Widgets.Counter` in
   `Planck.Agent.Tool.new/1`.
+
+  ## Container type
+
+  `use Planck.Agent.Widget` injects `@behaviour Planck.Agent.Widget` and a
+  default `container/0` returning `:modal`, overridable like any
+  `defoverridable` function — `Counter.container()` above returns `:modal`
+  without `Counter` writing anything. This is a real function on the module,
+  not resolved through a lookup on the caller's side: calling `container/0`
+  directly on a widget that skipped `use` (implementing the behaviour by hand
+  with a bare `@behaviour Planck.Agent.Widget` instead) raises
+  `UndefinedFunctionError` if it didn't also define its own `container/0` —
+  `use` is what makes the default real, not something dispatch code papers
+  over afterwards.
   """
 
   @doc "A stable identifier for this widget, unique within the sidecar."
@@ -64,4 +77,38 @@ defmodule Planck.Agent.Widget do
   path, invoked directly, never through `Planck.Agent.Sidecar.execute_tool/4`.
   """
   @callback handle_action(action :: String.t(), args :: map()) :: :ok | {:error, term()}
+
+  @typedoc """
+  How the WebUI should present this widget. Only `:modal` is actually
+  rendered as of this version — `:drawer` and `:fullscreen` are reserved for
+  future container chrome, not yet built.
+  """
+  @type container :: :modal | :drawer | :fullscreen
+
+  @doc """
+  Optional. Declares which container chrome the WebUI should wrap this
+  widget's `render/1` output in. `use Planck.Agent.Widget` injects a default
+  implementation returning `:modal` — override it to opt into a different
+  container once one actually exists.
+  """
+  @callback container() :: container()
+
+  @optional_callbacks container: 0
+
+  @doc """
+  Injects `@behaviour Planck.Agent.Widget` and a default `container/0`
+  returning `:modal`, overridable via `defoverridable`. `id/0`, `render/1`,
+  and `handle_action/2` have no sensible generic default and still need to be
+  implemented directly — this only covers `container/0`.
+  """
+  defmacro __using__(_options) do
+    quote do
+      @behaviour Planck.Agent.Widget
+
+      @impl Planck.Agent.Widget
+      def container, do: :modal
+
+      defoverridable container: 0
+    end
+  end
 end

@@ -115,6 +115,101 @@ every open viewer, including the one that acted, updates from that broadcast.
 Nothing special-cases "my own click," which matters once more than one viewer
 can have the same widget open at once.
 
+**Subscribing (and unsubscribing) is entirely the *owning LiveView*'s job —
+`SidecarWidget` itself never touches `Phoenix.PubSub`. Confirmed by the
+compiler, twice.** `Phoenix.LiveComponent` has no `handle_info/2`: a
+component has no process of its own, so a broadcast can never arrive at a
+component directly. It also has no termination callback — no `terminate/2`
+(checked directly: `Phoenix.LiveComponent.behaviour_info(:callbacks)` lists
+only `update_many/1, update/2, mount/1, render/1, handle_event/3,
+handle_async/3`). That second fact rules out the first design that comes to
+mind (subscribe from `update/2`, unsubscribe from `terminate/2`) — there's no
+hook to unsubscribe from when the widget's container unmounts (e.g. a
+modal's `:if` turning false fires nothing at all), so a naive
+subscribe-on-mount leaks the subscription on every close.
+
+The fix: don't tie the subscription to the component's mount/unmount at all.
+Tie it to the *LiveView's own* explicit open/close actions instead — a
+LiveView is a real process with real lifecycle control, unlike a component:
+
+```elixir
+def handle_event("open_widget", %{"widget_id" => id}, socket) do
+  Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+  {:noreply, assign(socket, :open_widget_id, id)}
+end
+
+def handle_event("close_widget", _params, socket) do
+  if id = socket.assigns.open_widget_id do
+    Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+  end
+  {:noreply, assign(socket, :open_widget_id, nil)}
+end
+
+def handle_info({:widget_rendered, id, html}, socket) do
+  send_update(Planck.Web.Live.SidecarWidget, id: "sidecar-widget-modal", html: html)
+  {:noreply, socket}
+end
+```
+
+Note the broadcast payload carries `id` — the LiveView hosts one fixed
+component id regardless of which widget is currently open (see "One modal,
+not a registry" below), so routing the push correctly depends on the
+broadcast naming the widget, not on the component id doing it.
+
+`SidecarWidget` itself only implements the receiving half — a second
+`update/2` clause matching `%{html: html}`. Every LiveView that mounts a
+`SidecarWidget` has to implement the forwarding *and* the subscribe/unsubscribe
+lifecycle itself; there's nothing generic that does it automatically.
+Skipping the forwarding half doesn't error — the widget just paints once on
+open and silently never updates again. Skipping the unsubscribe half doesn't
+error either — it just leaks a subscription per open/close cycle.
+
+## One modal, not a registry
+
+`planck_cli` has no compile-time knowledge of widget ids — sidecars
+(including future custom ones) define their own. Rather than a dynamic
+component registry keyed by widget id, the WebUI hosts a single, fixed-id
+`SidecarWidget` instance (mirroring `Planck.Web.Live.SetupModal`'s existing
+pattern) that gets re-targeted at whichever `widget_id` is currently open.
+Opening a *different* widget while one is already open just reassigns
+`open_widget_id` and re-runs the pull — there is never more than one
+instance mounted at a time.
+
+## Container type: widgets declare their own chrome
+
+`use Planck.Agent.Widget` (rather than a bare `@behaviour Planck.Agent.Widget`)
+injects `@behaviour Planck.Agent.Widget` and a default `c:container/0`
+returning `:modal`, `overridable` via `defoverridable`:
+
+```elixir
+defmodule MySidecar.Widgets.Counter do
+  use Planck.Agent.Widget
+
+  def id, do: "counter"
+  def render(_myself), do: "<div>count: #{count()}</div>"
+  def handle_action("increment", _args), do: increment()
+end
+
+Counter.container()  # => :modal — no code written for it
+```
+
+This is a real function on the widget module, not something dispatch code
+resolves on the caller's side (a `Planck.Headless.Widgets.container/1`-style
+helper doing a `function_exported?/3` check was considered and rejected —
+calling `container/0` directly should behave identically to calling it
+through RPC). The tradeoff: a widget that implements the behaviour by hand
+(`@behaviour Planck.Agent.Widget`, no `use`) gets no default at all — calling
+its `container/0` raises `UndefinedFunctionError` unless it also defines one
+itself. `use` is the sanctioned way to get the default; skipping it means
+opting out of it too, not silently reverting to `:modal`.
+
+`:drawer` and `:fullscreen` are reserved names, not built — `planck_cli`
+only renders modal chrome as of this version. The host LiveView fetches the
+container type once per widget (`Planck.Headless.Widgets.container/1`,
+mirroring `render/1`'s RPC shape) when deciding how to open it, separately
+from the widget's own markup — this is metadata about presentation, not
+part of `render/1`'s opaque HTML.
+
 ## Opening a widget from a tool call
 
 A tool can attach "open this widget" as a UI-only side effect of its own
