@@ -1,7 +1,7 @@
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
 # Compiles planck_cli and pre-installs sidecar dependencies so the runtime
 # container starts quickly without downloading packages.
-FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410 AS builder
+FROM hexpm/elixir:1.20.4-erlang-29.1-ubuntu-noble-20260911 AS builder
 
 # Required for Erlang to boot correctly under QEMU (cross-platform builds).
 ENV ELIXIR_ERL_OPTIONS="+Bd -noinput"
@@ -36,7 +36,7 @@ RUN cd planck_docker/sidecar \
     && mix do local.hex --force + local.rebar --force + setup + compile
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM hexpm/elixir:1.19.5-erlang-28.5-ubuntu-noble-20260410
+FROM hexpm/elixir:1.20.4-erlang-29.1-ubuntu-noble-20260911
 
 # Required for Erlang to boot correctly under QEMU (cross-platform builds).
 ENV ELIXIR_ERL_OPTIONS="+Bd -noinput"

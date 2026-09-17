@@ -316,8 +316,8 @@ defmodule Planck.Web.Live.ChatComponent do
 
   @doc false
   def render_markdown(text) when is_binary(text) do
-    case Earmark.as_html(text, escape: true, breaks: true) do
-      {:ok, html, _} -> Phoenix.HTML.raw(html)
+    case MDEx.to_html(text, extension: [table: true, autolink: true], render: [hardbreaks: true]) do
+      {:ok, html} -> Phoenix.HTML.raw(html)
       _ -> Phoenix.HTML.html_escape(text)
     end
   end

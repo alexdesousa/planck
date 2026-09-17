@@ -49,8 +49,6 @@ defmodule Planck.Agent do
 
   use GenServer
 
-  require Logger
-
   alias Planck.Agent.Hooks
 
   alias Planck.Agent.{

@@ -325,9 +325,7 @@ defmodule Planck.Web.Live.ChatEntries do
     }
   end
 
-  @spec orchestrator?(String.t() | nil, agents()) :: boolean()
-  defp orchestrator?(id, agents)
-  defp orchestrator?(nil, _agents), do: false
+  @spec orchestrator?(String.t(), agents()) :: boolean()
   defp orchestrator?(id, agents), do: get_in(agents, [id, :type]) == "orchestrator"
 
   @spec find_orchestrator_id([row()], agents()) :: String.t() | nil

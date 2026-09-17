@@ -140,15 +140,15 @@ Add a `## vX.Y.Z` section to each of:
 
 `release.yml` has two sets of `otp-version`:
 
-- **Publish jobs** (`publish-ai`, `publish-agent`, `publish-headless`): float on `"28.5"` — no pin needed.
+- **Publish jobs** (`publish-ai`, `publish-agent`, `publish-headless`): float on `"29.1"` — no pin needed.
 - **Build jobs** (`build-linux`, `build-macos-arm`, `build-windows`): each downloads a portable ERTS to bundle into the binary. Burrito reads the *build host's own installed* OTP_VERSION file to pick which one to fetch (`Burrito.Util.get_otp_version/0`) — it does not use the `otp-version:` string you gave `erlef/setup-beam` directly, only whatever that action actually installed.
-  - **`build-linux`** (and only `build-linux` so far) needs an **exact** hotfix pin (e.g. `"28.5.0.5"`), not a loose one (`"28.5"`, `"28.5.0"`). On `ubuntu-latest`, a loose pin resolves to the *newest* hotfix in that line, but Burrito fetches Linux's portable ERTS from a separate third-party mirror (beam-machine.b-cdn.net) that lags behind official OTP releases — the newest hotfix may not be built there yet, and the job 404s deep inside Burrito. `build-macos-arm` and `build-windows` haven't shown this: macOS's package already resolves to a clean, mirrored patch, and Windows downloads straight from GitHub's official OTP releases (which does have the newest hotfix immediately).
+  - **`build-linux`** (and only `build-linux` so far) needs an **exact** hotfix pin (currently `"29.0.6"`, since `"29.1"` isn't mirrored yet — see below), not a loose one (`"29.1"`, `"29.1.0"`). On `ubuntu-latest`, a loose pin resolves to the *newest* release in that line, but Burrito fetches Linux's portable ERTS from a separate third-party mirror (beam-machine.b-cdn.net) that lags behind official OTP releases — the newest release may not be built there yet, and the job 404s deep inside Burrito. `build-macos-arm` and `build-windows` haven't shown this: macOS's package already resolves to a clean, mirrored patch, and Windows downloads straight from GitHub's official OTP releases (which does have the newest release immediately).
   - Before changing the `build-linux` pin, confirm the exact candidate version is actually mirrored:
     ```sh
     curl -o /dev/null -sw '%{http_code}\n' \
-      "https://beam-machine-universal.b-cdn.net/OTP-28.5.0.5/linux/x86_64/any/otp_28.5.0.5_linux_any_x86_64.tar.gz?please-respect-my-bandwidth-costs=thank-you&openssl=3.5.1&musl=1.2.5"
+      "https://beam-machine-universal.b-cdn.net/OTP-29.1/linux/x86_64/any/otp_29.1_linux_any_x86_64.tar.gz?please-respect-my-bandwidth-costs=thank-you&openssl=3.5.1&musl=1.2.5"
     ```
-    200 means it's safe to pin; 404 means try one hotfix older.
+    200 means it's safe to pin; 404 means try one release older (confirmed 2026-09-18: `29.1` is 404, `29.0.6` is 200 — that's why `build-linux` currently trails `.tool-versions` by one release).
 
 ### Git tag
 

@@ -107,7 +107,7 @@ defmodule Planck.Web.Live.SidecarWidget do
   def render(%{error: :sidecar_not_connected} = assigns) do
     ~H"""
     <div id={"widget-#{@widget_id}"} class="text-muted-foreground text-xs">
-      Sidecar not connected — this widget will reload once it reconnects.
+      <%= pgettext("widget status", "Sidecar not connected — this widget will reload once it reconnects.") %>
     </div>
     """
   end

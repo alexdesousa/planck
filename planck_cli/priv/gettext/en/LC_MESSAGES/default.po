@@ -883,3 +883,9 @@ msgstr "— select a key —"
 msgctxt "setup subtitle"
 msgid "Configure a service rule"
 msgstr "Configure a service rule"
+
+#: lib/planck/web/live/sidecar_widget.ex:110
+#, elixir-autogen, elixir-format
+msgctxt "widget status"
+msgid "Sidecar not connected — this widget will reload once it reconnects."
+msgstr ""

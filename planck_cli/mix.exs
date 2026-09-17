@@ -50,7 +50,7 @@ defmodule Planck.CLI.MixProject do
       {:phoenix_live_view, "~> 1.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:bandit, "~> 1.5"},
-      {:earmark, "~> 1.4"},
+      {:mdex, "~> 0.13"},
       {:gettext, "~> 1.0"},
       {:open_api_spex, "~> 3.21"},
       {:skogsra, "~> 2.5"},

@@ -67,7 +67,7 @@ PubSub and routes events to the right component via `send_update/3`.
   Dynamic teams show a translated welcome with Planck feature highlights.
   Teams with no description show a muted "Send a message to start." fallback.
 - Streaming text rendered as plain escaped text to avoid markdown flicker;
-  Earmark parses only when the entry's `:streaming` flag is false
+  MDEx parses only when the entry's `:streaming` flag is false
 - Tool call blocks are collapsible (`▶`/`▼`); `toggle_entry` event handled locally
 - Thinking blocks collapse to a single block during streaming (stable id fix)
 - Scroll-to-bottom on new content; smart scroll preserves position when user

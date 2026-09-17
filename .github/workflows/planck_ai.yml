@@ -20,8 +20,8 @@ jobs:
         working-directory: planck_ai
     strategy:
       matrix:
-        otp: ["28.5"]
-        elixir: ["1.19.5"]
+        otp: ["29.1"]
+        elixir: ["1.20.4"]
     env:
       MIX_ENV: test
     steps:
@@ -53,8 +53,8 @@ jobs:
         working-directory: planck_ai
     strategy:
       matrix:
-        otp: ["28.5"]
-        elixir: ["1.19.5"]
+        otp: ["29.1"]
+        elixir: ["1.20.4"]
     env:
       MIX_ENV: dev
     steps:
