@@ -15,6 +15,13 @@ defmodule PlanckTestSidecar.Planck do
           "required" => ["message"]
         },
         execute_fn: fn _agent_id, _id, %{"message" => msg} -> {:ok, msg} end
+      ),
+      Planck.Agent.Tool.new(
+        name: "tool_with_widget",
+        description: "A tool paired with a widget.",
+        parameters: %{"type" => "object", "properties" => %{}},
+        execute_fn: fn _agent_id, _id, _args -> {:ok, "counter tool"} end,
+        widget: PlanckTestSidecar.Widgets.Counter
       )
     ]
   end

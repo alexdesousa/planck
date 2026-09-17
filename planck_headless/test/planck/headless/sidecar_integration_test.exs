@@ -7,7 +7,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
   alias Planck.Agent.Hooks.Compactor
   alias Planck.Agent.Message
   alias Planck.AI.Model
-  alias Planck.Headless.{Config, ResourceStore, SidecarManager}
+  alias Planck.Headless.{Config, ResourceStore, SidecarManager, Widgets}
 
   @sidecar_dir Path.expand("../../../test_sidecar", __DIR__)
 
@@ -65,7 +65,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
     end
 
     test "timeout_ms is injected into tool parameters" do
-      [tool] = ResourceStore.get().tools
+      tool = Enum.find(ResourceStore.get().tools, &(&1.name == "echo"))
       assert Map.has_key?(tool.parameters["properties"], "timeout_ms")
     end
 
@@ -86,12 +86,12 @@ defmodule Planck.Headless.SidecarIntegrationTest do
 
   describe "sidecar tool execution" do
     test "echo returns the message" do
-      [tool] = ResourceStore.get().tools
+      tool = Enum.find(ResourceStore.get().tools, &(&1.name == "echo"))
       assert {:ok, "hello"} = tool.execute_fn.("agent-1", "tc-1", %{"message" => "hello"})
     end
 
     test "timeout_ms in args is forwarded as the RPC timeout" do
-      [tool] = ResourceStore.get().tools
+      tool = Enum.find(ResourceStore.get().tools, &(&1.name == "echo"))
 
       assert {:ok, "fast"} =
                tool.execute_fn.("agent-1", "tc-2", %{"message" => "fast", "timeout_ms" => 5_000})
@@ -108,6 +108,45 @@ defmodule Planck.Headless.SidecarIntegrationTest do
                  ["ghost", "agent-1", "tc-3", %{}],
                  10_000
                )
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Widgets via Planck.Headless.Widgets (real RPC to the connected sidecar)
+  # ---------------------------------------------------------------------------
+
+  describe "Widgets.list/0" do
+    test "returns the widget module paired with tool_with_widget" do
+      assert Widgets.list() == [PlanckTestSidecar.Widgets.Counter]
+    end
+  end
+
+  describe "Widgets.render/2" do
+    test "renders via the real sidecar-side widget module, passing myself through opaquely" do
+      assert {:ok, rendered} = Widgets.render("counter", 42)
+      assert rendered =~ "myself=42"
+    end
+
+    test "returns an error for an unknown widget" do
+      assert {:error, "unknown widget: ghost"} = Widgets.render("ghost", nil)
+    end
+  end
+
+  describe "Widgets.dispatch_action/3" do
+    test "mutates the widget's state on the sidecar node" do
+      {:ok, before_render} = Widgets.render("counter", nil)
+      assert :ok = Widgets.dispatch_action("counter", "increment", %{})
+      {:ok, after_render} = Widgets.render("counter", nil)
+      refute before_render == after_render
+    end
+
+    test "returns the widget's error result" do
+      assert {:error, "intentional"} = Widgets.dispatch_action("counter", "boom", %{})
+    end
+
+    test "returns an error for an unknown widget" do
+      assert {:error, "unknown widget: ghost"} =
+               Widgets.dispatch_action("ghost", "increment", %{})
     end
   end
 
