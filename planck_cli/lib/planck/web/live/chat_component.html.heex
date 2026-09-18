@@ -217,6 +217,28 @@
             <div class="flex-1 border-t border-dashed border-border" />
           </div>
 
+        <% :ui_text -> %>
+          <div class="max-w-[70%]">
+            <p class="font-mono text-xs text-muted-foreground mb-1"><%= author_label(entry.author) %></p>
+            <div class="border-2 border-dashed border-border px-3 py-2 font-mono text-xs text-muted-foreground">
+              <%= entry.text %>
+            </div>
+          </div>
+
+        <% :ui_widget -> %>
+          <div class="max-w-[70%]">
+            <button
+              class="w-full flex items-center gap-2 px-3 py-1.5 border-2 border-border bg-card
+                     hover:bg-muted font-mono text-xs text-left"
+              phx-click="open_widget"
+              phx-value-id={entry.id}
+              phx-target={@myself}
+            >
+              <span class="text-muted-foreground">▢</span>
+              <span class="font-bold text-foreground"><%= entry.label %></span>
+            </button>
+          </div>
+
         <% _ -> %>
       <% end %>
     <% end %>

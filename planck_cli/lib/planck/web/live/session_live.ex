@@ -29,6 +29,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:model_selector, nil)
       |> assign(:available_models, [])
       |> assign(:first_run, false)
+      |> assign(:open_widget_id, nil)
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -182,6 +183,30 @@ defmodule Planck.Web.SessionLive do
     {:noreply, assign(socket, :edit_message, nil)}
   end
 
+  # Forwarded from Planck.Web.Live.ChatComponent, which resolves widget_id
+  # from its own `entries` assign before forwarding — see
+  # Planck.Web.Live.SidecarWidget's moduledoc for why this owning LiveView,
+  # not the component itself, owns the PubSub subscribe/unsubscribe lifecycle.
+  def handle_info({:open_widget, %{widget_id: widget_id}}, socket) do
+    # Opening a second widget without closing the first would otherwise leave
+    # the old topic subscribed forever (only close_widget unsubscribes) —
+    # treat opening a different widget as an implicit switch.
+    if id = socket.assigns.open_widget_id do
+      Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+    end
+
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{widget_id}")
+    {:noreply, assign(socket, :open_widget_id, widget_id)}
+  end
+
+  def handle_info({:widget_rendered, widget_id, html}, socket) do
+    if socket.assigns.open_widget_id == widget_id do
+      send_update(Planck.Web.Live.SidecarWidget, id: "sidecar-widget-modal", html: html)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_info({:switch_session, session_id}, socket) do
     active_ids = socket.assigns.sessions |> Enum.filter(& &1.active) |> Enum.map(& &1.session_id)
 
@@ -296,6 +321,14 @@ defmodule Planck.Web.SessionLive do
 
   def handle_event("close_model_selector", _params, socket) do
     {:noreply, assign(socket, :model_selector, nil)}
+  end
+
+  def handle_event("close_widget", _params, socket) do
+    if id = socket.assigns.open_widget_id do
+      Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+    end
+
+    {:noreply, assign(socket, :open_widget_id, nil)}
   end
 
   def handle_event("open_setup", _params, socket) do

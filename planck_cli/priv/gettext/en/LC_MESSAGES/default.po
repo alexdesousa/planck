@@ -75,13 +75,13 @@ msgctxt "button label"
 msgid "edit"
 msgstr "edit"
 
-#: lib/planck/web/live/chat_component.html.heex:241
+#: lib/planck/web/live/chat_component.html.heex:263
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "agent"
 msgstr "agent"
 
-#: lib/planck/web/live/chat_component.html.heex:230
+#: lib/planck/web/live/chat_component.html.heex:252
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "compacting context…"
@@ -117,7 +117,7 @@ msgctxt "chat label"
 msgid "thinking…"
 msgstr "thinking…"
 
-#: lib/planck/web/live/chat_component.ex:306
+#: lib/planck/web/live/chat_component.ex:318
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"
@@ -884,7 +884,7 @@ msgctxt "setup subtitle"
 msgid "Configure a service rule"
 msgstr "Configure a service rule"
 
-#: lib/planck/web/live/sidecar_widget.ex:110
+#: lib/planck/web/live/sidecar_widget.ex:143
 #, elixir-autogen, elixir-format
 msgctxt "widget status"
 msgid "Sidecar not connected — this widget will reload once it reconnects."

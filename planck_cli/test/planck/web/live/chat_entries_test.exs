@@ -544,6 +544,95 @@ defmodule Planck.Web.Live.ChatEntriesTest do
   end
 
   # ---------------------------------------------------------------------------
+  # {:custom, :ui} classification
+  # ---------------------------------------------------------------------------
+
+  describe "{:custom, :ui} classification" do
+    test "%{kind: :text, ...} → :ui_text entry" do
+      entries =
+        build(
+          [
+            row_with_meta("orch", {:custom, :ui}, [], %{
+              tool_call_id: "t1",
+              ui: %{kind: :text, text: "Marked 3 as done."}
+            })
+          ],
+          "orch",
+          @orch_agents
+        )
+
+      assert [%{type: :ui_text, side: :left, text: "Marked 3 as done."}] = entries
+    end
+
+    test "%{kind: :widget, ...} → :ui_widget entry" do
+      entries =
+        build(
+          [
+            row_with_meta("orch", {:custom, :ui}, [], %{
+              tool_call_id: "t1",
+              ui: %{kind: :widget, label: "View widget", widget: "counter", data: %{n: 1}}
+            })
+          ],
+          "orch",
+          @orch_agents
+        )
+
+      assert [
+               %{
+                 type: :ui_widget,
+                 side: :left,
+                 label: "View widget",
+                 widget: "counter",
+                 widget_data: %{n: 1}
+               }
+             ] = entries
+    end
+
+    test "a ui entry is spliced right after its matching tool call, not after every tool call" do
+      entries =
+        build(
+          [
+            row("orch", :assistant, [
+              {:tool_call, "t1", "tool_with_widget", %{}},
+              {:tool_call, "t2", "tool_with_widget", %{}}
+            ]),
+            row("orch", :tool_result, [
+              {:tool_result, "t1", "done"},
+              {:tool_result, "t2", "done"}
+            ]),
+            row_with_meta("orch", {:custom, :ui}, [], %{
+              tool_call_id: "t1",
+              ui: %{kind: :text, text: "ui for t1"}
+            }),
+            row_with_meta("orch", {:custom, :ui}, [], %{
+              tool_call_id: "t2",
+              ui: %{kind: :text, text: "ui for t2"}
+            })
+          ],
+          "orch",
+          @orch_agents
+        )
+
+      assert [
+               %{type: :tool, tool_id: "t1"},
+               %{type: :ui_text, text: "ui for t1"},
+               %{type: :tool, tool_id: "t2"},
+               %{type: :ui_text, text: "ui for t2"}
+             ] = entries
+    end
+  end
+
+  describe "insert_ui_entries/1" do
+    test "appends an orphaned ui entry (no matching tool_id) instead of dropping it" do
+      tool_entry = %{id: "tool-t1", type: :tool, side: :left, author: :user, tool_id: "t1"}
+      ui_entry = %{id: "ui-ghost", type: :ui_text, side: :left, author: :user, text: "orphan"}
+      marker = %{__ui__: true, tool_id: "ghost", entry: ui_entry}
+
+      assert ChatEntries.insert_ui_entries([tool_entry, marker]) == [tool_entry, ui_entry]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Auto-detect orchestrator (nil perspective)
   # ---------------------------------------------------------------------------
 

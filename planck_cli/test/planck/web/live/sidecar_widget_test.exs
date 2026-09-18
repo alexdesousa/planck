@@ -27,6 +27,19 @@ defmodule Planck.Web.Live.SidecarWidgetTest do
       html = render_widget(%{widget_id: "counter", error: nil, html: "<div>count: 1</div>"})
       assert html =~ "<div>count: 1</div>"
     end
+
+    test "renders modal chrome — close button and Escape-to-close — in both branches" do
+      connected = render_widget(%{widget_id: "counter", error: nil, html: "<div/>"})
+
+      disconnected =
+        render_widget(%{widget_id: "counter", error: :sidecar_not_connected, html: nil})
+
+      for html <- [connected, disconnected] do
+        assert html =~ ~s(phx-click="close_widget")
+        assert html =~ ~s(phx-window-keydown="close_widget")
+        assert html =~ ~s(phx-key="Escape")
+      end
+    end
   end
 
   # update/2's RPC fallback is exercised for real here — no sidecar is

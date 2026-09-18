@@ -48,4 +48,51 @@ defmodule Planck.Web.Live.ChatComponentTest do
   end
 
   defp safe_to_string(safe), do: safe |> Phoenix.HTML.Safe.to_iodata() |> IO.iodata_to_binary()
+
+  # ---------------------------------------------------------------------------
+  # handle_event/3 "open_widget"
+  # ---------------------------------------------------------------------------
+
+  describe ~s(handle_event/3 "open_widget") do
+    defp socket_with_entries(entries) do
+      %Phoenix.LiveView.Socket{assigns: %{entries: entries, __changed__: %{}}}
+    end
+
+    test "forwards {:open_widget, %{widget_id: ...}} to the parent LiveView for a :ui_widget entry" do
+      entries = [
+        %{
+          id: "ui-t1",
+          type: :ui_widget,
+          label: "View widget",
+          widget: "counter",
+          widget_data: nil
+        }
+      ]
+
+      socket = socket_with_entries(entries)
+
+      assert {:noreply, ^socket} =
+               ChatComponent.handle_event("open_widget", %{"id" => "ui-t1"}, socket)
+
+      assert_received {:open_widget, %{widget_id: "counter"}}
+    end
+
+    test "does nothing when the entry id doesn't match a :ui_widget entry" do
+      socket = socket_with_entries([%{id: "text-1", type: :text}])
+
+      assert {:noreply, ^socket} =
+               ChatComponent.handle_event("open_widget", %{"id" => "text-1"}, socket)
+
+      refute_received {:open_widget, _}
+    end
+
+    test "does nothing when the entry id doesn't exist at all" do
+      socket = socket_with_entries([])
+
+      assert {:noreply, ^socket} =
+               ChatComponent.handle_event("open_widget", %{"id" => "ghost"}, socket)
+
+      refute_received {:open_widget, _}
+    end
+  end
 end

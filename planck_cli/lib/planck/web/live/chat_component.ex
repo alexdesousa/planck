@@ -92,6 +92,18 @@ defmodule Planck.Web.Live.ChatComponent do
     {:noreply, assign(socket, :entries, entries)}
   end
 
+  def handle_event("open_widget", %{"id" => entry_id}, socket) do
+    case Enum.find(socket.assigns.entries, &(&1.id == entry_id)) do
+      %{type: :ui_widget, widget: widget_id} ->
+        send(self(), {:open_widget, %{widget_id: widget_id}})
+
+      _ ->
+        :ok
+    end
+
+    {:noreply, socket}
+  end
+
   # ---------------------------------------------------------------------------
   # Real-time event handling
   # ---------------------------------------------------------------------------

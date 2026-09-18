@@ -133,11 +133,20 @@ Tie it to the *LiveView's own* explicit open/close actions instead — a
 LiveView is a real process with real lifecycle control, unlike a component:
 
 ```elixir
-def handle_event("open_widget", %{"widget_id" => id}, socket) do
-  Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
-  {:noreply, assign(socket, :open_widget_id, id)}
+# open_widget arrives via send(self(), {:open_widget, ...}) forwarded from
+# Planck.Web.Live.ChatComponent — not a direct phx-click on this LiveView,
+# since the triggering button lives inside that nested component.
+def handle_info({:open_widget, %{widget_id: widget_id}}, socket) do
+  if id = socket.assigns.open_widget_id do
+    Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+  end
+
+  Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{widget_id}")
+  {:noreply, assign(socket, :open_widget_id, widget_id)}
 end
 
+# No phx-target — the close button lives in SidecarWidget's own chrome
+# (mounted at this LiveView's template level) and bubbles directly here.
 def handle_event("close_widget", _params, socket) do
   if id = socket.assigns.open_widget_id do
     Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
@@ -145,8 +154,11 @@ def handle_event("close_widget", _params, socket) do
   {:noreply, assign(socket, :open_widget_id, nil)}
 end
 
-def handle_info({:widget_rendered, id, html}, socket) do
-  send_update(Planck.Web.Live.SidecarWidget, id: "sidecar-widget-modal", html: html)
+def handle_info({:widget_rendered, widget_id, html}, socket) do
+  if socket.assigns.open_widget_id == widget_id do
+    send_update(Planck.Web.Live.SidecarWidget, id: "sidecar-widget-modal", html: html)
+  end
+
   {:noreply, socket}
 end
 ```
@@ -154,7 +166,10 @@ end
 Note the broadcast payload carries `id` — the LiveView hosts one fixed
 component id regardless of which widget is currently open (see "One modal,
 not a registry" below), so routing the push correctly depends on the
-broadcast naming the widget, not on the component id doing it.
+broadcast naming the widget, not on the component id doing it. Opening a
+*different* widget without closing the current one first unsubscribes from
+its topic — otherwise it would stay subscribed forever, since only
+`close_widget` would ever unsubscribe from it.
 
 `SidecarWidget` itself only implements the receiving half — a second
 `update/2` clause matching `%{html: html}`. Every LiveView that mounts a
@@ -204,11 +219,12 @@ itself. `use` is the sanctioned way to get the default; skipping it means
 opting out of it too, not silently reverting to `:modal`.
 
 `:drawer` and `:fullscreen` are reserved names, not built — `planck_cli`
-only renders modal chrome as of this version. The host LiveView fetches the
-container type once per widget (`Planck.Headless.Widgets.container/1`,
-mirroring `render/1`'s RPC shape) when deciding how to open it, separately
-from the widget's own markup — this is metadata about presentation, not
-part of `render/1`'s opaque HTML.
+only renders modal chrome as of this version, unconditionally: `SidecarWidget`
+itself renders the modal backdrop/box/close-button chrome directly (mirroring
+`Planck.Web.Live.ModelSelectorModal`), rather than the host LiveView
+dispatching between differently-chromed components. `Planck.Headless.Widgets.container/1`
+exists (mirroring `render/1`'s RPC shape) but nothing calls it yet — that's
+the point at which a second container kind actually gets built, not before.
 
 ## Opening a widget from a tool call
 

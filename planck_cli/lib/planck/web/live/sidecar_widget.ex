@@ -21,15 +21,24 @@ defmodule Planck.Web.Live.SidecarWidget do
     the parent's process, there would be no hook to unsubscribe when the
     widget closes — the modal's `:if` unmounting fires no callback at all.
 
-  So subscribe/unsubscribe lifecycle belongs entirely to the owning LiveView,
-  tied to its own explicit open/close actions (which it *does* control
-  directly), not to this component's mount/unmount:
+  So subscribe/unsubscribe lifecycle belongs entirely to the owning LiveView
+  (`Planck.Web.Live.SessionLive`), tied to its own explicit open/close
+  actions (which it *does* control directly), not to this component's
+  mount/unmount:
 
-      def handle_event("open_widget", %{"widget_id" => id}, socket) do
+      # Forwarded via send(self(), {:open_widget, ...}) from
+      # Planck.Web.Live.ChatComponent — the button lives inside that nested
+      # component, which needs to resolve widget_id/data from its own
+      # `entries` assign first.
+      def handle_info({:open_widget, %{widget_id: id}}, socket) do
         Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:\#{id}")
         {:noreply, assign(socket, :open_widget_id, id)}
       end
 
+      # No phx-target — the close button (rendered inside this component's
+      # own chrome, at the SessionLive template level) bubbles directly to
+      # the owning LiveView, matching how every other modal's close button
+      # in this codebase works (e.g. ModelSelectorModal's close_model_selector).
       def handle_event("close_widget", _params, socket) do
         if id = socket.assigns.open_widget_id do
           Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:\#{id}")
@@ -43,8 +52,18 @@ defmodule Planck.Web.Live.SidecarWidget do
       end
 
   This component's own `update(%{html: html}, socket)` clause below is what
-  receives that forwarded push. No owning LiveView exists yet as of this
-  phase — this is the contract a future one needs to implement.
+  receives that forwarded push.
+
+  ## Modal chrome lives here, not in the host template
+
+  This component renders its own backdrop/box/close-button chrome (mirroring
+  `Planck.Web.Live.ModelSelectorModal`'s), rather than `SessionLive`'s
+  template wrapping an otherwise-bare content component. `:modal` is the
+  only container kind actually implemented as of this version — see
+  `specs/widgets.md`'s "Container type" section — so there is no dispatch on
+  it here yet; a future `:drawer`/`:fullscreen` container would need its own
+  differently-chromed render, decided by the host before mounting, not a
+  branch inside this one.
   """
 
   use Planck.Web, :live_component
@@ -106,16 +125,48 @@ defmodule Planck.Web.Live.SidecarWidget do
 
   def render(%{error: :sidecar_not_connected} = assigns) do
     ~H"""
-    <div id={"widget-#{@widget_id}"} class="text-muted-foreground text-xs">
-      <%= pgettext("widget status", "Sidecar not connected — this widget will reload once it reconnects.") %>
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      phx-window-keydown="close_widget"
+      phx-key="Escape"
+    >
+      <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-full max-w-2xl">
+        <div class="border-b-2 border-border px-4 py-3 flex items-center justify-end bg-card">
+          <button
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="close_widget"
+          >✕</button>
+        </div>
+        <div id={"widget-#{@widget_id}"} class="p-4 text-muted-foreground text-xs">
+          <%= pgettext("widget status", "Sidecar not connected — this widget will reload once it reconnects.") %>
+        </div>
+      </div>
     </div>
     """
   end
 
   def render(assigns) do
     ~H"""
-    <div id={"widget-#{@widget_id}"}>
-      <%= Phoenix.HTML.raw(@html) %>
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      phx-window-keydown="close_widget"
+      phx-key="Escape"
+    >
+      <div class="border-2 border-black bg-card shadow-[8px_8px_0px_#000] w-full max-w-2xl">
+        <div class="border-b-2 border-border px-4 py-3 flex items-center justify-end bg-card">
+          <button
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="close_widget"
+          >✕</button>
+        </div>
+        <div id={"widget-#{@widget_id}"} class="p-4">
+          <%= Phoenix.HTML.raw(@html) %>
+        </div>
+      </div>
     </div>
     """
   end
