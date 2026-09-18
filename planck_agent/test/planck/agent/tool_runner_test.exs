@@ -147,6 +147,21 @@ defmodule Planck.Agent.ToolRunnerTest do
       assert {:ok, "result"} = wrapped.()
     end
 
+    test "appends nudge at threshold while preserving the ui payload" do
+      ui = %{kind: :text, text: "note"}
+      tool = make_tool("rep", fn _a, _c, _args -> {:ok, "result", %{ui: ui}} end)
+      tools = %{"rep" => tool}
+      args = %{}
+
+      {runner, _} = ToolRunner.prepare_call(ToolRunner.new(), tools, "a1", "rep", "c1", args)
+      {runner, _} = ToolRunner.prepare_call(runner, tools, "a1", "rep", "c2", args)
+      {_runner, wrapped} = ToolRunner.prepare_call(runner, tools, "a1", "rep", "c3", args)
+
+      assert {:ok, result, %{ui: ^ui}} = wrapped.()
+      assert result =~ "result"
+      assert result =~ "3 times"
+    end
+
     test "different args do not accumulate for loop detection" do
       tool = make_tool("rep", fn _a, _c, _args -> {:ok, "result"} end)
       tools = %{"rep" => tool}

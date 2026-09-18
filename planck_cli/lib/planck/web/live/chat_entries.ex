@@ -289,6 +289,7 @@ defmodule Planck.Web.Live.ChatEntries do
   @doc "Format a raw tool result value to a display string."
   @spec format_tool_result(term()) :: String.t()
   def format_tool_result({:ok, text}) when is_binary(text), do: text
+  def format_tool_result({:ok, text, %{ui: _}}) when is_binary(text), do: text
   def format_tool_result({:error, reason}), do: "Error: #{inspect(reason)}"
   def format_tool_result(result) when is_binary(result), do: result
   def format_tool_result(result), do: inspect(result, pretty: true)

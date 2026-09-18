@@ -212,13 +212,46 @@ part of `render/1`'s opaque HTML.
 
 ## Opening a widget from a tool call
 
-A tool can attach "open this widget" as a UI-only side effect of its own
-result, invisible to the LLM — see the `{:custom, :ui}` message mechanism
-(tool `execute_fn` returns `{:ok, text, ui: %{widget: widget_id, data: term()}}`
-instead of the plain 2-element form). A widget is equally openable independent
-of any tool call ever having run — e.g. from a persistent list of available
-widgets in the WebUI — since `list_widgets/0` doesn't depend on invocation
-history.
+A tool can attach a UI side effect to its own result, invisible to the LLM,
+via the `{:custom, :ui}` message mechanism: `execute_fn` returns a 3-element
+form instead of the plain 2-element one, with the third element a **map**
+(not a keyword list):
+
+```elixir
+{:ok, text}                                                                # unchanged
+{:ok, text, %{ui: %{kind: :text, text: note}}}                             # a UI-only note, no widget
+{:ok, text, %{ui: %{kind: :widget, label: label, widget: widget_id, data: term()}}}  # a widget-opening button
+```
+
+`Planck.Agent.Tool.ui_content/0` is deliberately not just "the widget to
+open." That shape would conflate two different things: what the widget
+itself contains (`c:Planck.Agent.Widget.render/1`, above) and what shows up
+*in the chat transcript* to represent the tool's UI side effect — and not
+every such side effect involves a widget at all (a plain confirmation note,
+e.g. "Marked 3 beads as done.", has nothing to open). The `kind`-tagged map
+keeps those separate:
+
+- `%{kind: :text, text: "..."}` — rendered as plain UI-only text in the chat.
+  No widget.
+- `%{kind: :widget, label: "...", widget: widget_id, data: initial_snapshot}`
+  — rendered as a button labeled `label`. `label` is sidecar-authored and
+  human-readable (e.g. `"View kanban board"`, not a generic "Open widget") —
+  the tool decides what invites the click, the widget decides what's inside
+  once opened. `data` is optional/opaque, same rationale as `render/1`'s
+  pull-then-push model above: avoids a round-trip through `render/1` for the
+  very first paint, nothing more.
+
+`Planck.Agent.finish_tool_execution/2` strips the `%{ui: ...}` wrapper before
+the tool result reaches the LLM, then persists a sibling `{:custom, :ui}`
+message per tool call that carried one — `metadata: %{tool_call_id: id, ui:
+content}`, not `content`, matching the existing `{:custom, :summary}` /
+`{:custom, :agent_response}` convention of keeping `content` within
+`Planck.AI.Message.content_part()`'s closed type and putting custom
+structured extras in `metadata` instead.
+
+A widget is equally openable independent of any tool call ever having run —
+e.g. from a persistent list of available widgets in the WebUI — since
+`list_widgets/0` doesn't depend on invocation history.
 
 ## Trust model
 

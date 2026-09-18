@@ -703,6 +703,33 @@ defmodule Planck.Web.Live.ChatEntriesTest do
   end
 
   # ---------------------------------------------------------------------------
+  # format_tool_result/1
+  # ---------------------------------------------------------------------------
+
+  describe "format_tool_result/1" do
+    test "{:ok, text} → text" do
+      assert ChatEntries.format_tool_result({:ok, "done"}) == "done"
+    end
+
+    test "{:ok, text, %{ui: _}} → just the text, ui payload dropped" do
+      ui = %{kind: :widget, label: "View widget", widget: "counter", data: nil}
+      assert ChatEntries.format_tool_result({:ok, "done", %{ui: ui}}) == "done"
+    end
+
+    test "{:error, reason} → \"Error: ...\"" do
+      assert ChatEntries.format_tool_result({:error, "boom"}) == "Error: \"boom\""
+    end
+
+    test "bare binary → itself" do
+      assert ChatEntries.format_tool_result("raw") == "raw"
+    end
+
+    test "anything else → inspected" do
+      assert ChatEntries.format_tool_result(:weird) == ":weird"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # format_args/2 (still on ChatComponent)
   # ---------------------------------------------------------------------------
 

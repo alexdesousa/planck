@@ -43,7 +43,7 @@ defmodule Planck.Agent.SidecarTest do
           name: "tool_with_widget",
           description: "A tool paired with a widget.",
           parameters: %{"type" => "object", "properties" => %{}},
-          execute_fn: fn _agent_id, _id, _args -> {:ok, "no beads ready"} end,
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "done"} end,
           widget: TestWidget
         )
       ]

@@ -678,15 +678,30 @@ defmodule Planck.Agent do
 
   @spec finish_tool_execution(list(), t()) :: t()
   defp finish_tool_execution(results, state) do
-    tool_result_msg = results |> Enum.reverse() |> MessageBuilder.build_tool_result()
-    tool_result_msg = persist_message(state, tool_result_msg)
+    results = Enum.reverse(results)
+
+    tool_result_msg =
+      results
+      |> Enum.map(fn {id, result} -> {id, strip_ui(result)} end)
+      |> MessageBuilder.build_tool_result()
+      |> then(&persist_message(state, &1))
+
+    ui_msgs =
+      for {id, {:ok, _text, %{ui: content}}} <- results do
+        Message.new({:custom, :ui}, [], %{tool_call_id: id, ui: content})
+        |> then(&persist_message(state, &1))
+      end
 
     %{
       state
-      | messages: state.messages ++ [tool_result_msg],
+      | messages: state.messages ++ [tool_result_msg | ui_msgs],
         status: :streaming
     }
   end
+
+  @spec strip_ui(term()) :: term()
+  defp strip_ui({:ok, text, %{ui: _}}), do: {:ok, text}
+  defp strip_ui(result), do: result
 
   @spec cancel_running_tools(t()) :: :ok
   defp cancel_running_tools(state) do
