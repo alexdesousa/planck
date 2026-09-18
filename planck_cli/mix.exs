@@ -48,6 +48,7 @@ defmodule Planck.CLI.MixProject do
       {:phoenix, "~> 1.8"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_view, "~> 1.1"},
+      {:live_toast, "~> 0.11"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:bandit, "~> 1.5"},
       {:mdex, "~> 0.13"},

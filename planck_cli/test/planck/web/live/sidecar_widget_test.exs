@@ -101,6 +101,15 @@ defmodule Planck.Web.Live.SidecarWidgetTest do
     end
   end
 
+  # dispatch_action/3's real, reachable path in this test environment is
+  # {:error, :sidecar_not_connected} — same reasoning as update/2's own
+  # fallback tests above. LiveToast.send_toast/3 sends a plain message to
+  # self() regardless (Phoenix.LiveView.send_update/3's default pid), so it's
+  # observable here via assert_receive without a running LiveView channel —
+  # confirmed by reading Phoenix.LiveView.Channel.send_update/3's source. The
+  # success-path (:info) toast is the same call with a different literal
+  # kind/message, exercised for real once a sidecar is actually connected —
+  # covered by planck_headless's own mix test.integration suite, not here.
   describe "handle_event/3" do
     test "dispatches the action and returns {:noreply, socket} without crashing" do
       socket = %Phoenix.LiveView.Socket{
@@ -115,6 +124,27 @@ defmodule Planck.Web.Live.SidecarWidgetTest do
 
       params = %{"action" => "increment", "args" => %{}}
       assert {:noreply, ^socket} = SidecarWidget.handle_event("widget_action", params, socket)
+    end
+
+    test "sends an error toast when the sidecar is not connected" do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          widget_id: "counter",
+          html: "<div/>",
+          error: nil,
+          myself: nil,
+          __changed__: %{}
+        }
+      }
+
+      params = %{"action" => "increment", "args" => %{}}
+      SidecarWidget.handle_event("widget_action", params, socket)
+
+      assert_receive {:phoenix, :send_update,
+                      {{LiveToast.LiveComponent, _id}, %{toasts: [toast]}}}
+
+      assert toast.kind == :error
+      assert toast.msg =~ "increment failed"
     end
   end
 end

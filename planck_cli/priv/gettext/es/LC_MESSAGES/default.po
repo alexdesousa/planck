@@ -884,8 +884,18 @@ msgctxt "setup subtitle"
 msgid "Configure a service rule"
 msgstr "Configurar una regla de servicio"
 
-#: lib/planck/web/live/sidecar_widget.ex:143
+#: lib/planck/web/live/sidecar_widget.ex:160
 #, elixir-autogen, elixir-format
 msgctxt "widget status"
 msgid "Sidecar not connected — this widget will reload once it reconnects."
 msgstr "El sidecar no está conectado — este widget se recargará cuando se reconecte."
+
+#: lib/planck/web/live/sidecar_widget.ex:130
+#, elixir-autogen, elixir-format
+msgid "%{action} failed: %{reason}"
+msgstr "%{action} falló: %{reason}"
+
+#: lib/planck/web/live/sidecar_widget.ex:125
+#, elixir-autogen, elixir-format
+msgid "%{action} succeeded"
+msgstr "%{action} se completó correctamente"

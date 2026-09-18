@@ -106,16 +106,33 @@ defmodule Planck.Web.Live.SidecarWidget do
   def handle_event(event, params, socket)
 
   def handle_event("widget_action", params, socket) do
-    # Result feedback (toast on success/failure) lands in a later phase, once
-    # the live_toast dependency is added — see specs/drafts/v0.1.14-spec.md
-    # Phase 14. For now this just dispatches; the widget's own re-render
-    # (broadcast by the sidecar after the action mutates state) is what the
-    # user actually sees.
-    Planck.Headless.Widgets.dispatch_action(
-      socket.assigns.widget_id,
-      params["action"],
-      params["args"]
-    )
+    # Toast feedback only — the widget's own re-render (broadcast by the
+    # sidecar after the action mutates state) is what actually updates what
+    # the user sees; this is purely "did it work" confirmation.
+    #
+    # LiveToast.send_toast/3 takes no socket argument (unlike put_toast/4,
+    # a different function for controller/non-LiveView use) — confirmed by
+    # reading its source: it dispatches via Phoenix.LiveView.send_update/3
+    # to the LiveToast.LiveComponent mounted in the root layout, which works
+    # from any process already inside the LiveView's own connection,
+    # including a LiveComponent's own handle_event/3.
+    case Planck.Headless.Widgets.dispatch_action(
+           socket.assigns.widget_id,
+           params["action"],
+           params["args"]
+         ) do
+      :ok ->
+        LiveToast.send_toast(:info, gettext("%{action} succeeded", action: params["action"]))
+
+      {:error, reason} ->
+        LiveToast.send_toast(
+          :error,
+          gettext("%{action} failed: %{reason}",
+            action: params["action"],
+            reason: inspect(reason)
+          )
+        )
+    end
 
     {:noreply, socket}
   end
