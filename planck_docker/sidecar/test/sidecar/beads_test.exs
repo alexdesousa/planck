@@ -77,6 +77,32 @@ defmodule Sidecar.BeadsTest do
   end
 
   # ---------------------------------------------------------------------------
+  # fetch/1
+  # ---------------------------------------------------------------------------
+
+  describe "fetch/1" do
+    test "GETs the single-issue endpoint by exact id", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/v0/beads/issues/bd-1", fn conn ->
+        assert_auth(conn)
+        json(conn, 200, %{"id" => "bd-1", "title" => "Fix the thing"})
+      end)
+
+      assert {:ok, %{"id" => "bd-1"}} = Beads.fetch("bd-1")
+    end
+
+    test "returns an error tuple for a missing issue", %{bypass: bypass} do
+      Bypass.stub(
+        bypass,
+        "GET",
+        "/v0/beads/issues/ghost",
+        &json(&1, 404, %{"error" => "not_found"})
+      )
+
+      assert {:error, {404, %{"error" => "not_found"}}} = Beads.fetch("ghost")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # create/2
   # ---------------------------------------------------------------------------
 
@@ -94,6 +120,48 @@ defmodule Sidecar.BeadsTest do
       assert {:ok, %{"id" => "b1"}} = Beads.create("Fix the thing", "agent-1")
       assert_receive {:body, body}
       assert body == %{"title" => "Fix the thing", "actor" => "agent-1", "issue_type" => "task"}
+    end
+
+    test "includes description/priority when given, omits them entirely otherwise", %{
+      bypass: bypass
+    } do
+      parent = self()
+
+      Bypass.expect_once(bypass, "POST", "/v0/beads/issues", fn conn ->
+        {body, conn} = decoded_body(conn)
+        send(parent, {:body, body})
+        json(conn, 201, %{"id" => "b1"})
+      end)
+
+      assert {:ok, _} =
+               Beads.create("Fix the thing", "agent-1", description: "Full context.", priority: 0)
+
+      assert_receive {:body, body}
+
+      assert body == %{
+               "title" => "Fix the thing",
+               "actor" => "agent-1",
+               "issue_type" => "task",
+               "description" => "Full context.",
+               "priority" => 0
+             }
+    end
+
+    test "omits description/priority keys entirely when not given — not the same as null", %{
+      bypass: bypass
+    } do
+      parent = self()
+
+      Bypass.expect_once(bypass, "POST", "/v0/beads/issues", fn conn ->
+        {body, conn} = decoded_body(conn)
+        send(parent, {:body, body})
+        json(conn, 201, %{"id" => "b1"})
+      end)
+
+      assert {:ok, _} = Beads.create("Fix the thing", "agent-1")
+      assert_receive {:body, body}
+      refute Map.has_key?(body, "description")
+      refute Map.has_key?(body, "priority")
     end
   end
 

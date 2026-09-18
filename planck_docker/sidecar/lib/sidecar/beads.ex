@@ -38,11 +38,34 @@ defmodule Sidecar.Beads do
   Create a bead. `issue_type` is technically optional in the schema but an
   omitted one is refused by workspace validation on every shipped
   workspace — always send it.
+
+  `opts[:description]`/`opts[:priority]` (0 = P0/critical through 4) are
+  included only when given — `CreateIssueRequest` treats an absent member as
+  "use the workspace default", not the same thing as an explicit `null` for
+  every field (`estimated_minutes`/`due_at` are documented as refusing
+  `null` outright as a redundant spelling of omission), so sending `nil`
+  isn't a safe stand-in for leaving a key out entirely.
   """
-  @spec create(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def create(title, actor) do
-    post("/v0/beads/issues", %{title: title, actor: actor, issue_type: "task"})
+  @spec create(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create(title, actor, opts \\ []) do
+    body =
+      %{title: title, actor: actor, issue_type: "task"}
+      |> maybe_put(:description, opts[:description])
+      |> maybe_put(:priority, opts[:priority])
+
+    post("/v0/beads/issues", body)
   end
+
+  @doc """
+  Fetch one bead by its exact id — not a list filter, the single-issue
+  read. Includes whatever the human has since edited (description,
+  priority, status, ...), which matters for an agent that claimed a bead
+  earlier in a long-running session and has no other way to notice a
+  description changed since — `ready/1` no longer lists it once claimed,
+  and `claim/2`'s own response is a one-time snapshot from claim time.
+  """
+  @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
+  def fetch(id), do: get("/v0/beads/issues/#{id}", [])
 
   @doc """
   Claim a bead for `actor`. Body is `{actor}` ONLY —
@@ -88,6 +111,10 @@ defmodule Sidecar.Beads do
   defp post(path, body) do
     respond(Req.post(url(path), headers: headers(), json: body))
   end
+
+  @spec maybe_put(map(), atom(), term()) :: map()
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   @spec respond({:ok, Req.Response.t()} | {:error, term()}) :: {:ok, map()} | {:error, term()}
   defp respond({:ok, %{status: status, body: body}}) when status in 200..299, do: {:ok, body}
