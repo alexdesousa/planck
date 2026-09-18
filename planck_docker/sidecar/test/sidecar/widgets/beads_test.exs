@@ -68,8 +68,10 @@ defmodule Sidecar.Widgets.BeadsTest do
       assert html =~ "bd-1: Todo item"
       assert html =~ "bd-2: Doing this"
       assert html =~ "team:worker-1"
+      # Column headers are the translated label, not the raw API status —
+      # "in progress" (a space), not "in_progress" (the group_by/1 key).
       assert html =~ "open"
-      assert html =~ "in_progress"
+      assert html =~ "in progress"
     end
 
     test "renders empty columns without crashing when the fetch fails", %{bypass: bypass} do
@@ -90,6 +92,46 @@ defmodule Sidecar.Widgets.BeadsTest do
       html = Beads.render(nil)
       assert html =~ ~s(name="args[assignee]")
       assert html =~ ~s(name="args[id]" value="bd-1")
+    end
+  end
+
+  describe "render/2 — locale" do
+    setup do
+      # :persistent_term is process/VM-global, not per-test — every test here
+      # must restore "en" on exit, or it leaks into every test that runs
+      # after it, in this file and any other.
+      on_exit(fn -> Planck.Agent.Sidecar.set_locale("en") end)
+      :ok
+    end
+
+    test "renders in the locale Planck.Agent.Sidecar.get_locale/0 reports", %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      Planck.Agent.Sidecar.set_locale("es")
+      html = Beads.render(nil)
+
+      assert html =~ "Crear"
+      assert html =~ "Nueva tarea"
+      refute html =~ ">Create<"
+    end
+
+    test "defaults to English when no locale was ever pushed", %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      html = Beads.render(nil)
+
+      assert html =~ "Create"
+      assert html =~ "New task"
+    end
+
+    test "translates the fixed status column headers", %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      Planck.Agent.Sidecar.set_locale("es")
+      html = Beads.render(nil)
+
+      assert html =~ "abierto"
+      assert html =~ "en curso"
     end
   end
 

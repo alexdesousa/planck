@@ -250,4 +250,36 @@ defmodule Planck.Agent.SidecarTest do
       assert {:error, "unknown widget: ghost"} = Sidecar.widget_container("ghost")
     end
   end
+
+  # --- set_locale/1 + get_locale/0 ---
+
+  describe "get_locale/0" do
+    test "returns \"en\" when set_locale/1 was never called" do
+      assert Sidecar.get_locale() == "en"
+    end
+  end
+
+  describe "set_locale/1" do
+    setup do
+      on_exit(fn -> :persistent_term.erase({Sidecar, :locale}) end)
+      :ok
+    end
+
+    test "caches the given locale" do
+      assert :ok = Sidecar.set_locale("es")
+      assert Sidecar.get_locale() == "es"
+    end
+
+    test "is a no-op when called again with the same locale" do
+      assert :ok = Sidecar.set_locale("es")
+      assert :ok = Sidecar.set_locale("es")
+      assert Sidecar.get_locale() == "es"
+    end
+
+    test "updates the cached value when called with a different locale" do
+      assert :ok = Sidecar.set_locale("es")
+      assert :ok = Sidecar.set_locale("en")
+      assert Sidecar.get_locale() == "en"
+    end
+  end
 end

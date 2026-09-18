@@ -33,6 +33,9 @@ defmodule Planck.Agent.Sidecar do
     a widget by id.
   - `widget_container/1` — discovers the entry module and returns a widget's
     declared container type by id (`:modal` if unset).
+  - `set_locale/1` — caches the current UI locale in `:persistent_term`,
+    idempotently. Not tied to any i18n library — see below.
+  - `get_locale/0` — returns the cached locale, `"en"` if never set.
 
   planck_headless calls:
 
@@ -46,6 +49,7 @@ defmodule Planck.Agent.Sidecar do
                 [widget_id, action, args])
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_container,
                 [widget_id])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :set_locale, [locale])
 
   ## Minimal example
 
@@ -349,4 +353,39 @@ defmodule Planck.Agent.Sidecar do
       module -> {:ok, module}
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Locale — a plain cached fact, not wired to any i18n library
+  # ---------------------------------------------------------------------------
+
+  @locale_key {__MODULE__, :locale}
+
+  @doc """
+  Caches the sidecar-wide current UI locale (e.g. `"en"`, `"es"`).
+
+  Called by `planck_headless` (via `Planck.Headless.Locale.set/1`) on the
+  sidecar node whenever `Planck.Web.Locale.Plug` resolves a locale — on
+  every request, in practice, since the plug has no cheap way to know
+  whether this call would be a no-op before making it. So this function is
+  itself idempotent instead: absent, it's set; present and equal, no-op;
+  present and different, updated. A widget module decides what to do with
+  the value — this function knows nothing about Gettext or any other i18n
+  library, only that it's tracking "the current locale" as a plain string.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :set_locale, [locale])
+  """
+  @spec set_locale(String.t()) :: :ok
+  def set_locale(locale) do
+    case :persistent_term.get(@locale_key, nil) do
+      ^locale -> :ok
+      _ -> :persistent_term.put(@locale_key, locale)
+    end
+  end
+
+  @doc """
+  Returns the cached current UI locale, `"en"` if `set_locale/1` was never
+  called (e.g. before `planck_headless`'s sidecar connects, or in tests).
+  """
+  @spec get_locale() :: String.t()
+  def get_locale, do: :persistent_term.get(@locale_key, "en")
 end

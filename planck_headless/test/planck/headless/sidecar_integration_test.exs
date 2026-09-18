@@ -7,7 +7,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
   alias Planck.Agent.Hooks.Compactor
   alias Planck.Agent.Message
   alias Planck.AI.Model
-  alias Planck.Headless.{Config, ResourceStore, SidecarManager, Widgets}
+  alias Planck.Headless.{Config, Locale, ResourceStore, SidecarManager, Widgets}
 
   @sidecar_dir Path.expand("../../../test_sidecar", __DIR__)
 
@@ -157,6 +157,22 @@ defmodule Planck.Headless.SidecarIntegrationTest do
 
     test "returns an error for an unknown widget" do
       assert {:error, "unknown widget: ghost"} = Widgets.container("ghost")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Locale.set/1 (real RPC to the connected sidecar)
+  # ---------------------------------------------------------------------------
+
+  describe "Locale.set/1" do
+    test "the sidecar node's Planck.Agent.Sidecar.get_locale/0 reflects the pushed value" do
+      node = SidecarManager.node()
+
+      assert :ok = Locale.set("es")
+      assert :rpc.call(node, Planck.Agent.Sidecar, :get_locale, []) == "es"
+
+      assert :ok = Locale.set("en")
+      assert :rpc.call(node, Planck.Agent.Sidecar, :get_locale, []) == "en"
     end
   end
 

@@ -24,6 +24,16 @@ defmodule Sidecar.Widgets.Beads do
   Nothing structural blocks adding those two fields to the form; they're
   just left out of this first pass.
 
+  ## Translated via `Sidecar.Gettext`, not `Planck.Web.Gettext`
+
+  This module's own labels (buttons, placeholders, status names) are
+  translated with the sidecar's own Gettext backend — see its moduledoc for
+  why a separate catalog from `planck_cli`'s is a real constraint, not a
+  preference. `render/2` sets the process-local Gettext locale from
+  `Planck.Agent.Sidecar.get_locale/0` on every call, since a widget render
+  is stateless from one call to the next and has no other way to know
+  which locale to use.
+
   ## `render/2`
 
   `render/1` — the actual `Planck.Agent.Widget` behaviour callback, the one
@@ -36,6 +46,7 @@ defmodule Sidecar.Widgets.Beads do
 
   use Phoenix.Component
   use Planck.Agent.Widget
+  use Gettext, backend: Sidecar.Gettext
 
   @column_order ["open", "in_progress"]
 
@@ -48,6 +59,7 @@ defmodule Sidecar.Widgets.Beads do
   @doc false
   @spec render(term(), keyword()) :: String.t()
   def render(myself, opts) do
+    Gettext.put_locale(Sidecar.Gettext, Planck.Agent.Sidecar.get_locale())
     assigns = %{columns: fetch_columns(opts), myself: myself}
 
     ~H"""
@@ -56,30 +68,32 @@ defmodule Sidecar.Widgets.Beads do
         <input type="hidden" name="action" value="create" />
         <input type="hidden" name="args[actor]" value="human" />
         <div class="flex-1">
-          <label class="block text-xs font-bold mb-1">New task</label>
+          <label class="block text-xs font-bold mb-1">{pgettext("bead widget", "New task")}</label>
           <input
             type="text"
             name="args[title]"
-            placeholder="Title"
+            placeholder={pgettext("bead widget", "Title")}
             required
             class="w-full border-2 border-border px-2 py-1 text-xs"
           />
         </div>
         <button type="submit" class="border-2 border-black px-3 py-1 text-xs font-bold bg-card">
-          Create
+          {pgettext("button label", "Create")}
         </button>
       </form>
 
       <div class="grid grid-cols-2 gap-3">
         <div :for={{status, beads} <- @columns} class="border-2 border-border p-2">
-          <p class="font-bold text-xs uppercase mb-2">{status}</p>
+          <p class="font-bold text-xs uppercase mb-2">{status_label(status)}</p>
 
-          <p :if={beads == []} class="text-xs text-muted-foreground italic">none</p>
+          <p :if={beads == []} class="text-xs text-muted-foreground italic">
+            {pgettext("bead widget", "none")}
+          </p>
 
           <div :for={bead <- beads} class="border-b border-border pb-2 mb-2 last:border-b-0">
             <p class="text-xs font-bold">{bead["id"]}: {bead["title"]}</p>
             <p class="text-xs text-muted-foreground">
-              priority {bead["priority"]}<span :if={bead["assignee"]}> · {bead["assignee"]}</span>
+              {pgettext("bead widget", "priority")} {bead["priority"]}<span :if={bead["assignee"]}> · {bead["assignee"]}</span>
             </p>
             <div class="flex gap-1 mt-1 items-center">
               <form phx-submit="widget_action" phx-target={@myself} class="flex gap-1">
@@ -88,11 +102,13 @@ defmodule Sidecar.Widgets.Beads do
                 <input
                   type="text"
                   name="args[assignee]"
-                  placeholder="assignee"
+                  placeholder={pgettext("bead widget", "assignee")}
                   required
                   class="border border-border px-1 text-xs w-24"
                 />
-                <button type="submit" class="border border-black px-2 text-xs">Claim</button>
+                <button type="submit" class="border border-black px-2 text-xs">
+                  {pgettext("button label", "Claim")}
+                </button>
               </form>
               <button
                 phx-click={
@@ -103,7 +119,7 @@ defmodule Sidecar.Widgets.Beads do
                 }
                 class="border border-black px-2 text-xs"
               >
-                Done
+                {pgettext("button label", "Done")}
               </button>
               <button
                 phx-click={
@@ -114,7 +130,7 @@ defmodule Sidecar.Widgets.Beads do
                 }
                 class="border border-black px-2 text-xs text-destructive"
               >
-                Delete
+                {pgettext("button label", "Delete")}
               </button>
             </div>
           </div>
@@ -154,6 +170,14 @@ defmodule Sidecar.Widgets.Beads do
       :ok
     end
   end
+
+  # @column_order only ever holds "open"/"in_progress" today, so the
+  # fallback clause is dead for now — kept anyway, since a status string is
+  # API-controlled data, not a closed set this module gets to assume.
+  @spec status_label(String.t()) :: String.t()
+  defp status_label("open"), do: pgettext("bead status", "open")
+  defp status_label("in_progress"), do: pgettext("bead status", "in progress")
+  defp status_label(status), do: status
 
   # Sidecar.Beads.list/1's status filter — a comma-separated string, NOT a
   # list. Req's params: option calls URI.encode_query/1 directly (checked

@@ -48,6 +48,7 @@ defmodule Sidecar.MixProject do
       {:skogsra, "~> 2.5"},
       {:req, "~> 0.5"},
       {:phoenix_live_view, "~> 1.1"},
+      {:gettext, "~> 1.0"},
       {:ymlr, "~> 5.1"},
       {:erlexec, "~> 2.0"},
       {:file_system, "~> 1.0"},

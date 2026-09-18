@@ -1,0 +1,78 @@
+## "msgid"s in this file come from POT (.pot) files.
+###
+### Do not add, change, or remove "msgid"s manually here as
+### they're tied to the ones in the corresponding POT file
+### (with the same domain).
+###
+### Use "mix gettext.extract --merge" or "mix gettext.merge"
+### to merge POT files into PO files.
+msgid ""
+msgstr ""
+"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: lib/sidecar/widgets/beads.ex:179
+#, elixir-autogen, elixir-format
+msgctxt "bead status"
+msgid "in progress"
+msgstr "en curso"
+
+#: lib/sidecar/widgets/beads.ex:178
+#, elixir-autogen, elixir-format
+msgctxt "bead status"
+msgid "open"
+msgstr "abierto"
+
+#: lib/sidecar/widgets/beads.ex:71
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "New task"
+msgstr "Nueva tarea"
+
+#: lib/sidecar/widgets/beads.ex:75
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "Title"
+msgstr "Título"
+
+#: lib/sidecar/widgets/beads.ex:105
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "assignee"
+msgstr "responsable"
+
+#: lib/sidecar/widgets/beads.ex:90
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "none"
+msgstr "ninguno"
+
+#: lib/sidecar/widgets/beads.ex:96
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "priority"
+msgstr "prioridad"
+
+#: lib/sidecar/widgets/beads.ex:110
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Claim"
+msgstr "Reclamar"
+
+#: lib/sidecar/widgets/beads.ex:81
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Create"
+msgstr "Crear"
+
+#: lib/sidecar/widgets/beads.ex:133
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Delete"
+msgstr "Eliminar"
+
+#: lib/sidecar/widgets/beads.ex:122
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Done"
+msgstr "Hecho"
