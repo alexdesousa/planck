@@ -209,7 +209,7 @@ defmodule Sidecar.BeadsTest do
         json(conn, 200, %{"already_closed" => false})
       end)
 
-      assert {:ok, _} = Beads.close("b1", "agent-1", "done")
+      assert {:ok, _} = Beads.close("b1", "agent-1", reason: "done")
       assert_receive {:body, body}
       assert body == %{"actor" => "agent-1", "reason" => "done"}
     end
@@ -260,6 +260,86 @@ defmodule Sidecar.BeadsTest do
     test "returns {:error, reason} when beads is unreachable", %{bypass: bypass} do
       Bypass.down(bypass)
       assert {:error, _reason} = Beads.list()
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # :client override
+  # ---------------------------------------------------------------------------
+
+  describe ":client override" do
+    test "an explicit :client is used instead of Sidecar.Config, and never reaches it" do
+      other_bypass = Bypass.open()
+
+      Bypass.expect_once(other_bypass, "GET", "/v0/beads/issues", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer other-token"]
+        json(conn, 200, %{"items" => []})
+      end)
+
+      client = %{url: "http://localhost:#{other_bypass.port}", token: "other-token"}
+      assert {:ok, %{"items" => []}} = Beads.list(client: client)
+    end
+
+    test "extracting :client does not leak it into the query string", %{bypass: bypass} do
+      parent = self()
+
+      Bypass.expect_once(bypass, "GET", "/v0/beads/issues", fn conn ->
+        send(parent, {:query, conn.query_params})
+        json(conn, 200, %{"items" => []})
+      end)
+
+      client = %{url: "http://localhost:#{bypass.port}", token: @token}
+      assert {:ok, _} = Beads.list(status: "open", client: client)
+      assert_receive {:query, query}
+      refute Map.has_key?(query, "client")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # broadcast_refresh/1
+  # ---------------------------------------------------------------------------
+
+  describe "broadcast_refresh/1" do
+    test "broadcasts {:widget_rendered, id, html} on \"sidecar:widget:beads-board\" by default",
+         %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:beads-board")
+
+      assert :ok = Beads.broadcast_refresh()
+      assert_receive {:widget_rendered, "beads-board", html}
+      assert is_binary(html)
+    end
+
+    test ":instance overrides the topic and the id in the broadcast payload", %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:test-xyz")
+
+      assert :ok = Beads.broadcast_refresh(instance: "test-xyz")
+      assert_receive {:widget_rendered, "test-xyz", _html}
+    end
+
+    test "a subscriber on the default topic does not see a differently-instanced broadcast", %{
+      bypass: bypass
+    } do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:beads-board")
+
+      assert :ok = Beads.broadcast_refresh(instance: "test-xyz")
+      refute_receive {:widget_rendered, _id, _html}
+    end
+
+    test ":client reaches the board's own re-fetch, not just a triggering write" do
+      other_bypass = Bypass.open()
+
+      Bypass.expect_once(other_bypass, "GET", "/v0/beads/issues", fn conn ->
+        json(conn, 200, %{"items" => []})
+      end)
+
+      client = %{url: "http://localhost:#{other_bypass.port}", token: "other-token"}
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:beads-board")
+
+      assert :ok = Beads.broadcast_refresh(client: client)
+      assert_receive {:widget_rendered, "beads-board", _html}
     end
   end
 end

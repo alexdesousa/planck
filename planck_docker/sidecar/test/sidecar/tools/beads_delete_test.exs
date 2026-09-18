@@ -1,14 +1,13 @@
 defmodule Sidecar.Tools.BeadsDeleteTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import Mox
 
   alias Planck.Agent
   alias Planck.Agent.MockAI
   alias Planck.AI.Model
-  alias Sidecar.{Config, Tools.BeadsDelete}
+  alias Sidecar.Tools.BeadsDelete
 
-  setup :set_mox_global
   setup :verify_on_exit!
 
   @model %Model{
@@ -21,19 +20,8 @@ defmodule Sidecar.Tools.BeadsDeleteTest do
 
   setup do
     bypass = Bypass.open()
-    Application.put_env(:sidecar, :beads_url, "http://localhost:#{bypass.port}")
-    Application.put_env(:sidecar, :beads_token, "test-token")
-    Config.reload_beads_url()
-    Config.reload_beads_token()
-
-    on_exit(fn ->
-      Application.delete_env(:sidecar, :beads_url)
-      Application.delete_env(:sidecar, :beads_token)
-      Config.reload_beads_url()
-      Config.reload_beads_token()
-    end)
-
-    {:ok, bypass: bypass}
+    client = %{url: "http://localhost:#{bypass.port}", token: "test-token"}
+    {:ok, bypass: bypass, client: client, instance: unique_id()}
   end
 
   defp json(conn, status, body) do
@@ -67,7 +55,9 @@ defmodule Sidecar.Tools.BeadsDeleteTest do
 
   describe "execute_fn" do
     test "POSTs to the collection-level :delete method with a single-id array", %{
-      bypass: bypass
+      bypass: bypass,
+      client: client,
+      instance: instance
     } do
       agent_id = start_agent()
       parent = self()
@@ -78,20 +68,24 @@ defmodule Sidecar.Tools.BeadsDeleteTest do
         json(conn, 200, %{"deleted" => ["bd-1"]})
       end)
 
-      tool = BeadsDelete.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{instance}")
+      tool = BeadsDelete.tool(client: client, instance: instance)
 
       assert {:ok, "Deleted bd-1.", %{ui: _}} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
 
       assert_receive {:body, body}
       assert body == %{"ids" => ["bd-1"], "actor" => "deep-thought:orchestrator"}
+      assert_receive {:widget_rendered, ^instance, _html}
     end
 
-    test "returns an error tuple on failure", %{bypass: bypass} do
+    test "returns an error tuple on failure", %{bypass: bypass, client: client} do
       agent_id = start_agent()
       Bypass.stub(bypass, "POST", "/v0/beads/issues:delete", &json(&1, 500, %{"error" => "boom"}))
 
-      tool = BeadsDelete.tool()
+      tool = BeadsDelete.tool(client: client)
       assert {:error, message} = tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
       assert message =~ "Failed to delete bd-1"
     end

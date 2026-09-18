@@ -1,23 +1,12 @@
 defmodule Sidecar.Tools.BeadsGetTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias Sidecar.{Config, Tools.BeadsGet}
+  alias Sidecar.Tools.BeadsGet
 
   setup do
     bypass = Bypass.open()
-    Application.put_env(:sidecar, :beads_url, "http://localhost:#{bypass.port}")
-    Application.put_env(:sidecar, :beads_token, "test-token")
-    Config.reload_beads_url()
-    Config.reload_beads_token()
-
-    on_exit(fn ->
-      Application.delete_env(:sidecar, :beads_url)
-      Application.delete_env(:sidecar, :beads_token)
-      Config.reload_beads_url()
-      Config.reload_beads_token()
-    end)
-
-    {:ok, bypass: bypass}
+    client = %{url: "http://localhost:#{bypass.port}", token: "test-token"}
+    {:ok, bypass: bypass, client: client}
   end
 
   defp json(conn, status, body) do
@@ -26,7 +15,7 @@ defmodule Sidecar.Tools.BeadsGetTest do
     |> Plug.Conn.resp(status, Jason.encode!(body))
   end
 
-  describe "tool/0" do
+  describe "tool/1" do
     test "has correct name and required params" do
       tool = BeadsGet.tool()
       assert tool.name == "bd_get"
@@ -36,7 +25,8 @@ defmodule Sidecar.Tools.BeadsGetTest do
 
   describe "execute_fn" do
     test "fetches current details, including a description edited since claim time", %{
-      bypass: bypass
+      bypass: bypass,
+      client: client
     } do
       Bypass.expect_once(bypass, "GET", "/v0/beads/issues/bd-1", fn conn ->
         json(conn, 200, %{
@@ -49,7 +39,7 @@ defmodule Sidecar.Tools.BeadsGetTest do
         })
       end)
 
-      tool = BeadsGet.tool()
+      tool = BeadsGet.tool(client: client)
       assert {:ok, text, %{ui: ui}} = tool.execute_fn.("agent-1", "tc1", %{"issue_id" => "bd-1"})
 
       assert text ==
@@ -58,7 +48,7 @@ defmodule Sidecar.Tools.BeadsGetTest do
       assert ui == %{kind: :widget, label: "View kanban board", widget: "beads-board", data: nil}
     end
 
-    test "reports a missing issue distinctly", %{bypass: bypass} do
+    test "reports a missing issue distinctly", %{bypass: bypass, client: client} do
       Bypass.stub(
         bypass,
         "GET",
@@ -66,16 +56,16 @@ defmodule Sidecar.Tools.BeadsGetTest do
         &json(&1, 404, %{"error" => "not_found"})
       )
 
-      tool = BeadsGet.tool()
+      tool = BeadsGet.tool(client: client)
 
       assert {:error, "ghost was not found."} =
                tool.execute_fn.("agent-1", "tc1", %{"issue_id" => "ghost"})
     end
 
-    test "returns a generic error tuple on other failures", %{bypass: bypass} do
+    test "returns a generic error tuple on other failures", %{bypass: bypass, client: client} do
       Bypass.stub(bypass, "GET", "/v0/beads/issues/bd-1", &json(&1, 500, %{"error" => "boom"}))
 
-      tool = BeadsGet.tool()
+      tool = BeadsGet.tool(client: client)
       assert {:error, message} = tool.execute_fn.("agent-1", "tc1", %{"issue_id" => "bd-1"})
       assert message =~ "Failed to fetch bd-1"
     end

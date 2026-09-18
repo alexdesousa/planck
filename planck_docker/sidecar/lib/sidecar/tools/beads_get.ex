@@ -11,9 +11,13 @@ defmodule Sidecar.Tools.BeadsGet do
   description in the widget since, has no other way to check.
   """
 
-  @doc "Returns the `bd_get` tool definition."
-  @spec tool() :: Planck.Agent.Tool.t()
-  def tool do
+  @doc """
+  Returns the `bd_get` tool definition. `opts` is not part of the LLM-facing
+  schema — it accepts `:client` (see `Sidecar.Beads`'s moduledoc) so a test
+  can point this tool at a mock server without touching `Sidecar.Config`.
+  """
+  @spec tool(keyword()) :: Planck.Agent.Tool.t()
+  def tool(opts \\ []) do
     Planck.Agent.Tool.new(
       name: "bd_get",
       description:
@@ -27,7 +31,7 @@ defmodule Sidecar.Tools.BeadsGet do
         "required" => ["issue_id"]
       },
       execute_fn: fn _agent_id, _id, %{"issue_id" => issue_id} ->
-        case Sidecar.Beads.fetch(issue_id) do
+        case Sidecar.Beads.fetch(issue_id, opts) do
           {:ok, issue} ->
             {:ok, format_issue(issue), %{ui: Sidecar.Tools.Beads.board_ui()}}
 

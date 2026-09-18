@@ -6,18 +6,21 @@ defmodule Sidecar.Tools.BeadsCreate do
 
   Takes an optional `description` and `priority` alongside `title` — useful
   for a model deciding what to work on next, not just a human. The widget's
-  own human-facing create action (`Sidecar.Widgets.Beads.handle_action/2`,
-  not built yet) needs the same two fields in its form, not just a title, to
-  stay at parity with this tool.
-
-  `broadcast_refresh/0` is not called yet — Sidecar.Beads.broadcast_refresh/0
-  itself doesn't exist until `Sidecar.Widgets.Beads` does, since it renders
-  through that widget. Add the call here once both exist.
+  own human-facing create form only collects a title, unlike this tool —
+  see `Sidecar.Widgets.Beads`'s moduledoc for why that's an intentional gap
+  in this pass, not an oversight.
   """
 
-  @doc "Returns the `bd_create` tool definition."
-  @spec tool() :: Planck.Agent.Tool.t()
-  def tool do
+  @doc """
+  Returns the `bd_create` tool definition. `opts` is not part of the LLM-facing
+  schema — it accepts `:client` (see `Sidecar.Beads`'s moduledoc) so a test
+  can point this tool at a mock server without touching `Sidecar.Config`,
+  and `:instance` for the same reason (see `Sidecar.Beads.broadcast_refresh/1`).
+  Both are forwarded to `broadcast_refresh/1` too, so an injected client
+  reaches the board's own re-fetch, not just this tool's own create request.
+  """
+  @spec tool(keyword()) :: Planck.Agent.Tool.t()
+  def tool(opts \\ []) do
     Planck.Agent.Tool.new(
       name: "bd_create",
       description:
@@ -44,10 +47,11 @@ defmodule Sidecar.Tools.BeadsCreate do
       },
       execute_fn: fn agent_id, _id, %{"title" => title} = args ->
         actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
-        opts = [description: args["description"], priority: args["priority"]]
+        create_opts = [description: args["description"], priority: args["priority"]] ++ opts
 
-        case Sidecar.Beads.create(title, actor, opts) do
+        case Sidecar.Beads.create(title, actor, create_opts) do
           {:ok, %{"id" => id}} ->
+            Sidecar.Beads.broadcast_refresh(opts)
             {:ok, "Created #{id}: #{title}", %{ui: Sidecar.Tools.Beads.board_ui()}}
 
           {:error, {status, body}} ->

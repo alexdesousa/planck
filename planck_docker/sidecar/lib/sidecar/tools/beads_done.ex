@@ -1,15 +1,18 @@
 defmodule Sidecar.Tools.BeadsDone do
   @moduledoc """
   Marks a bead as done. Workers opt in via `TEAM.json`, alongside `bd_ready`.
-
-  `broadcast_refresh/0` is not called yet — Sidecar.Beads.broadcast_refresh/0
-  itself doesn't exist until `Sidecar.Widgets.Beads` does, since it renders
-  through that widget. Add the call here once both exist.
   """
 
-  @doc "Returns the `bd_done` tool definition."
-  @spec tool() :: Planck.Agent.Tool.t()
-  def tool do
+  @doc """
+  Returns the `bd_done` tool definition. `opts` is not part of the LLM-facing
+  schema — it accepts `:client` (see `Sidecar.Beads`'s moduledoc) so a test
+  can point this tool at a mock server without touching `Sidecar.Config`,
+  and `:instance` for the same reason (see `Sidecar.Beads.broadcast_refresh/1`).
+  Both are forwarded to `broadcast_refresh/1` too, so an injected client
+  reaches the board's own re-fetch, not just this tool's own close request.
+  """
+  @spec tool(keyword()) :: Planck.Agent.Tool.t()
+  def tool(opts \\ []) do
     Planck.Agent.Tool.new(
       name: "bd_done",
       description:
@@ -25,11 +28,12 @@ defmodule Sidecar.Tools.BeadsDone do
         actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
         ui = %{ui: Sidecar.Tools.Beads.board_ui()}
 
-        case Sidecar.Beads.close(issue_id, actor) do
+        case Sidecar.Beads.close(issue_id, actor, opts) do
           {:ok, %{"already_closed" => true}} ->
             {:ok, "#{issue_id} was already closed.", ui}
 
           {:ok, _} ->
+            Sidecar.Beads.broadcast_refresh(opts)
             {:ok, "Marked #{issue_id} as done.", ui}
 
           {:error, {status, body}} ->

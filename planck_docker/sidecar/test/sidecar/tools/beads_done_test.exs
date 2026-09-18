@@ -1,14 +1,13 @@
 defmodule Sidecar.Tools.BeadsDoneTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import Mox
 
   alias Planck.Agent
   alias Planck.Agent.MockAI
   alias Planck.AI.Model
-  alias Sidecar.{Config, Tools.BeadsDone}
+  alias Sidecar.Tools.BeadsDone
 
-  setup :set_mox_global
   setup :verify_on_exit!
 
   @model %Model{
@@ -21,19 +20,8 @@ defmodule Sidecar.Tools.BeadsDoneTest do
 
   setup do
     bypass = Bypass.open()
-    Application.put_env(:sidecar, :beads_url, "http://localhost:#{bypass.port}")
-    Application.put_env(:sidecar, :beads_token, "test-token")
-    Config.reload_beads_url()
-    Config.reload_beads_token()
-
-    on_exit(fn ->
-      Application.delete_env(:sidecar, :beads_url)
-      Application.delete_env(:sidecar, :beads_token)
-      Config.reload_beads_url()
-      Config.reload_beads_token()
-    end)
-
-    {:ok, bypass: bypass}
+    client = %{url: "http://localhost:#{bypass.port}", token: "test-token"}
+    {:ok, bypass: bypass, client: client, instance: unique_id()}
   end
 
   defp json(conn, status, body) do
@@ -66,7 +54,11 @@ defmodule Sidecar.Tools.BeadsDoneTest do
   end
 
   describe "execute_fn" do
-    test "closes with the calling agent's stable identity as actor", %{bypass: bypass} do
+    test "closes with the calling agent's stable identity as actor", %{
+      bypass: bypass,
+      client: client,
+      instance: instance
+    } do
       agent_id = start_agent()
       parent = self()
 
@@ -76,16 +68,20 @@ defmodule Sidecar.Tools.BeadsDoneTest do
         json(conn, 200, %{"already_closed" => false})
       end)
 
-      tool = BeadsDone.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{instance}")
+      tool = BeadsDone.tool(client: client, instance: instance)
 
       assert {:ok, "Marked bd-1 as done.", %{ui: ui}} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
 
       assert ui == %{kind: :widget, label: "View kanban board", widget: "beads-board", data: nil}
       assert_receive {:body, %{"actor" => "deep-thought:worker-1"}}
+      assert_receive {:widget_rendered, ^instance, _html}
     end
 
-    test "reports an idempotent re-close distinctly", %{bypass: bypass} do
+    test "reports an idempotent re-close distinctly", %{bypass: bypass, client: client} do
       agent_id = start_agent()
 
       Bypass.stub(
@@ -95,13 +91,13 @@ defmodule Sidecar.Tools.BeadsDoneTest do
         &json(&1, 200, %{"already_closed" => true})
       )
 
-      tool = BeadsDone.tool()
+      tool = BeadsDone.tool(client: client)
 
       assert {:ok, "bd-1 was already closed.", %{ui: _}} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
     end
 
-    test "returns an error tuple on failure", %{bypass: bypass} do
+    test "returns an error tuple on failure", %{bypass: bypass, client: client} do
       agent_id = start_agent()
 
       Bypass.stub(
@@ -111,7 +107,7 @@ defmodule Sidecar.Tools.BeadsDoneTest do
         &json(&1, 500, %{"error" => "boom"})
       )
 
-      tool = BeadsDone.tool()
+      tool = BeadsDone.tool(client: client)
       assert {:error, message} = tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
       assert message =~ "Failed to close bd-1"
     end

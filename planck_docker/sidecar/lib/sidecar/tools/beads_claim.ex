@@ -13,15 +13,18 @@ defmodule Sidecar.Tools.BeadsClaim do
   the success message includes its description (when present), so an agent
   that only saw the title in `bd_ready`'s list gets full context right after
   claiming, not a second round-trip to find out what it just took on.
-
-  `broadcast_refresh/0` is not called yet — Sidecar.Beads.broadcast_refresh/0
-  itself doesn't exist until `Sidecar.Widgets.Beads` does, since it renders
-  through that widget. Add the call here once both exist.
   """
 
-  @doc "Returns the `bd_claim` tool definition."
-  @spec tool() :: Planck.Agent.Tool.t()
-  def tool do
+  @doc """
+  Returns the `bd_claim` tool definition. `opts` is not part of the LLM-facing
+  schema — it accepts `:client` (see `Sidecar.Beads`'s moduledoc) so a test
+  can point this tool at a mock server without touching `Sidecar.Config`,
+  and `:instance` for the same reason (see `Sidecar.Beads.broadcast_refresh/1`).
+  Both are forwarded to `broadcast_refresh/1` too, so an injected client
+  reaches the board's own re-fetch, not just this tool's own claim request.
+  """
+  @spec tool(keyword()) :: Planck.Agent.Tool.t()
+  def tool(opts \\ []) do
     Planck.Agent.Tool.new(
       name: "bd_claim",
       description:
@@ -38,11 +41,12 @@ defmodule Sidecar.Tools.BeadsClaim do
         actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
         ui = %{ui: Sidecar.Tools.Beads.board_ui()}
 
-        case Sidecar.Beads.claim(issue_id, actor) do
+        case Sidecar.Beads.claim(issue_id, actor, opts) do
           {:ok, %{"already_claimed" => true} = body} ->
             {:ok, "You already have #{issue_id} claimed.#{describe(body)}", ui}
 
           {:ok, body} ->
+            Sidecar.Beads.broadcast_refresh(opts)
             {:ok, "Claimed #{issue_id}.#{describe(body)}", ui}
 
           {:error, {409, %{"assignee" => holder}}} ->

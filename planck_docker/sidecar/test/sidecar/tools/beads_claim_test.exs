@@ -1,14 +1,13 @@
 defmodule Sidecar.Tools.BeadsClaimTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import Mox
 
   alias Planck.Agent
   alias Planck.Agent.MockAI
   alias Planck.AI.Model
-  alias Sidecar.{Config, Tools.BeadsClaim}
+  alias Sidecar.Tools.BeadsClaim
 
-  setup :set_mox_global
   setup :verify_on_exit!
 
   @model %Model{
@@ -21,19 +20,8 @@ defmodule Sidecar.Tools.BeadsClaimTest do
 
   setup do
     bypass = Bypass.open()
-    Application.put_env(:sidecar, :beads_url, "http://localhost:#{bypass.port}")
-    Application.put_env(:sidecar, :beads_token, "test-token")
-    Config.reload_beads_url()
-    Config.reload_beads_token()
-
-    on_exit(fn ->
-      Application.delete_env(:sidecar, :beads_url)
-      Application.delete_env(:sidecar, :beads_token)
-      Config.reload_beads_url()
-      Config.reload_beads_token()
-    end)
-
-    {:ok, bypass: bypass}
+    client = %{url: "http://localhost:#{bypass.port}", token: "test-token"}
+    {:ok, bypass: bypass, client: client, instance: unique_id()}
   end
 
   defp json(conn, status, body) do
@@ -67,7 +55,9 @@ defmodule Sidecar.Tools.BeadsClaimTest do
 
   describe "execute_fn" do
     test "claims with the calling agent's stable identity as actor, no assignee field", %{
-      bypass: bypass
+      bypass: bypass,
+      client: client,
+      instance: instance
     } do
       agent_id = start_agent()
       parent = self()
@@ -78,17 +68,21 @@ defmodule Sidecar.Tools.BeadsClaimTest do
         json(conn, 200, %{"already_claimed" => false})
       end)
 
-      tool = BeadsClaim.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{instance}")
+      tool = BeadsClaim.tool(client: client, instance: instance)
 
       assert {:ok, "Claimed bd-1.", %{ui: _}} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
 
       assert_receive {:body, body}
       assert body == %{"actor" => "deep-thought:orchestrator"}
+      assert_receive {:widget_rendered, ^instance, _html}
     end
 
     test "includes the issue's description from ClaimResponse — bd_ready only showed the title",
-         %{bypass: bypass} do
+         %{bypass: bypass, client: client} do
       agent_id = start_agent()
 
       Bypass.stub(bypass, "POST", "/v0/beads/issues/bd-1:claim", fn conn ->
@@ -102,13 +96,18 @@ defmodule Sidecar.Tools.BeadsClaimTest do
         })
       end)
 
-      tool = BeadsClaim.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      tool = BeadsClaim.tool(client: client)
 
       assert {:ok, "Claimed bd-1.\n\nFull context here.", %{ui: _}} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
     end
 
-    test "reports an idempotent re-claim by the same actor distinctly", %{bypass: bypass} do
+    test "reports an idempotent re-claim by the same actor distinctly", %{
+      bypass: bypass,
+      client: client
+    } do
       agent_id = start_agent()
 
       Bypass.stub(
@@ -118,33 +117,38 @@ defmodule Sidecar.Tools.BeadsClaimTest do
         &json(&1, 200, %{"already_claimed" => true})
       )
 
-      tool = BeadsClaim.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      tool = BeadsClaim.tool(client: client)
 
       assert {:ok, "You already have bd-1 claimed.", %{ui: _}} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
     end
 
-    test "reports a conflicting claim by someone else with their identity", %{bypass: bypass} do
+    test "reports a conflicting claim by someone else with their identity", %{
+      bypass: bypass,
+      client: client
+    } do
       agent_id = start_agent()
 
       Bypass.stub(bypass, "POST", "/v0/beads/issues/bd-1:claim", fn conn ->
         json(conn, 409, %{"already_claimed" => true, "assignee" => "deep-thought:other-worker"})
       end)
 
-      tool = BeadsClaim.tool()
+      tool = BeadsClaim.tool(client: client)
 
       assert {:error, "bd-1 is already claimed by deep-thought:other-worker."} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
     end
 
-    test "reports a not-claimable issue with its status", %{bypass: bypass} do
+    test "reports a not-claimable issue with its status", %{bypass: bypass, client: client} do
       agent_id = start_agent()
 
       Bypass.stub(bypass, "POST", "/v0/beads/issues/bd-1:claim", fn conn ->
         json(conn, 409, %{"not_claimable" => true, "issue_status" => "closed"})
       end)
 
-      tool = BeadsClaim.tool()
+      tool = BeadsClaim.tool(client: client)
 
       assert {:error, "bd-1 is not claimable (status: closed)."} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})

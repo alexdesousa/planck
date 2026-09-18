@@ -3,15 +3,18 @@ defmodule Sidecar.Tools.BeadsDelete do
   Deletes a bead (shared task) by id. Orchestrator-only — an irreversible,
   team-wide action, not something every worker should be able to do
   unilaterally.
-
-  `broadcast_refresh/0` is not called yet — Sidecar.Beads.broadcast_refresh/0
-  itself doesn't exist until `Sidecar.Widgets.Beads` does, since it renders
-  through that widget. Add the call here once both exist.
   """
 
-  @doc "Returns the `bd_delete` tool definition."
-  @spec tool() :: Planck.Agent.Tool.t()
-  def tool do
+  @doc """
+  Returns the `bd_delete` tool definition. `opts` is not part of the LLM-facing
+  schema — it accepts `:client` (see `Sidecar.Beads`'s moduledoc) so a test
+  can point this tool at a mock server without touching `Sidecar.Config`,
+  and `:instance` for the same reason (see `Sidecar.Beads.broadcast_refresh/1`).
+  Both are forwarded to `broadcast_refresh/1` too, so an injected client
+  reaches the board's own re-fetch, not just this tool's own delete request.
+  """
+  @spec tool(keyword()) :: Planck.Agent.Tool.t()
+  def tool(opts \\ []) do
     Planck.Agent.Tool.new(
       name: "bd_delete",
       description:
@@ -27,8 +30,9 @@ defmodule Sidecar.Tools.BeadsDelete do
       execute_fn: fn agent_id, _id, %{"issue_id" => issue_id} ->
         actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
 
-        case Sidecar.Beads.delete([issue_id], actor) do
+        case Sidecar.Beads.delete([issue_id], actor, opts) do
           {:ok, _} ->
+            Sidecar.Beads.broadcast_refresh(opts)
             {:ok, "Deleted #{issue_id}.", %{ui: Sidecar.Tools.Beads.board_ui()}}
 
           {:error, {status, body}} ->

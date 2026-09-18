@@ -9,9 +9,13 @@ defmodule Sidecar.Tools.BeadsReady do
   the human can see the same data the model just read.
   """
 
-  @doc "Returns the `bd_ready` tool definition."
-  @spec tool() :: Planck.Agent.Tool.t()
-  def tool do
+  @doc """
+  Returns the `bd_ready` tool definition. `opts` is not part of the LLM-facing
+  schema — it accepts `:client` (see `Sidecar.Beads`'s moduledoc) so a test
+  can point this tool at a mock server without touching `Sidecar.Config`.
+  """
+  @spec tool(keyword()) :: Planck.Agent.Tool.t()
+  def tool(opts \\ []) do
     Planck.Agent.Tool.new(
       name: "bd_ready",
       description:
@@ -19,7 +23,7 @@ defmodule Sidecar.Tools.BeadsReady do
           "unblocked and not yet claimed.",
       parameters: %{"type" => "object", "properties" => %{}},
       execute_fn: fn _agent_id, _id, _args ->
-        case Sidecar.Beads.ready() do
+        case Sidecar.Beads.ready(opts) do
           {:ok, %{"items" => items}} ->
             {:ok, format_ready(items), %{ui: Sidecar.Tools.Beads.board_ui()}}
 

@@ -1,14 +1,13 @@
 defmodule Sidecar.Tools.BeadsCreateTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import Mox
 
   alias Planck.Agent
   alias Planck.Agent.MockAI
   alias Planck.AI.Model
-  alias Sidecar.{Config, Tools.BeadsCreate}
+  alias Sidecar.Tools.BeadsCreate
 
-  setup :set_mox_global
   setup :verify_on_exit!
 
   @model %Model{
@@ -21,19 +20,8 @@ defmodule Sidecar.Tools.BeadsCreateTest do
 
   setup do
     bypass = Bypass.open()
-    Application.put_env(:sidecar, :beads_url, "http://localhost:#{bypass.port}")
-    Application.put_env(:sidecar, :beads_token, "test-token")
-    Config.reload_beads_url()
-    Config.reload_beads_token()
-
-    on_exit(fn ->
-      Application.delete_env(:sidecar, :beads_url)
-      Application.delete_env(:sidecar, :beads_token)
-      Config.reload_beads_url()
-      Config.reload_beads_token()
-    end)
-
-    {:ok, bypass: bypass}
+    client = %{url: "http://localhost:#{bypass.port}", token: "test-token"}
+    {:ok, bypass: bypass, client: client, instance: unique_id()}
   end
 
   defp json(conn, status, body) do
@@ -67,7 +55,9 @@ defmodule Sidecar.Tools.BeadsCreateTest do
 
   describe "execute_fn" do
     test "always sends issue_type: task, with the calling agent's identity as actor", %{
-      bypass: bypass
+      bypass: bypass,
+      client: client,
+      instance: instance
     } do
       agent_id = start_agent()
       parent = self()
@@ -78,7 +68,10 @@ defmodule Sidecar.Tools.BeadsCreateTest do
         json(conn, 201, %{"id" => "bd-2"})
       end)
 
-      tool = BeadsCreate.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{instance}")
+      tool = BeadsCreate.tool(client: client, instance: instance)
 
       assert {:ok, "Created bd-2: Fix the thing", %{ui: _}} =
                tool.execute_fn.(agent_id, "tc1", %{"title" => "Fix the thing"})
@@ -90,19 +83,22 @@ defmodule Sidecar.Tools.BeadsCreateTest do
                "actor" => "deep-thought:orchestrator",
                "issue_type" => "task"
              }
+
+      assert_receive {:widget_rendered, ^instance, _html}
     end
 
-    test "returns an error tuple on failure", %{bypass: bypass} do
+    test "returns an error tuple on failure", %{bypass: bypass, client: client} do
       agent_id = start_agent()
       Bypass.stub(bypass, "POST", "/v0/beads/issues", &json(&1, 500, %{"error" => "boom"}))
 
-      tool = BeadsCreate.tool()
+      tool = BeadsCreate.tool(client: client)
       assert {:error, message} = tool.execute_fn.(agent_id, "tc1", %{"title" => "x"})
       assert message =~ "Failed to create bead"
     end
 
     test "passes description and priority through when the model supplies them", %{
-      bypass: bypass
+      bypass: bypass,
+      client: client
     } do
       agent_id = start_agent()
       parent = self()
@@ -113,7 +109,9 @@ defmodule Sidecar.Tools.BeadsCreateTest do
         json(conn, 201, %{"id" => "bd-2"})
       end)
 
-      tool = BeadsCreate.tool()
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+
+      tool = BeadsCreate.tool(client: client)
 
       args = %{"title" => "Fix the thing", "description" => "Full context.", "priority" => 0}
       assert {:ok, _, %{ui: _}} = tool.execute_fn.(agent_id, "tc1", args)

@@ -1,23 +1,12 @@
 defmodule Sidecar.Tools.BeadsReadyTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias Sidecar.{Config, Tools.BeadsReady}
+  alias Sidecar.Tools.BeadsReady
 
   setup do
     bypass = Bypass.open()
-    Application.put_env(:sidecar, :beads_url, "http://localhost:#{bypass.port}")
-    Application.put_env(:sidecar, :beads_token, "test-token")
-    Config.reload_beads_url()
-    Config.reload_beads_token()
-
-    on_exit(fn ->
-      Application.delete_env(:sidecar, :beads_url)
-      Application.delete_env(:sidecar, :beads_token)
-      Config.reload_beads_url()
-      Config.reload_beads_token()
-    end)
-
-    {:ok, bypass: bypass}
+    client = %{url: "http://localhost:#{bypass.port}", token: "test-token"}
+    {:ok, bypass: bypass, client: client}
   end
 
   defp json(conn, status, body) do
@@ -26,7 +15,7 @@ defmodule Sidecar.Tools.BeadsReadyTest do
     |> Plug.Conn.resp(status, Jason.encode!(body))
   end
 
-  describe "tool/0" do
+  describe "tool/1" do
     test "has correct name and no required params" do
       tool = BeadsReady.tool()
       assert tool.name == "bd_ready"
@@ -36,7 +25,10 @@ defmodule Sidecar.Tools.BeadsReadyTest do
   end
 
   describe "execute_fn" do
-    test "calls the dedicated ready endpoint, not /v0/beads/issues", %{bypass: bypass} do
+    test "calls the dedicated ready endpoint, not /v0/beads/issues", %{
+      bypass: bypass,
+      client: client
+    } do
       Bypass.expect_once(bypass, "GET", "/v0/beads/ready", fn conn ->
         json(conn, 200, %{
           "items" => [
@@ -45,14 +37,14 @@ defmodule Sidecar.Tools.BeadsReadyTest do
         })
       end)
 
-      tool = BeadsReady.tool()
+      tool = BeadsReady.tool(client: client)
       assert {:ok, text, %{ui: ui}} = tool.execute_fn.("agent-1", "tc1", %{})
       assert text =~ "bd-1: Fix the thing (bug, priority 1)"
       assert ui == %{kind: :widget, label: "View kanban board", widget: "beads-board", data: nil}
     end
 
     test "includes each bead's description — an agent deciding what to claim needs more than the title",
-         %{bypass: bypass} do
+         %{bypass: bypass, client: client} do
       Bypass.expect_once(bypass, "GET", "/v0/beads/ready", fn conn ->
         json(conn, 200, %{
           "items" => [
@@ -73,7 +65,7 @@ defmodule Sidecar.Tools.BeadsReadyTest do
         })
       end)
 
-      tool = BeadsReady.tool()
+      tool = BeadsReady.tool(client: client)
       assert {:ok, text, _ui} = tool.execute_fn.("agent-1", "tc1", %{})
 
       assert [with_description, without_description] = String.split(text, "\n\n")
@@ -84,19 +76,19 @@ defmodule Sidecar.Tools.BeadsReadyTest do
       assert without_description == "bd-2: No description here (task, priority 3)"
     end
 
-    test "renders a friendly message when nothing is ready", %{bypass: bypass} do
+    test "renders a friendly message when nothing is ready", %{bypass: bypass, client: client} do
       Bypass.expect_once(bypass, "GET", "/v0/beads/ready", &json(&1, 200, %{"items" => []}))
 
-      tool = BeadsReady.tool()
+      tool = BeadsReady.tool(client: client)
 
       assert {:ok, "No beads are ready right now.", %{ui: _}} =
                tool.execute_fn.("agent-1", "tc1", %{})
     end
 
-    test "returns an error tuple on failure", %{bypass: bypass} do
+    test "returns an error tuple on failure", %{bypass: bypass, client: client} do
       Bypass.stub(bypass, "GET", "/v0/beads/ready", &json(&1, 500, %{"error" => "boom"}))
 
-      tool = BeadsReady.tool()
+      tool = BeadsReady.tool(client: client)
       assert {:error, message} = tool.execute_fn.("agent-1", "tc1", %{})
       assert message =~ "Failed to list ready beads"
     end
