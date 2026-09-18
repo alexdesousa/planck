@@ -60,6 +60,8 @@ echo "Setting up $PLANCK_HOME..."
 mkdir -p \
   "$PLANCK_HOME/typesense-data" \
   "$PLANCK_HOME/vault-data" \
+  "$PLANCK_HOME/dolt-data" \
+  "$PLANCK_HOME/beads-data" \
   "$PLANCK_HOME/workspace/.planck"
 
 # ── Write .env — create if absent, add missing keys if it exists ──────────────
@@ -75,6 +77,7 @@ rand24() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24; }
 SEARXNG_SECRET="$(rand32)"
 VAULT_MASTER="$(rand32)"
 VAULT_PASSWORD="$(rand24)"
+BEADS_TOKEN="$(rand32)"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Writing $ENV_FILE..."
@@ -87,6 +90,7 @@ SEARXNG_LANGUAGE=en
 AGENT_VAULT_MASTER_PASSWORD=$VAULT_MASTER
 AGENT_VAULT_EMAIL=admin@planck.local
 AGENT_VAULT_PASSWORD=$VAULT_PASSWORD
+BEADS_TOKEN=$BEADS_TOKEN
 EOF
   echo "  → $ENV_FILE created. Edit SEARXNG_LANGUAGE to change the search language."
 else
@@ -99,6 +103,7 @@ else
   add_if_missing AGENT_VAULT_MASTER_PASSWORD "$VAULT_MASTER"
   add_if_missing AGENT_VAULT_EMAIL "admin@planck.local"
   add_if_missing AGENT_VAULT_PASSWORD "$VAULT_PASSWORD"
+  add_if_missing BEADS_TOKEN "$BEADS_TOKEN"
 fi
 
 # ── Download compose.yml ──────────────────────────────────────────────────────

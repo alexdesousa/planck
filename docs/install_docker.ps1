@@ -58,7 +58,7 @@ if (-not $script:ComposeCmd) {
 
 # ── Create directory layout ───────────────────────────────────────────────────
 Write-Host "Setting up $PlanckHome..."
-foreach ($dir in "typesense-data", "vault-data", "workspace\.planck") {
+foreach ($dir in "typesense-data", "vault-data", "dolt-data", "beads-data", "workspace\.planck") {
     New-Item -ItemType Directory -Force -Path (Join-Path $PlanckHome $dir) | Out-Null
 }
 
@@ -81,6 +81,7 @@ function New-RandAlpha([int]$len) {
 $secret       = New-RandHex 32
 $vaultMaster  = New-RandHex 32
 $vaultPassword = New-RandAlpha 24
+$beadsToken   = New-RandHex 32
 
 function Add-IfMissing([string]$Key, [string]$Value) {
     if (-not (Select-String -Quiet -Path $EnvFile -Pattern "^$Key=")) {
@@ -99,6 +100,7 @@ SEARXNG_LANGUAGE=en
 AGENT_VAULT_MASTER_PASSWORD=$vaultMaster
 AGENT_VAULT_EMAIL=admin@planck.local
 AGENT_VAULT_PASSWORD=$vaultPassword
+BEADS_TOKEN=$beadsToken
 "@ | Set-Content -Path $EnvFile
     Write-Host "  -> $EnvFile created. Edit SEARXNG_LANGUAGE to change the search language."
 } else {
@@ -111,6 +113,7 @@ AGENT_VAULT_PASSWORD=$vaultPassword
     Add-IfMissing "AGENT_VAULT_MASTER_PASSWORD" $vaultMaster
     Add-IfMissing "AGENT_VAULT_EMAIL" "admin@planck.local"
     Add-IfMissing "AGENT_VAULT_PASSWORD" $vaultPassword
+    Add-IfMissing "BEADS_TOKEN" $beadsToken
 }
 
 # ── Download compose.yml ──────────────────────────────────────────────────────

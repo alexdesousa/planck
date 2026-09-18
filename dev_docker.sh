@@ -36,6 +36,8 @@ fi
 mkdir -p \
   "$DEV_DIR/typesense-data" \
   "$DEV_DIR/vault-data" \
+  "$DEV_DIR/dolt-data" \
+  "$DEV_DIR/beads-data" \
   "$DEV_DIR/workspace/.planck/skills"
 
 # ── Write .env (add missing keys if it exists) ────────────────────────────────
@@ -53,6 +55,7 @@ SEARXNG_LANGUAGE=en
 AGENT_VAULT_MASTER_PASSWORD=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)
 AGENT_VAULT_EMAIL=admin@planck.local
 AGENT_VAULT_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
+BEADS_TOKEN=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)
 EOF
   echo "  → $ENV_FILE created."
 else
@@ -65,6 +68,7 @@ else
   add_if_missing AGENT_VAULT_MASTER_PASSWORD "$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
   add_if_missing AGENT_VAULT_EMAIL "admin@planck.local"
   add_if_missing AGENT_VAULT_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
+  add_if_missing BEADS_TOKEN "$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
 fi
 
 # ── Install planck_setup skill (always — it's repo-managed, not user data) ───
@@ -82,14 +86,14 @@ if [ "$INIT_CONFIG" = "1" ]; then
   "providers": {
     "marvin": {
       "type": "openai",
-      "base_url": "https://ai.coroto.net/v1",
+      "base_url": "https://qwen.coroto.net/v1",
       "has_api_key": false
     }
   },
   "models": [
     {
-      "id": "Qwen3.6 35B",
-      "model": "Qwen3.6-35B-A3B-UD-Q8_K_XL",
+      "id": "Qwen3.6 27B",
+      "model": "Qwen3.6-27B-UD-Q6_K_XL.gguf",
       "provider": "marvin",
       "params": {
         "temperature": 1.0,
@@ -102,7 +106,7 @@ if [ "$INIT_CONFIG" = "1" ]; then
     }
   ],
   "default_provider": "marvin",
-  "default_model": "Qwen3.6 35B"
+  "default_model": "Qwen3.6 27B"
 }
 EOF
 
@@ -114,7 +118,7 @@ EOF
       "type": "orchestrator",
       "name": "Marvin",
       "provider": "openai",
-      "model_id": "Qwen3.6 35B",
+      "model_id": "Qwen3.6 27B",
       "system_prompt": "You are Marvin, a helpful assistant.",
       "prompt_hook": "Sidecar.Memory",
       "turn_end_hook": "Sidecar.SkillReflector"
