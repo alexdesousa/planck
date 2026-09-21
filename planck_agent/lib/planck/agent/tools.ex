@@ -16,8 +16,8 @@ defmodule Planck.Agent.Tools do
 
       tools =
         Planck.Agent.Tools.orchestrator_tools(session_id, team_id, available_models) ++
-        Planck.Agent.Tools.worker_tools(team_id, nil) ++
-        [my_custom_tool]
+          Planck.Agent.Tools.worker_tools(team_id, nil) ++
+          [my_custom_tool]
 
   ## Tool descriptions
 
@@ -85,7 +85,7 @@ defmodule Planck.Agent.Tools do
         cwd \\ ""
       ) do
     [
-      spawn_agent(session_id, team_id, grantable_tools, grantable_skills, cwd),
+      spawn_agent(session_id, team_id, available_models, grantable_tools, grantable_skills, cwd),
       destroy_agent(team_id),
       interrupt_agent(team_id),
       list_models(available_models)
@@ -242,6 +242,12 @@ defmodule Planck.Agent.Tools do
   @doc """
   Build the `spawn_agent` tool for a given team.
 
+  `available_models` is the same list `list_models/1` is built from — a
+  `model_id` matching one of these by `provider`/`id` resolves directly against
+  it, exactly what `list_models`'s own tool description tells the LLM to pass.
+  Only a `model_id` that isn't found there falls back to live/catalog
+  resolution (see `resolve_spawn_model/4`).
+
   `grantable_tools` is the set of built-in tools the orchestrator may delegate.
   `grantable_skills` is the set of skills the orchestrator may attach to spawned
   workers — their descriptions are appended to the spawned agent's system prompt.
@@ -252,6 +258,7 @@ defmodule Planck.Agent.Tools do
   @spec spawn_agent(
           String.t(),
           String.t(),
+          [Planck.AI.Model.t()],
           [Tool.t()],
           [Skill.t()],
           String.t()
@@ -259,6 +266,7 @@ defmodule Planck.Agent.Tools do
   def spawn_agent(
         session_id,
         team_id,
+        available_models,
         grantable_tools \\ [],
         grantable_skills \\ [],
         cwd \\ ""
@@ -347,7 +355,8 @@ defmodule Planck.Agent.Tools do
         }
 
         with :ok <- validate_local_base_url(provider, base_url),
-             {:ok, model} <- resolve_spawn_model(provider, args["model_id"], base_url) do
+             {:ok, model} <-
+               resolve_spawn_model(provider, args["model_id"], base_url, available_models) do
           agent_id = generate_id()
 
           start_opts =
@@ -458,6 +467,7 @@ defmodule Planck.Agent.Tools do
             %{
               provider: m.provider,
               id: m.id,
+              model: m.model,
               name: m.name,
               context_window: m.context_window,
               base_url: m.base_url,
@@ -578,9 +588,27 @@ defmodule Planck.Agent.Tools do
 
   defp validate_local_base_url(_provider, _base_url), do: :ok
 
-  @spec resolve_spawn_model(atom(), String.t(), String.t() | nil) ::
+  # Checked first, against the exact list `list_models/1` shows the LLM —
+  # matching by provider + id, not the literal provider-facing `model`
+  # string. This is what makes spawn_agent work for models configured with a
+  # custom base_url under a "cloud" provider atom (e.g. an OpenAI-compatible
+  # self-hosted endpoint declared as `provider: "openai"` in config, per
+  # Planck.AI.Config's own documented format) — previously any such model
+  # fell straight through to resolve_spawn_model_live/3, which only forwards
+  # base_url for the @local_providers allowlist and otherwise queries the
+  # real OpenAI/Anthropic/Google catalog, guaranteed to never contain it.
+  @spec resolve_spawn_model(atom(), String.t(), String.t() | nil, [Planck.AI.Model.t()]) ::
           {:ok, Planck.AI.Model.t()} | {:error, String.t()}
-  defp resolve_spawn_model(provider, model_id, base_url) do
+  defp resolve_spawn_model(provider, model_id, base_url, available_models) do
+    case Enum.find(available_models, &(&1.provider == provider and &1.id == model_id)) do
+      %Planck.AI.Model{} = model -> {:ok, model}
+      nil -> resolve_spawn_model_live(provider, model_id, base_url)
+    end
+  end
+
+  @spec resolve_spawn_model_live(atom(), String.t(), String.t() | nil) ::
+          {:ok, Planck.AI.Model.t()} | {:error, String.t()}
+  defp resolve_spawn_model_live(provider, model_id, base_url) do
     result =
       if provider in @local_providers and is_binary(base_url) and base_url != "" do
         AIBehaviour.client().get_model(provider, model_id, base_url: base_url)
