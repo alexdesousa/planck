@@ -56,12 +56,14 @@ defmodule Planck.Agent.Hooks.Compactor do
     compaction is in progress without any compactor needing to know
     anything about `Planck.Agent`'s own PubSub topics or event shapes.
 
-  - `state.compactor: nil` — uses the built-in local LLM-based compactor.
+  - `state.compactor: nil` — uses `Planck.Agent.Hooks.Compactor.Default`, the
+    built-in strategy (see its own moduledoc). Not special-cased beyond this:
+    `Default` satisfies the same behaviour a custom module would.
   - `state.compactor` set, `state.sidecar_node: nil` — calls `module.compact?/3`,
     then, only if that's `true`, `module.compact/3`, in-process.
   - `state.compactor` set, `state.sidecar_node` set — calls the module on the
-    remote node via RPC (same two-call shape); falls back to the local
-    LLM-based compactor on `:badrpc` from either call.
+    remote node via RPC (same two-call shape); falls back to `Default` on
+    `:badrpc` from either call.
 
   ## Why a separate `compact?/3`, and why the dispatcher wraps `compact/3`
 
@@ -84,12 +86,11 @@ defmodule Planck.Agent.Hooks.Compactor do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AIBehaviour, Message}
-  alias Planck.AI.{Context, Model}
+  alias Planck.Agent.Hooks.Compactor.Default
+  alias Planck.Agent.Message
+  alias Planck.AI.Context
 
   @default_compact_timeout_ms 120_000
-  @default_ratio 0.8
-  @keep_ratio 0.1
 
   @typedoc """
   `:on_compacting`/`:on_compacted` — both zero-arity, both optional (neither
@@ -153,11 +154,7 @@ defmodule Planck.Agent.Hooks.Compactor do
   def compact(state, context, recent, opts \\ [])
 
   def compact(%Agent{compactor: nil} = state, %Context{} = context, recent, opts) do
-    if compact?(state, context, recent) do
-      with_notice(opts, fn -> compact_local(state, recent) end)
-    else
-      :skip
-    end
+    compact(%{state | compactor: Default}, context, recent, opts)
   end
 
   def compact(
@@ -216,12 +213,11 @@ defmodule Planck.Agent.Hooks.Compactor do
   end
 
   # Only reached once the remote module's own compact?/3 already said
-  # `true` — a :badrpc here falls back straight to the built-in
-  # compact_local/2, not back through compact?/3 again: compact?/3's
-  # criteria belongs to the remote module, not the built-in ratio, and we
-  # already have a `true` from it — re-deciding via a different compactor's
-  # rules here would be a confusing outcome after already committing to
-  # compacting.
+  # `true` — a :badrpc here falls back straight to Default, not back through
+  # compact?/3 again: compact?/3's criteria belongs to the remote module, and
+  # we already have a `true` from it — re-deciding via a different
+  # compactor's rules here would be a confusing outcome after already
+  # committing to compacting.
   @spec compact_remote(Agent.t(), Context.t(), [Message.t()], pos_integer()) ::
           compact_result()
   defp compact_remote(
@@ -236,7 +232,7 @@ defmodule Planck.Agent.Hooks.Compactor do
           "[Planck.Agent.Hooks.Compactor] RPC failed (#{module}): #{inspect(reason)}, falling back to local"
         )
 
-        compact_local(state, recent)
+        Default.compact(state, context, recent)
 
       result ->
         result
@@ -246,125 +242,6 @@ defmodule Planck.Agent.Hooks.Compactor do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
-
-  @summary_prompt """
-  Summarize the conversation below to reduce context length.
-  Your summary must:
-  - Describe completed work and resolved decisions briefly
-  - State clearly what is currently being worked on and the most recent requests
-  - Preserve any key facts, file paths, decisions, or constraints still relevant
-  - Be written as context for an AI agent continuing this conversation
-
-  Prioritize recency — the active task and latest requests take priority over earlier history.
-  """
-
-  @spec compact?(Agent.t(), Context.t(), [Message.t()]) :: boolean()
-  defp compact?(%Agent{} = state, %Context{} = context, _recent) do
-    threshold = trunc(state.model.context_window * @default_ratio)
-    Context.estimate_tokens(context) >= threshold
-  end
-
-  @spec compact_local(Agent.t(), [Message.t()]) :: compact_result()
-  defp compact_local(%Agent{model: model}, recent) do
-    keep_budget = trunc(model.context_window * @keep_ratio)
-    {old, kept} = split_by_token_budget(recent, keep_budget)
-    to_summarize = Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1))
-
-    case {to_summarize, summarize(to_summarize, model)} do
-      {[], _} ->
-        :skip
-
-      {_, {:ok, text}} ->
-        summary_msg = Message.new({:custom, :summary}, [{:text, text}])
-        {:compact, summary_msg, kept}
-
-      {_, {:error, _}} ->
-        :skip
-    end
-  end
-
-  # Walk from the tail, accumulating messages until the token budget is exceeded.
-  # Always keeps at least the last message even if it alone exceeds the budget.
-  @spec split_by_token_budget([Message.t()], non_neg_integer()) ::
-          {[Message.t()], [Message.t()]}
-  defp split_by_token_budget(messages, budget) do
-    {kept, _} =
-      messages
-      |> Enum.reverse()
-      |> Enum.reduce_while({[], 0}, fn msg, {kept, total} ->
-        cost = messages_tokens([msg])
-        new_total = total + cost
-
-        if new_total <= budget or kept == [] do
-          {:cont, {[msg | kept], new_total}}
-        else
-          {:halt, {kept, total}}
-        end
-      end)
-
-    Enum.split(messages, length(messages) - length(kept))
-  end
-
-  # Planck.Agent.Message carries no estimate_tokens/1 of its own — converting
-  # to Planck.AI.Message and wrapping in a bare Context (system/tools left at
-  # their defaults) reuses Context.estimate_tokens/1's per-part counting
-  # rather than a separate copy of it here.
-  @spec messages_tokens([Message.t()]) :: non_neg_integer()
-  defp messages_tokens(messages) do
-    Context.estimate_tokens(%Context{messages: Message.to_ai_messages(messages)})
-  end
-
-  @spec summarize([Message.t()], Model.t()) :: {:ok, String.t()} | {:error, term()}
-  defp summarize(messages, model) do
-    history = format_history(messages)
-
-    context = %Context{
-      system: @summary_prompt,
-      messages: [%Planck.AI.Message{role: :user, content: [{:text, history}]}],
-      tools: []
-    }
-
-    result =
-      AIBehaviour.client().stream(model, context, [])
-      |> Enum.reduce({:ok, []}, fn
-        {:text_delta, text}, {:ok, acc} -> {:ok, [acc | text]}
-        {:error, reason}, _acc -> {:error, reason}
-        _other, acc -> acc
-      end)
-
-    case result do
-      {:ok, []} -> {:error, :empty_response}
-      {:ok, iodata} -> {:ok, IO.iodata_to_binary(iodata)}
-      {:error, _} = error -> error
-    end
-  end
-
-  @spec format_history([Message.t()]) :: String.t()
-  defp format_history(messages) do
-    messages
-    |> Enum.map_join("\n\n", fn %Message{role: role, content: content} ->
-      label = format_role(role)
-      text = extract_text(content)
-      "#{label}: #{text}"
-    end)
-  end
-
-  @spec format_role(Message.role()) :: String.t()
-  defp format_role(:user), do: "User"
-  defp format_role(:assistant), do: "Assistant"
-  defp format_role(:tool_result), do: "Tool result"
-  defp format_role({:custom, kind}), do: kind |> Atom.to_string() |> String.capitalize()
-
-  @spec extract_text([Planck.AI.Message.content_part()]) :: String.t()
-  defp extract_text(content) do
-    content
-    |> Enum.flat_map(fn
-      {:text, text} -> [text]
-      {:tool_result, _id, value} -> [value]
-      _ -> []
-    end)
-    |> IO.iodata_to_binary()
-  end
 
   @spec remote_timeout(module(), atom()) :: pos_integer()
   defp remote_timeout(module, sidecar_node) do
