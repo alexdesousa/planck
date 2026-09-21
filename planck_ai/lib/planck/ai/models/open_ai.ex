@@ -43,7 +43,7 @@ defmodule Planck.AI.Models.OpenAI do
   - `:base_url` — base URL of the server.
   - `:identifier` — uppercase tag for env var derivation (e.g. `"NVIDIA"` →
     `NVIDIA_API_KEY`). Defaults to `"OPENAI"`.
-  - `:context_window` — default context window. Defaults to `4_096`.
+  - `:context_window` — default context window. Defaults to `32_768`.
   - `:max_tokens` — default max tokens. Defaults to `2_048`.
   """
   @spec all() :: [Model.t()]
@@ -85,7 +85,7 @@ defmodule Planck.AI.Models.OpenAI do
       provider: :openai,
       identifier: opts[:identifier],
       base_url: base_url,
-      context_window: opts[:context_window] || 4_096,
+      context_window: opts[:context_window] || 32_768,
       max_tokens: opts[:max_tokens] || 2_048,
       supports_thinking: opts[:supports_thinking] || false,
       input_types: opts[:input_types] || [:text],

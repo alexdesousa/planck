@@ -579,9 +579,12 @@ defmodule Planck.Agent.AgentTest do
     use Planck.Agent.Hooks.Compactor
 
     @impl true
-    def compact(_model, messages) do
+    def compact?(_state, _context, _recent), do: true
+
+    @impl true
+    def compact(_state, _context, recent) do
       summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "Past summary."}])
-      {:compact, summary, Enum.take(messages, -1)}
+      {:compact, summary, Enum.take(recent, -1)}
     end
   end
 

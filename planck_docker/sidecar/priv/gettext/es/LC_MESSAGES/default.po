@@ -11,68 +11,62 @@ msgstr ""
 "Language: es\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: lib/sidecar/widgets/beads.ex:179
+#: lib/sidecar/widgets/beads.ex:342
 #, elixir-autogen, elixir-format
 msgctxt "bead status"
 msgid "in progress"
 msgstr "en curso"
 
-#: lib/sidecar/widgets/beads.ex:178
+#: lib/sidecar/widgets/beads.ex:344
 #, elixir-autogen, elixir-format
 msgctxt "bead status"
 msgid "open"
 msgstr "abierto"
 
-#: lib/sidecar/widgets/beads.ex:71
+#: lib/sidecar/widgets/beads.ex:136
 #, elixir-autogen, elixir-format
 msgctxt "bead widget"
 msgid "New task"
 msgstr "Nueva tarea"
 
-#: lib/sidecar/widgets/beads.ex:75
+#: lib/sidecar/widgets/beads.ex:141
 #, elixir-autogen, elixir-format
 msgctxt "bead widget"
 msgid "Title"
 msgstr "Título"
 
-#: lib/sidecar/widgets/beads.ex:105
-#, elixir-autogen, elixir-format
-msgctxt "bead widget"
-msgid "assignee"
-msgstr "responsable"
-
-#: lib/sidecar/widgets/beads.ex:90
+#: lib/sidecar/widgets/beads.ex:167
 #, elixir-autogen, elixir-format
 msgctxt "bead widget"
 msgid "none"
 msgstr "ninguno"
 
-#: lib/sidecar/widgets/beads.ex:96
-#, elixir-autogen, elixir-format
-msgctxt "bead widget"
-msgid "priority"
-msgstr "prioridad"
-
-#: lib/sidecar/widgets/beads.ex:110
-#, elixir-autogen, elixir-format
-msgctxt "button label"
-msgid "Claim"
-msgstr "Reclamar"
-
-#: lib/sidecar/widgets/beads.ex:81
+#: lib/sidecar/widgets/beads.ex:161
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Create"
 msgstr "Crear"
 
-#: lib/sidecar/widgets/beads.ex:133
+#: lib/sidecar/widgets/beads.ex:205
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Delete"
 msgstr "Eliminar"
 
-#: lib/sidecar/widgets/beads.ex:122
+#: lib/sidecar/widgets/beads.ex:339
 #, elixir-autogen, elixir-format
-msgctxt "button label"
-msgid "Done"
-msgstr "Hecho"
+msgctxt "bead status"
+msgid "done"
+msgstr "hecho"
+
+#: lib/sidecar/widgets/beads.ex:149
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "Description"
+msgstr "Descripción"
+
+#: lib/sidecar/widgets/beads.ex:190
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "assigned to"
+msgstr "asignado a"

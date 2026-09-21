@@ -23,17 +23,21 @@ defmodule Sidecar.Tools.BeadsDelete do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "issue_id" => %{"type" => "string", "description" => "The bead's id, e.g. \"bd-abc\"."}
+          "issue_id" => %{
+            "type" => "string",
+            "description" => "The bead's id, e.g. \"planck-abc\"."
+          }
         },
         "required" => ["issue_id"]
       },
       execute_fn: fn agent_id, _id, %{"issue_id" => issue_id} ->
-        actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
-
-        case Sidecar.Beads.delete([issue_id], actor, opts) do
-          {:ok, _} ->
-            Sidecar.Beads.broadcast_refresh(opts)
-            {:ok, "Deleted #{issue_id}.", %{ui: Sidecar.Tools.Beads.board_ui()}}
+        with {:ok, actor} <- Sidecar.Tools.Beads.require_actor(agent_id),
+             {:ok, _} <- Sidecar.Beads.delete([issue_id], actor, opts) do
+          Sidecar.Beads.broadcast_refresh(opts)
+          {:ok, "Deleted #{issue_id}.", %{ui: Sidecar.Tools.Beads.board_ui()}}
+        else
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
 
           {:error, {status, body}} ->
             {:error, "Failed to delete #{issue_id}: HTTP #{status} #{inspect(body)}"}

@@ -20,21 +20,26 @@ defmodule Sidecar.Tools.BeadsDone do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "issue_id" => %{"type" => "string", "description" => "The bead's id, e.g. \"bd-abc\"."}
+          "issue_id" => %{
+            "type" => "string",
+            "description" => "The bead's id, e.g. \"planck-abc\"."
+          }
         },
         "required" => ["issue_id"]
       },
       execute_fn: fn agent_id, _id, %{"issue_id" => issue_id} ->
-        actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
         ui = %{ui: Sidecar.Tools.Beads.board_ui()}
 
-        case Sidecar.Beads.close(issue_id, actor, opts) do
+        with {:ok, actor} <- Sidecar.Tools.Beads.require_actor(agent_id),
+             {:ok, %{"already_closed" => false}} <- Sidecar.Beads.close(issue_id, actor, opts) do
+          Sidecar.Beads.broadcast_refresh(opts)
+          {:ok, "Marked #{issue_id} as done.", ui}
+        else
           {:ok, %{"already_closed" => true}} ->
             {:ok, "#{issue_id} was already closed.", ui}
 
-          {:ok, _} ->
-            Sidecar.Beads.broadcast_refresh(opts)
-            {:ok, "Marked #{issue_id} as done.", ui}
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
 
           {:error, {status, body}} ->
             {:error, "Failed to close #{issue_id}: HTTP #{status} #{inspect(body)}"}

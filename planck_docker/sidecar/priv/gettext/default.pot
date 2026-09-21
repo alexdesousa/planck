@@ -11,68 +11,62 @@
 msgid ""
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:179
+#: lib/sidecar/widgets/beads.ex:342
 #, elixir-autogen, elixir-format
 msgctxt "bead status"
 msgid "in progress"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:178
+#: lib/sidecar/widgets/beads.ex:344
 #, elixir-autogen, elixir-format
 msgctxt "bead status"
 msgid "open"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:71
+#: lib/sidecar/widgets/beads.ex:136
 #, elixir-autogen, elixir-format
 msgctxt "bead widget"
 msgid "New task"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:75
+#: lib/sidecar/widgets/beads.ex:141
 #, elixir-autogen, elixir-format
 msgctxt "bead widget"
 msgid "Title"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:105
-#, elixir-autogen, elixir-format
-msgctxt "bead widget"
-msgid "assignee"
-msgstr ""
-
-#: lib/sidecar/widgets/beads.ex:90
+#: lib/sidecar/widgets/beads.ex:167
 #, elixir-autogen, elixir-format
 msgctxt "bead widget"
 msgid "none"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:96
-#, elixir-autogen, elixir-format
-msgctxt "bead widget"
-msgid "priority"
-msgstr ""
-
-#: lib/sidecar/widgets/beads.ex:110
-#, elixir-autogen, elixir-format
-msgctxt "button label"
-msgid "Claim"
-msgstr ""
-
-#: lib/sidecar/widgets/beads.ex:81
+#: lib/sidecar/widgets/beads.ex:161
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Create"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:133
+#: lib/sidecar/widgets/beads.ex:205
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Delete"
 msgstr ""
 
-#: lib/sidecar/widgets/beads.ex:122
+#: lib/sidecar/widgets/beads.ex:339
 #, elixir-autogen, elixir-format
-msgctxt "button label"
-msgid "Done"
+msgctxt "bead status"
+msgid "done"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:149
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "Description"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:190
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "assigned to"
 msgstr ""

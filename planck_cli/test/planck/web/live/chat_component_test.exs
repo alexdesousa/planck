@@ -6,8 +6,7 @@ defmodule Planck.Web.Live.ChatComponentTest do
   # render_markdown/1 was Earmark, swapped for MDEx after Earmark was retired
   # upstream with an active XSS CVE (EEF-CVE-2026-48591). This text can be
   # agent- or tool-authored and reaches the chat DOM, so the escaping
-  # behavior here is load-bearing, not incidental — see specs/drafts/v0.1.14-spec.md
-  # Section 3.
+  # behavior here is load-bearing, not incidental.
   describe "render_markdown/1" do
     test "renders basic markdown" do
       html = safe_to_string(ChatComponent.render_markdown("plain **bold** text"))
@@ -93,6 +92,79 @@ defmodule Planck.Web.Live.ChatComponentTest do
                ChatComponent.handle_event("open_widget", %{"id" => "ghost"}, socket)
 
       refute_received {:open_widget, _}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # update/2 {action: :event, event: {:agent_event, :tool_end, ...}}
+  # ---------------------------------------------------------------------------
+
+  describe ~s(update/2 "tool_end" — ui entry placement) do
+    defp tool_entry(tool_id) do
+      %{
+        id: "tool-#{tool_id}",
+        type: :tool,
+        tool_id: tool_id,
+        author: {:agent, "a1", "Agent"},
+        tool_result: nil,
+        tool_error: false
+      }
+    end
+
+    defp widget_result do
+      {:ok, "done",
+       %{ui: %{kind: :widget, label: "View board", widget: "beads-board", data: nil}}}
+    end
+
+    # ChatEntries.insert_ui_entries/1 — the turn-end rebuild's own placement
+    # logic — splices a ui entry right after its matching :tool entry, not
+    # at the end of the list. This event fires immediately on tool
+    # completion, well before turn-end's rebuild; if it appended instead of
+    # splicing, the button would visibly jump to its final spot the moment
+    # the turn ended and load_entries/2 replaced `entries` wholesale.
+    test "splices the ui entry right after its tool entry, not appended to the end" do
+      socket = socket_with_entries([tool_entry("t1"), tool_entry("t2")])
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event: {:agent_event, :tool_end, %{id: "t1", result: widget_result(), error: false}}
+          },
+          socket
+        )
+
+      assert Enum.map(updated.assigns.entries, & &1.id) == ["tool-t1", "ui-t1", "tool-t2"]
+    end
+
+    test "adds no ui entry when the tool_id has no matching entry (author unresolvable)" do
+      socket = socket_with_entries([tool_entry("other")])
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event: {:agent_event, :tool_end, %{id: "t1", result: widget_result(), error: false}}
+          },
+          socket
+        )
+
+      assert Enum.map(updated.assigns.entries, & &1.id) == ["tool-other"]
+    end
+
+    test "still updates tool_result/tool_error on the matching entry" do
+      socket = socket_with_entries([tool_entry("t1")])
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event: {:agent_event, :tool_end, %{id: "t1", result: {:ok, "output"}, error: false}}
+          },
+          socket
+        )
+
+      assert [%{tool_result: "output", tool_error: false}] = updated.assigns.entries
     end
   end
 end

@@ -377,9 +377,17 @@ defmodule Planck.Web.Live.ChatEntries do
     }
   end
 
+  @doc """
+  Builds the display entry for a tool result's `ui:` content.
+
+  Public so `ChatComponent` can insert one immediately on the live
+  `:tool_end` event — the same shape `insert_ui_entries/1` produces from the
+  persisted `{:custom, :ui}` message, just not waiting for the turn-end
+  rebuild that reads that message back.
+  """
   @spec ui_entry(Planck.Agent.Tool.ui_content(), String.t(), author(), DateTime.t() | nil) ::
           entry()
-  defp ui_entry(%{kind: :text, text: text}, tool_id, author, timestamp) do
+  def ui_entry(%{kind: :text, text: text}, tool_id, author, timestamp) do
     %{
       id: "ui-#{tool_id}",
       type: :ui_text,
@@ -390,12 +398,12 @@ defmodule Planck.Web.Live.ChatEntries do
     }
   end
 
-  defp ui_entry(
-         %{kind: :widget, label: label, widget: widget_id, data: data},
-         tool_id,
-         author,
-         timestamp
-       ) do
+  def ui_entry(
+        %{kind: :widget, label: label, widget: widget_id, data: data},
+        tool_id,
+        author,
+        timestamp
+      ) do
     %{
       id: "ui-#{tool_id}",
       type: :ui_widget,

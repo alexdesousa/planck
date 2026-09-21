@@ -109,15 +109,21 @@ services:
   # Pinned below 2.3.0: that release (and 2.3.1) regressed DOLT_RESET('--hard'),
   # and nothing in the 2.3.2–2.3.5 release notes indicates a fix.
   dolt:
-    image: dolthub/dolt:2.2.0
+    build:
+      context: ..
+      dockerfile: planck_docker/dolt/Dockerfile
     volumes:
       - ${PLANCK_HOME}/dolt-data:/var/lib/dolt
-    command: ["sql-server", "--host", "0.0.0.0", "--port", "3306"]
     healthcheck:
-      # No mysql client and no HTTP health endpoint ship in this image (verified
-      # against dolthub/dolt's own published Dockerfile — just dolt/curl/tini) —
-      # a raw TCP connect via bash's /dev/tcp is the only thing available that
-      # confirms sql-server has actually started and is listening.
+      # No mysql client and no HTTP health endpoint ship in the base image
+      # (verified against dolthub/dolt's own published Dockerfile — just
+      # dolt/curl/tini) — a raw TCP connect via bash's /dev/tcp is the only
+      # thing available that confirms sql-server has actually started and
+      # is listening. NOT a check that a remote client can authenticate —
+      # entrypoint.sh's root@'%' grant runs after the port opens, so a
+      # request landing in that narrow window can still see the same
+      # "Access denied" this was written to fix; it's expected to be
+      # rare and self-heal via beads' own restart, not fully closed here.
       test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306'"]
       interval: 5s
       retries: 10

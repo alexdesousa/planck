@@ -105,7 +105,7 @@ defmodule Planck.AI.Config do
          base_url: prov_entry["base_url"],
          identifier: identifier,
          has_api_key: has_api_key,
-         context_window: entry["context_window"] || 4_096,
+         context_window: entry["context_window"] || 32_768,
          max_tokens: entry["max_tokens"] || 2_048,
          supports_thinking: entry["supports_thinking"] || false,
          input_types: parse_input_types(entry["input_types"]),
@@ -226,14 +226,14 @@ defmodule Planck.AI.Config do
   end
 
   # Checks whether `key` is one of the inference params req_llm recognizes as
-  # real options (temperature, max_tokens, top_p, top_k, min_p,
-  # receive_timeout, anthropic_prompt_cache, anthropic_prompt_cache_ttl — the
-  # set documented in configuration.md's "Model params" table).
+  # a *generic*, provider-agnostic option (temperature, max_tokens, top_p,
+  # top_k, receive_timeout, anthropic_prompt_cache, anthropic_prompt_cache_ttl
+  # — the set documented in configuration.md's "Model params" table).
   #
   # Any other key found flat in a model's params map is not a req_llm option
   # at all — it's forwarded as-is into extra_body (merged verbatim into the
   # request's JSON body) rather than dropped, since which sampler knobs a
-  # backend accepts (llama.cpp's repetition_penalty, vLLM's
+  # backend accepts (llama.cpp's repetition_penalty/min_p, vLLM's
   # chat_template_kwargs, ...) varies by model and arch and isn't something
   # Planck can enumerate. receive_timeout and anthropic_prompt_cache* are
   # excluded from that passthrough on purpose: they're consumed by req_llm
@@ -252,7 +252,6 @@ defmodule Planck.AI.Config do
   defp known_default_opt_key("max_tokens"), do: {:ok, :max_tokens}
   defp known_default_opt_key("top_p"), do: {:ok, :top_p}
   defp known_default_opt_key("top_k"), do: {:ok, :top_k}
-  defp known_default_opt_key("min_p"), do: {:ok, :min_p}
   defp known_default_opt_key("receive_timeout"), do: {:ok, :receive_timeout}
   defp known_default_opt_key("anthropic_prompt_cache"), do: {:ok, :anthropic_prompt_cache}
   defp known_default_opt_key("anthropic_prompt_cache_ttl"), do: {:ok, :anthropic_prompt_cache_ttl}

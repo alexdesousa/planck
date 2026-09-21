@@ -130,7 +130,6 @@ model- or backend-specific sampler fields (llama.cpp's `repetition_penalty`, `pr
 | `temperature` | float | Sampling temperature |
 | `top_p` | float | Nucleus sampling threshold |
 | `top_k` | integer | Top-k sampling |
-| `min_p` | float | Minimum probability threshold |
 | `max_tokens` | integer | Maximum tokens per response |
 | `receive_timeout` | integer | HTTP receive timeout in milliseconds (default: 30 000; use 600 000 for slow frontier models) |
 

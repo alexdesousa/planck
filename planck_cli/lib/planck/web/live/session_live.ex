@@ -3,6 +3,7 @@ defmodule Planck.Web.SessionLive do
 
   alias Planck.Agent
   alias Planck.Agent.{Message, Session}
+  alias Planck.AI.Context
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
   alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
@@ -592,13 +593,23 @@ defmodule Planck.Web.SessionLive do
     {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
   end
 
+  # Planck.Agent.Message carries no estimate_tokens/1 of its own — converting
+  # to Planck.AI.Message and wrapping in a bare Context (system/tools left at
+  # their defaults) reuses Context.estimate_tokens/1's per-part counting
+  # rather than a separate copy of it here. This is a messages-only estimate
+  # (no system prompt/tools) since neither is known for a session that may
+  # not have a live agent process to ask.
   @spec load_context_tokens(String.t() | nil, String.t()) :: non_neg_integer()
   defp load_context_tokens(nil, _agent_id), do: 0
 
   defp load_context_tokens(session_id, agent_id) do
     case Session.messages(session_id, agent_id: agent_id) do
-      {:ok, rows} -> rows |> Enum.map(& &1.message) |> Message.estimate_tokens()
-      _ -> 0
+      {:ok, rows} ->
+        messages = rows |> Enum.map(& &1.message) |> Message.to_ai_messages()
+        Context.estimate_tokens(%Context{messages: messages})
+
+      _ ->
+        0
     end
   end
 

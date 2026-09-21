@@ -214,7 +214,12 @@ defmodule Sidecar.BeadsTest do
       assert body == %{"actor" => "agent-1", "reason" => "done"}
     end
 
-    test "reason defaults to nil when omitted", %{bypass: bypass} do
+    # The API refuses a literal null for `reason` outright ("`reason` must
+    # be a string") — the key must be left out of the body entirely when no
+    # reason is given, same as create/3's description/priority. This is the
+    # real, reachable case: the widget's own close action never collects a
+    # reason at all, so every close a human makes went through this path.
+    test "omits reason entirely when not given, rather than sending null", %{bypass: bypass} do
       parent = self()
 
       Bypass.expect_once(bypass, "POST", "/v0/beads/issues/b1:close", fn conn ->
@@ -225,7 +230,7 @@ defmodule Sidecar.BeadsTest do
 
       assert {:ok, _} = Beads.close("b1", "agent-1")
       assert_receive {:body, body}
-      assert body == %{"actor" => "agent-1", "reason" => nil}
+      assert body == %{"actor" => "agent-1"}
     end
   end
 
@@ -326,6 +331,21 @@ defmodule Sidecar.BeadsTest do
 
       assert :ok = Beads.broadcast_refresh(instance: "test-xyz")
       refute_receive {:widget_rendered, _id, _html}
+    end
+
+    # A real per-viewer CID baked in here would be correct for at most one
+    # subscriber and broken for the rest (see this function's own moduledoc)
+    # — a plain, viewer-independent selector matching the wrapper div every
+    # SidecarWidget instance renders around @html is what actually reaches
+    # every subscriber's own component correctly.
+    test "renders with myself set to the #widget-<instance> selector, not a real CID",
+         %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/v0/beads/issues", &json(&1, 200, %{"items" => []}))
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:beads-board")
+
+      assert :ok = Beads.broadcast_refresh()
+      assert_receive {:widget_rendered, "beads-board", html}
+      assert html =~ "#widget-beads-board"
     end
 
     test ":client reaches the board's own re-fetch, not just a triggering write" do

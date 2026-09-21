@@ -43,6 +43,13 @@ defmodule Sidecar.SkillReflector.Runner do
   def init(%{parent_agent_id: parent_agent_id, turn_messages: turn_messages}) do
     Process.flag(:trap_exit, true)
 
+    # Agent.whereis/1 checks the connected planck_headless node too, not just
+    # this (sidecar) node's own Registry — needed here, since this runs on
+    # the sidecar node while the parent agent's real process lives on
+    # planck_headless. Before whereis/1 covered that, this silently never
+    # found the parent in real (non-test) use, and skill reflection quietly
+    # never ran — see Sidecar.Tools.Beads.resolve_actor/1's moduledoc, which
+    # hit the same gap as a hard crash instead.
     with {:ok, parent_pid} <- Agent.whereis(parent_agent_id),
          parent_state <- Agent.get_state(parent_pid),
          {:ok, mini_id, mini_pid} <- start_mini_agent(parent_state, turn_messages) do

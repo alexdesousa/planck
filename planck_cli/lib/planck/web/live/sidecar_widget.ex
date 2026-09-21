@@ -85,7 +85,7 @@ defmodule Planck.Web.Live.SidecarWidget do
 
   def update(%{widget_id: id}, socket) when is_binary(id) do
     socket =
-      case Planck.Headless.Widgets.render(id, socket.assigns.myself) do
+      case Planck.Headless.Widgets.render(id, target_selector(id)) do
         {:ok, html} -> assign(socket, html: html, error: nil)
         {:error, reason} -> assign(socket, html: nil, error: reason)
       end
@@ -101,6 +101,31 @@ defmodule Planck.Web.Live.SidecarWidget do
   def update(_assigns, socket) do
     {:ok, socket}
   end
+
+  # Passed to the widget module as `myself` (see c:Planck.Agent.Widget.render/1)
+  # for it to bake into its own action controls' phx-target — a plain CSS
+  # selector for the wrapper div below, not this component's own numeric CID
+  # (`socket.assigns.myself`, which used to be passed here directly).
+  #
+  # A real CID only identifies *this browser session's* mounted component
+  # instance. A widget with mutating actions re-renders by broadcasting one
+  # HTML string to every subscriber at once (Sidecar.Beads.broadcast_refresh/1
+  # is the concrete case) — a CID baked into that shared string is correct for
+  # at most one of them and wrong, or already-stale-and-crashing, for the
+  # rest, since Elixir/OTP terms don't survive being serialized into a
+  # PubSub-broadcast HTML string, then rendered somewhere else, then acted on
+  # as if they still meant something. A selector is just a string: the same
+  # one for every subscriber, resolved by each one's own browser against
+  # their own DOM, which is the actual point of using a selector for
+  # phx-target at all — Phoenix supports both forms for exactly this reason.
+  # This is why a first click through a widget's controls worked but a second
+  # one (after the first action's own broadcast re-render replaced the HTML)
+  # crashed the parent LiveView instead of reaching this component's
+  # handle_event/2 at all — confirmed by reproducing it against the beads
+  # board specifically before this fix.
+  @doc false
+  @spec target_selector(String.t()) :: String.t()
+  def target_selector(widget_id), do: "#widget-#{widget_id}"
 
   @impl true
   def handle_event(event, params, socket)

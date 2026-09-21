@@ -44,7 +44,7 @@ defmodule Planck.AI.LLMDB do
   end
 
   defp context_window(%{limits: %{context: ctx}}) when is_integer(ctx) and ctx > 0, do: ctx
-  defp context_window(_), do: 4_096
+  defp context_window(_), do: 32_768
 
   defp max_tokens(%{limits: %{output: out}}) when is_integer(out) and out > 0, do: out
   defp max_tokens(_), do: 2_048

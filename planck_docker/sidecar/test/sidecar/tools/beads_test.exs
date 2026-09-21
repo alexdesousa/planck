@@ -34,6 +34,30 @@ defmodule Sidecar.Tools.BeadsTest do
 
       assert Beads.resolve_actor(id) == "deep-thought:worker-1"
     end
+
+    test "returns nil when the calling agent can't be found anywhere" do
+      assert Beads.resolve_actor("ghost-agent-id") == nil
+    end
+  end
+
+  describe "require_actor/1" do
+    test "returns {:ok, actor} when the calling agent resolves" do
+      stub(MockAI, :stream, fn _m, _c, _o -> [{:text_delta, "ok"}, {:done, %{}}] end)
+      id = unique_id()
+
+      start_supervised!(
+        {Agent,
+         id: id, model: @model, system_prompt: "hi", name: "worker-1", team_name: "deep-thought"},
+        id: id
+      )
+
+      assert Beads.require_actor(id) == {:ok, "deep-thought:worker-1"}
+    end
+
+    test "returns an error instead of handing a mutating tool a nil actor" do
+      assert {:error, message} = Beads.require_actor("ghost-agent-id")
+      assert message =~ "identity"
+    end
   end
 
   describe "board_ui/0" do

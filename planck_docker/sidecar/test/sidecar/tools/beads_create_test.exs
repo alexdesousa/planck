@@ -126,5 +126,16 @@ defmodule Sidecar.Tools.BeadsCreateTest do
                "priority" => 0
              }
     end
+
+    # No Bypass expectation set up at all — if the tool tried to reach the
+    # create endpoint anyway, Bypass itself would fail this test.
+    test "errors out before ever calling the API when the caller can't be identified", %{
+      client: client
+    } do
+      tool = BeadsCreate.tool(client: client)
+
+      assert {:error, message} = tool.execute_fn.("ghost-agent-id", "tc1", %{"title" => "x"})
+      assert message =~ "identity"
+    end
   end
 end

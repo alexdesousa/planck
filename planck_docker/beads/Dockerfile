@@ -6,9 +6,15 @@ FROM debian:bookworm-slim
 ARG BEADS_VERSION=1.3.0
 ARG TARGETARCH
 
+# git: bd resolves its workspace root via a repo-root lookup unconditionally
+# (not just for git-aware features) — without it, even `bd serve` refuses to
+# start at all: "cannot resolve workspace context: cannot determine
+# repository root: not a git repository: exec: git executable file not
+# found in $PATH". Found by actually running this image, not from any docs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Checksums pinned from the release's own checksums.txt — verified before

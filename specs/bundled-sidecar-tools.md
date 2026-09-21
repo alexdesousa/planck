@@ -33,11 +33,13 @@ unaddressed.
 | `session_search` | Decisions made in a past session are otherwise gone once that session ends | Typesense |
 | `update_memory` | Facts an agent should just *know* next time, without being asked to look them up | Typesense |
 | `list_skills` / `write_skill` | Procedures an agent has already worked out shouldn't have to be re-derived every time | filesystem + `SkillReflector` |
+| `bd_ready` / `bd_get` / `bd_list` / `bd_claim` / `bd_create` / `bd_done` / `bd_delete` | Work spanning multiple agents/turns needs a shared, structured tracker — not just ad-hoc `update_memory` facts | `beads` + `dolt` |
 
 Three services do almost all of the load-bearing work: **Typesense** (search
 and memory storage), **Searxng** (private web search), **Tika** (document text
-extraction). All three are internal-only Docker services — see
-`specs/planck-docker.md` for the deployment side.
+extraction). A fourth pair, **`beads`** (task API) + **`dolt`** (its storage
+backend), backs the shared task tracker specifically. All are internal-only
+Docker services — see `specs/planck-docker.md` for the deployment side.
 
 ---
 
@@ -169,6 +171,38 @@ agent's history as a passive, non-callable entry — the parent never sees
 `@max_tool_calls` safety cap, the create/update injection format) is in
 `specs/sidecar.md`.
 
+## Shared task tracking — the beads tools
+
+**Motivation.** Memory (above) is per-agent and ad-hoc — a fact one agent
+jots down for its own future turns. Work that spans *multiple* agents (an
+orchestrator delegating to workers, or a human tracking what a team is doing)
+needs a shared, structured primitive instead: a task with an id, a status,
+and an owner, visible to everyone, not a scattered set of private notes.
+
+**How it works.** Backed by `beads` (an HTTP task-tracking API) with `dolt`
+as its storage engine, both dedicated Docker services — one shared instance
+per Planck installation, not per-project or per-session. Seven tools cover
+the LLM-facing side: `bd_ready` (open, unblocked work — what an agent should
+pick up next), `bd_get` (a single bead's current state, including anything a
+human edited since it was claimed), `bd_list` (whole-board overview,
+including closed/done — orchestrator-only, for triage), `bd_claim`,
+`bd_create` (optional `description`/`priority`), `bd_done`, and `bd_delete`.
+Every successful call attaches a `ui:` button opening a shared kanban-style
+board widget, so a turn that only claims or closes a bead still leaves a
+human a way to see the board, not just the agent that acted on it.
+
+**Human vs. agent actions.** The board widget lets a human create and delete
+beads directly; it deliberately has no assign or mark-done control of its
+own. Workers are spawned and torn down by the orchestrator at its own
+discretion, so a human picking a specific worker to hand a bead to would
+bypass the orchestrator's own delegation — and marking a bead done is the
+same problem one level up, since the orchestrator (or whichever agent it
+delegated to) is the one that actually knows whether the work is finished.
+Claiming and closing stay LLM-only actions, resolved through the calling
+agent's own durable `team_name:agent_name` identity (`Sidecar.Tools.Beads.require_actor/1`),
+not a live picker or free text — a human's own actions on the board are
+recorded as a fixed, well-known actor, `"user"`.
+
 ---
 
 ## What's deliberately not here
@@ -179,10 +213,6 @@ The restraint is as much a design choice as the tools themselves:
   anything requiring interaction (clicking, forms, JS-rendered content) is a
   much bigger trust and complexity surface and isn't part of the opinionated
   default.
-- **No arbitrary task/project tracker (yet).** Beyond ad-hoc `update_memory`
-  facts, there's no structured, shared work-tracking primitive across a team
-  of agents — see `specs/drafts/v0.1.14-spec.md` for the beads integration
-  addressing exactly this gap.
 - **No credential-aware tools beyond what agent-vault already handles
   transparently** — see `specs/sidecar.md`'s and the v0.1.10 draft's coverage
   of `Planck.Agent.Secrets` / agent-vault; tools don't need their own

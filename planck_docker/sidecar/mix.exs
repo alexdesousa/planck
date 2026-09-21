@@ -52,6 +52,7 @@ defmodule Sidecar.MixProject do
       {:ymlr, "~> 5.1"},
       {:erlexec, "~> 2.0"},
       {:file_system, "~> 1.0"},
+      {:mdex, "~> 0.13"},
       {:bypass, "~> 2.1", only: :test},
       {:mox, "~> 1.2", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

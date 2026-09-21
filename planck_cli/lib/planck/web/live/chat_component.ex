@@ -183,13 +183,9 @@ defmodule Planck.Web.Live.ChatComponent do
          {:agent_event, :tool_end, %{id: tool_id, result: result, error: error}}
        ) do
     entries =
-      Enum.map(socket.assigns.entries, fn
-        %{tool_id: ^tool_id} = e ->
-          %{e | tool_result: ChatEntries.format_tool_result(result), tool_error: error}
-
-        e ->
-          e
-      end)
+      socket.assigns.entries
+      |> update_tool_result(tool_id, result, error)
+      |> insert_ui_entry(tool_id, result)
 
     assign(socket, :entries, entries)
   end
@@ -242,6 +238,44 @@ defmodule Planck.Web.Live.ChatComponent do
   end
 
   defp handle_agent_event(socket, _event), do: socket
+
+  # ---------------------------------------------------------------------------
+  # tool_end helpers
+  # ---------------------------------------------------------------------------
+
+  @spec update_tool_result([ChatEntries.entry()], String.t(), term(), boolean()) ::
+          [ChatEntries.entry()]
+  defp update_tool_result(entries, tool_id, result, error) do
+    Enum.map(entries, fn
+      %{tool_id: ^tool_id} = e ->
+        %{e | tool_result: ChatEntries.format_tool_result(result), tool_error: error}
+
+      entry ->
+        entry
+    end)
+  end
+
+  # Splices the ui entry right after its matching :tool entry — the same
+  # position ChatEntries.insert_ui_entries/1 (the turn-end rebuild's own
+  # placement logic) uses, so the widget-opening button doesn't visibly jump
+  # once the turn ends and load_entries/2 replaces `entries` wholesale.
+  @spec insert_ui_entry([ChatEntries.entry()], String.t(), term()) :: [ChatEntries.entry()]
+  defp insert_ui_entry(entries, tool_id, result)
+
+  defp insert_ui_entry(entries, tool_id, {:ok, _text, %{ui: content}}) do
+    Enum.flat_map(entries, fn
+      %{tool_id: ^tool_id, author: tool_author} = entry when not is_nil(tool_author) ->
+        ui_entry = ChatEntries.ui_entry(content, tool_id, tool_author, DateTime.utc_now())
+        [entry, ui_entry]
+
+      entry ->
+        [entry]
+    end)
+  end
+
+  defp insert_ui_entry(entries, _tool_id, _result) do
+    entries
+  end
 
   # ---------------------------------------------------------------------------
   # History loading

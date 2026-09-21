@@ -7,13 +7,13 @@ msgstr ""
 
 #: lib/planck/web/components.ex:113
 #: lib/planck/web/components.ex:123
-#: lib/planck/web/components.ex:493
+#: lib/planck/web/components.ex:512
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "orchestrator"
 msgstr "orchestrator"
 
-#: lib/planck/web/components.ex:494
+#: lib/planck/web/components.ex:513
 #, elixir-autogen, elixir-format
 msgctxt "agent type"
 msgid "worker"
@@ -117,7 +117,7 @@ msgctxt "chat label"
 msgid "thinking…"
 msgstr "thinking…"
 
-#: lib/planck/web/live/chat_component.ex:318
+#: lib/planck/web/live/chat_component.ex:352
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"
@@ -884,18 +884,18 @@ msgctxt "setup subtitle"
 msgid "Configure a service rule"
 msgstr "Configure a service rule"
 
-#: lib/planck/web/live/sidecar_widget.ex:160
+#: lib/planck/web/live/sidecar_widget.ex:185
 #, elixir-autogen, elixir-format
 msgctxt "widget status"
 msgid "Sidecar not connected — this widget will reload once it reconnects."
 msgstr ""
 
-#: lib/planck/web/live/sidecar_widget.ex:130
+#: lib/planck/web/live/sidecar_widget.ex:155
 #, elixir-autogen, elixir-format
 msgid "%{action} failed: %{reason}"
 msgstr "%{action} failed: %{reason}"
 
-#: lib/planck/web/live/sidecar_widget.ex:125
+#: lib/planck/web/live/sidecar_widget.ex:150
 #, elixir-autogen, elixir-format
 msgid "%{action} succeeded"
 msgstr "%{action} succeeded"

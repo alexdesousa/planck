@@ -4,9 +4,10 @@ defmodule Planck.Headless.SidecarIntegrationTest do
   @moduletag :integration
   @moduletag timeout: 120_000
 
+  alias Planck.Agent
   alias Planck.Agent.Hooks.Compactor
   alias Planck.Agent.Message
-  alias Planck.AI.Model
+  alias Planck.AI.{Context, Model}
   alias Planck.Headless.{Config, Locale, ResourceStore, SidecarManager, Widgets}
 
   @sidecar_dir Path.expand("../../../test_sidecar", __DIR__)
@@ -194,8 +195,18 @@ defmodule Planck.Headless.SidecarIntegrationTest do
       messages =
         Enum.map(1..20, &Message.new(:user, [{:text, String.duplicate("x", 200) <> " #{&1}"}]))
 
+      state = %Agent{
+        id: "test",
+        model: @model,
+        messages: messages,
+        compactor: module,
+        sidecar_node: SidecarManager.node()
+      }
+
+      context = %Context{messages: Message.to_ai_messages(messages)}
+
       assert {:compact, %Message{content: [{:text, "Test summary."}]}, kept} =
-               Compactor.compact(module, @model, messages, SidecarManager.node())
+               Compactor.compact(state, context, messages)
 
       assert length(kept) == 3
     end

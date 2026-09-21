@@ -23,9 +23,6 @@ defmodule Planck.Agent.Tool do
     paired via a `Planck.Agent.Tool`'s `:widget` field). `data` is an opaque
     initial snapshot for that widget's first paint, avoiding a round-trip
     through `render/1` to open it — optional, may be `nil`.
-
-  See `specs/drafts/v0.1.14-spec.md` Section 2 for the full `{:custom, :ui}`
-  message design this feeds into.
   """
   @type ui_content ::
           %{kind: :text, text: String.t()}

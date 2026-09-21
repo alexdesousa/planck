@@ -89,6 +89,12 @@ defmodule Sidecar.Tools.UpdateMemory do
     maybe_write_memory(agent_key, session_id, combined)
   end
 
+  # Planck.Agent.whereis/1 checks the connected planck_headless node too, not
+  # just this (sidecar) node's own Registry — needed here, since this runs on
+  # the sidecar node while the real Planck.Agent process lives on
+  # planck_headless. See Sidecar.Tools.Beads.resolve_actor/1's moduledoc,
+  # which hit the same gap as a hard crash rather than this function's
+  # silent degrade-to-nil.
   @spec resolve_agent_info(String.t()) :: {String.t(), String.t() | nil}
   defp resolve_agent_info(agent_id) do
     case Planck.Agent.whereis(agent_id) do

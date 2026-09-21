@@ -153,5 +153,18 @@ defmodule Sidecar.Tools.BeadsClaimTest do
       assert {:error, "bd-1 is not claimable (status: closed)."} =
                tool.execute_fn.(agent_id, "tc1", %{"issue_id" => "bd-1"})
     end
+
+    # No Bypass expectation set up at all — if the tool tried to reach the
+    # claim endpoint anyway, Bypass itself would fail this test.
+    test "errors out before ever calling the API when the caller can't be identified", %{
+      client: client
+    } do
+      tool = BeadsClaim.tool(client: client)
+
+      assert {:error, message} =
+               tool.execute_fn.("ghost-agent-id", "tc1", %{"issue_id" => "bd-1"})
+
+      assert message =~ "identity"
+    end
   end
 end

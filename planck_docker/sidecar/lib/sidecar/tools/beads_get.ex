@@ -26,7 +26,10 @@ defmodule Sidecar.Tools.BeadsGet do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "issue_id" => %{"type" => "string", "description" => "The bead's id, e.g. \"bd-abc\"."}
+          "issue_id" => %{
+            "type" => "string",
+            "description" => "The bead's id, e.g. \"planck-abc\"."
+          }
         },
         "required" => ["issue_id"]
       },

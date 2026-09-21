@@ -33,21 +33,27 @@ defmodule Sidecar.Tools.BeadsClaim do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "issue_id" => %{"type" => "string", "description" => "The bead's id, e.g. \"bd-abc\"."}
+          "issue_id" => %{
+            "type" => "string",
+            "description" => "The bead's id, e.g. \"planck-abc\"."
+          }
         },
         "required" => ["issue_id"]
       },
       execute_fn: fn agent_id, _id, %{"issue_id" => issue_id} ->
-        actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
         ui = %{ui: Sidecar.Tools.Beads.board_ui()}
 
-        case Sidecar.Beads.claim(issue_id, actor, opts) do
+        with {:ok, actor} <- Sidecar.Tools.Beads.require_actor(agent_id),
+             {:ok, %{"already_claimed" => false} = body} <-
+               Sidecar.Beads.claim(issue_id, actor, opts) do
+          Sidecar.Beads.broadcast_refresh(opts)
+          {:ok, "Claimed #{issue_id}.#{describe(body)}", ui}
+        else
           {:ok, %{"already_claimed" => true} = body} ->
             {:ok, "You already have #{issue_id} claimed.#{describe(body)}", ui}
 
-          {:ok, body} ->
-            Sidecar.Beads.broadcast_refresh(opts)
-            {:ok, "Claimed #{issue_id}.#{describe(body)}", ui}
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
 
           {:error, {409, %{"assignee" => holder}}} ->
             {:error, "#{issue_id} is already claimed by #{holder}."}

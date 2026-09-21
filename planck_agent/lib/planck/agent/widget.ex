@@ -16,8 +16,7 @@ defmodule Planck.Agent.Widget do
   before it crosses the RPC boundary (never send a `%Phoenix.LiveView.Rendered{}`
   or any closure across nodes). The one place that assumes the return value is
   an HTML string is the WebUI's own widget-rendering component, which is also
-  the only place that needs to know. See `specs/drafts/v0.1.14-spec.md` for
-  the full design.
+  the only place that needs to know.
 
   ## Dispatch is separate from `execute_tool/4`
 

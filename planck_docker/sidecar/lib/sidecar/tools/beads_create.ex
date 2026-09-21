@@ -46,13 +46,15 @@ defmodule Sidecar.Tools.BeadsCreate do
         "required" => ["title"]
       },
       execute_fn: fn agent_id, _id, %{"title" => title} = args ->
-        actor = Sidecar.Tools.Beads.resolve_actor(agent_id)
         create_opts = [description: args["description"], priority: args["priority"]] ++ opts
 
-        case Sidecar.Beads.create(title, actor, create_opts) do
-          {:ok, %{"id" => id}} ->
-            Sidecar.Beads.broadcast_refresh(opts)
-            {:ok, "Created #{id}: #{title}", %{ui: Sidecar.Tools.Beads.board_ui()}}
+        with {:ok, actor} <- Sidecar.Tools.Beads.require_actor(agent_id),
+             {:ok, %{"id" => id}} <- Sidecar.Beads.create(title, actor, create_opts) do
+          Sidecar.Beads.broadcast_refresh(opts)
+          {:ok, "Created #{id}: #{title}", %{ui: Sidecar.Tools.Beads.board_ui()}}
+        else
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
 
           {:error, {status, body}} ->
             {:error, "Failed to create bead: HTTP #{status} #{inspect(body)}"}

@@ -469,18 +469,37 @@ defmodule Planck.Web.Components do
   def format_number(n) when n >= 1_000, do: "#{Float.round(n / 1_000, 1)}k"
   def format_number(n), do: "#{n}"
 
-  @doc "Format context usage as a percentage of the context window."
+  @doc """
+  Format context usage as tokens used, the context window size, and the
+  percentage consumed — e.g. `"ctx 10k / 200k (5%)"`.
+
+  Uses its own compact number formatting rather than `format_number/1`
+  (which always keeps one decimal, e.g. `"10.0k"`) — a round window size
+  like 200k reading as "200.0k" next to a plain integer percentage would be
+  needlessly noisy for a value people mainly skim, not read precisely.
+  """
   @spec format_context(non_neg_integer() | nil, pos_integer() | nil) :: String.t()
   def format_context(nil, _), do: ""
   def format_context(_, nil), do: ""
   def format_context(0, _), do: ""
 
   def format_context(tokens, window) when window > 0 do
-    pct = Float.round(tokens / window * 100, 1)
-    "ctx #{pct}%"
+    pct = round(tokens / window * 100)
+    "ctx #{format_ctx_tokens(tokens)} / #{format_ctx_tokens(window)} (#{pct}%)"
   end
 
   def format_context(_, _), do: ""
+
+  @spec format_ctx_tokens(non_neg_integer()) :: String.t()
+  defp format_ctx_tokens(n) when n >= 1_000_000, do: trim_trailing_zero(n / 1_000_000) <> "M"
+  defp format_ctx_tokens(n) when n >= 1_000, do: trim_trailing_zero(n / 1_000) <> "k"
+  defp format_ctx_tokens(n), do: "#{n}"
+
+  @spec trim_trailing_zero(float()) :: String.t()
+  defp trim_trailing_zero(f) do
+    rounded = Float.round(f, 1)
+    if rounded == trunc(rounded), do: "#{trunc(rounded)}", else: "#{rounded}"
+  end
 
   @doc "Format a cost in dollars: 0.0 → \"-\", 0.001 → \"$0.00\", 1.5 → \"$1.50\"."
   @spec format_cost(float() | nil) :: String.t()

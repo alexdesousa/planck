@@ -62,7 +62,7 @@ defmodule Planck.AI.ConfigTest do
       models = [%{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}]
       [m] = Config.from_config(@providers, models)
       assert m.name == "llama3.2"
-      assert m.context_window == 4_096
+      assert m.context_window == 32_768
       assert m.max_tokens == 2_048
       assert m.supports_thinking == false
       assert m.input_types == [:text]

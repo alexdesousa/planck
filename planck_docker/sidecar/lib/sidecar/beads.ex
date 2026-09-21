@@ -112,12 +112,23 @@ defmodule Sidecar.Beads do
   @doc """
   Close (mark done) a bead. Idempotent re-close (200, `already_closed: true`)
   writes neither `reason` nor `session` — first close wins. `opts` accepts
-  `:reason` (defaults to `nil`) and `:client`, see the moduledoc.
+  `:reason` and `:client`, see the moduledoc.
+
+  `reason`, when given, must land in the body as a string, never `null` — the
+  API refuses a literal `null` outright ("`reason` must be a string"), the
+  same "absent member, not an explicit null" rule `create/3`'s `description`/
+  `priority` already follow. Always sending `reason: opts[:reason]` (`nil`
+  when not given, same as every other call site here defaults an unset opt)
+  used to send that literal `null` on every ordinary close, which is
+  presumably every close a human ever makes from the widget, since it never
+  collects a reason at all — confirmed as the cause of `bd_done` failing
+  outright with a 400 the first time an agent closed a bead through it.
   """
   @spec close(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def close(id, actor, opts \\ []) do
     {client, opts} = extract_client(opts)
-    post(client, "/v0/beads/issues/#{id}:close", %{actor: actor, reason: opts[:reason]})
+    body = %{actor: actor} |> maybe_put(:reason, opts[:reason])
+    post(client, "/v0/beads/issues/#{id}:close", body)
   end
 
   @doc """
@@ -153,6 +164,21 @@ defmodule Sidecar.Beads do
   concurrently and asserting on them individually needs it, to give each one
   a topic the others can't land a message on.
 
+  Renders with `myself` set to `"#widget-\#{instance}"` — a plain CSS
+  selector, not a real per-viewer `phx-target` CID — because this one
+  broadcast HTML string reaches every current subscriber at once, and a CID
+  only ever identifies one of them (whichever browser session originally
+  pulled the widget). `Planck.Web.Live.SidecarWidget` renders its content
+  inside a `<div id="widget-\#{id}">` for exactly this: each subscriber's own
+  browser resolves that selector against its own DOM, landing back on that
+  same subscriber's own component, no matter which subscriber's action
+  actually triggered this broadcast. Baking in a real CID here used to mean
+  every board control still worked the first time (rendered directly, with a
+  real `phx-target`, by `SidecarWidget`'s own initial pull) but crashed the
+  parent LiveView on the very next click, since every control on the page
+  had just been silently overwritten with an already-wrong CID by this
+  broadcast's own re-render.
+
   Broadcasts on `Planck.Agent.PubSub` — the sidecar starts no PubSub
   process of its own; every subscriber (`Planck.Web.Live.SidecarWidget`, via
   `SessionLive`'s `open_widget`) lives on the connected `planck_headless`/
@@ -169,7 +195,8 @@ defmodule Sidecar.Beads do
     Phoenix.PubSub.broadcast(
       Planck.Agent.PubSub,
       "sidecar:widget:#{instance}",
-      {:widget_rendered, instance, Sidecar.Widgets.Beads.render(nil, render_opts)}
+      {:widget_rendered, instance,
+       Sidecar.Widgets.Beads.render("#widget-#{instance}", render_opts)}
     )
   end
 

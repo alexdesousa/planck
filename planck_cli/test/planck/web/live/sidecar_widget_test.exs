@@ -17,6 +17,20 @@ defmodule Planck.Web.Live.SidecarWidgetTest do
     |> IO.iodata_to_binary()
   end
 
+  # A real per-viewer CID here would be correct for at most one subscriber
+  # of a widget's broadcast re-render — see target_selector/1's own doc and
+  # Sidecar.Beads.broadcast_refresh/1's moduledoc for the concrete crash this
+  # fixed. The selector must match the wrapper id rendered around @html
+  # below, or phx-target resolves to nothing for every viewer instead of
+  # just the ones a raw CID would have broken.
+  describe "target_selector/1" do
+    test "matches the id of the div wrapping the widget's html" do
+      html = render_widget(%{widget_id: "counter", error: nil, html: "<div/>"})
+      assert html =~ ~s(id="widget-counter")
+      assert SidecarWidget.target_selector("counter") == "#widget-counter"
+    end
+  end
+
   describe "render/1" do
     test "shows a fallback message when the sidecar is not connected" do
       html = render_widget(%{widget_id: "counter", error: :sidecar_not_connected, html: nil})
