@@ -25,6 +25,9 @@ as internal modules. They are the external interface layer only — they never c
   application as a separate named node, inject connection env vars, wait for it
   to connect, then discover tools and compactors from it via
   `Planck.Agent.Sidecar` behaviour callbacks.
+- **Widget dispatch** — `Planck.Headless.Widgets` forwards sidecar widget
+  render/action calls over RPC, mirroring how `Planck.Headless.Secrets`
+  dispatches credential calls transparently between backends.
 - **Team registry** — scan `teams_dirs` at boot, parse each team directory via
   `Planck.Agent.Team.load/1`, store the results keyed by alias.
 - **Session lifecycle** — create, resume, and close named sessions; start the

@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.0
+
+### `Planck.Headless.Widgets` dispatch module
+
+New module dispatching sidecar widget render/action calls over RPC, mirroring
+the existing `Planck.Headless.Secrets` pattern (transparent dispatch to
+whichever backend — sidecar or standalone — is actually running).
+
+### Locale push to the sidecar node
+
+The sidecar runs on a separate distributed-Erlang node and can't share a
+Gettext process locale with `planck_headless`/`planck_cli`. `Planck.Headless.Locale.set/1`
+pushes the resolved locale to the sidecar on every request so sidecar-rendered
+widgets (e.g. the beads board) can translate their own UI.
+
 ## v0.1.13
 
 ### `configure_provider/1` sanitizes the identifier before writing config

@@ -48,7 +48,7 @@ capacity. Called before every LLM turn.
             {:compact, summary :: Planck.Agent.Message.t(), kept :: [Planck.Agent.Message.t()]}
             | :skip
 
-@callback compact_timeout() :: pos_integer()   # default: 120_000 ms
+@callback compact_timeout() :: pos_integer()   # default: 600_000 ms (10 minutes)
 ```
 
 Two callbacks are required. `compact?/3` is a cheap decision — must not do

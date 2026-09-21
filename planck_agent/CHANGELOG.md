@@ -1,5 +1,75 @@
 # Changelog
 
+## v0.2.0
+
+### Breaking change: `Planck.Agent.Hooks.Compactor` callback signature
+
+Both the sidebar's context-usage figure and the compactor's own 80%-of-window
+trigger used to estimate tokens from `state.messages` alone — no message ever
+carries the system prompt, so a sizeable system prompt or tool schema list
+could account for a large share of real usage while both figures reported far
+less. Fixed with a single canonical estimator, `Planck.AI.Context.estimate_tokens/1`
+(system + messages + tool schemas). The compactor callback gained `context`
+alongside `state` and `recent`, since a sidecar-hosted compactor has no other
+way to see the agent's system prompt or tool list.
+
+Making token estimation accurate then surfaced a real, pre-existing bug: the
+built-in compactor's LLM call was synchronous and blocked the whole agent
+`GenServer`, invisible until compaction actually started firing in practice.
+Rather than making compaction async, the callback was split into `compact?/3`
+(cheap decision, no LLM call) and `compact/3` (the potentially slow work, only
+called when `compact?/3` returns `true`). The public dispatcher is now
+`compact/4`, taking `on_compacting`/`on_compacted` closures it invokes around
+`compact/3` — never a compactor implementation itself — so the UI's
+"compacting" indicator fires accurately for any compactor without predicting
+the outcome ahead of time. Custom compactors need `compact?/3` added; see
+`specs/compactors.md`.
+
+### Built-in compactor now delegates to a real ephemeral agent
+
+`Planck.Agent.Hooks.Compactor.Default` (the `state.compactor: nil` case) no
+longer does one blind completion over a token-budget-chosen bucket directly —
+it spawns a real, ephemeral `Planck.Agent` (no team, no session, no tools) to
+write the summary, isolated via `Task.Supervisor.async_nolink/2` and
+`Process.monitor/1` (not `Process.link/1`), bounded by `compact_timeout/0`.
+Found and fixed a real bug along the way: the delegate broadcasts its own
+`:turn_start`/`:text_delta`/etc events, not just `:turn_end` — handling those
+directly in the compacting agent's own `GenServer` callback left unmatched
+ones sitting in its mailbox, corrupting its next event dispatch. `compact_timeout/0`'s
+default is now `600_000` ms (10 minutes, up from 2) — local model prefill can
+take a long time.
+
+### `spawn_agent` model resolution fixed for custom-`base_url` providers
+
+A model configured with a custom `base_url` under a "cloud" provider atom
+(e.g. a self-hosted OpenAI-compatible endpoint declared as `provider: "openai"`)
+always failed `spawn_agent` with "Model not found," regardless of which
+`model_id` was passed — `resolve_spawn_model/3` only forwarded `base_url` for
+a hardcoded local-provider allowlist, so the lookup fell through to the
+bundled real-OpenAI catalog instead. Now resolves against the same
+`available_models` list `list_models` is built from (matching by provider +
+id) before any live/catalog fallback. `list_models`'s own JSON output also now
+includes the literal `model` field, not just the friendly config `id`.
+
+### `Planck.Agent.Widget` behaviour
+
+New behaviour for sidecar tools that render UI beyond plain text. A widget is
+declared via an optional `:widget` field on `Planck.Agent.Tool` (not a second,
+independent list) — `list_widgets/0` derives available widgets from `tools/0`.
+
+### `{:ok, text, %{ui: ui_content}}` tool-result contract
+
+A tool can now attach a UI-only side effect (`:text` or `:widget`) to its
+result, invisible to the LLM's own context — persisted as a sibling
+`{:custom, :ui}` message rather than mixed into the tool result content the
+model sees.
+
+### `Planck.Agent.whereis/1` cross-node fallback
+
+Previously a pure local Registry lookup, so any sidecar-side identity lookup
+silently failed cross-node. Now falls back to checking the connected
+`planck_headless` node too.
+
 ## v0.1.13
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

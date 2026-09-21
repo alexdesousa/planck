@@ -217,12 +217,3 @@ The restraint is as much a design choice as the tools themselves:
   transparently** — see `specs/sidecar.md`'s and the v0.1.10 draft's coverage
   of `Planck.Agent.Secrets` / agent-vault; tools don't need their own
   credential-handling logic because outbound requests are proxied.
-
-## Note on `specs/planck-docker.md`
-
-That doc's "Bundled sidecar" section currently only lists `search_workspace`,
-`search_web`, and `web_fetch` — it predates `read` (Tika), `session_search`,
-`update_memory`, and the whole skills/`SkillReflector` system, all of which
-are live in the actual bundled sidecar today. Worth a pass to bring it current
-with the actual `planck_docker/sidecar/lib/sidecar/tools/` contents; this
-doc's tool list above reflects what's actually there now.

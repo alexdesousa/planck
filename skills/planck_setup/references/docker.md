@@ -50,7 +50,10 @@ Language: set `SEARXNG_LANGUAGE` in your `.env` (default: `en`).
 
 Extracts plain text from binary documents: PDF, DOCX, XLSX, PPTX, ODT, and
 more. Agents use the `read` tool on document files; Tika handles extraction
-transparently when the file extension is recognised.
+transparently — binary files are detected by content sniffing (UTF-8 validity
+sampling), not by file extension, so this works even on unusual or missing
+extensions. Extracted text is cached in `workspace/doc_cache/`, keyed by the
+source file's hash and invalidated when the file changes.
 
 ## Sidecar features (Docker only)
 
@@ -61,9 +64,11 @@ packages:
 
 Session turns are indexed in Typesense after each conversation. On session
 resume, relevant past turns are retrieved and injected into the agent prompt,
-giving the agent context about previous conversations.
+giving the agent context about previous conversations. Agents can also search
+past sessions on demand with the `session_search` tool, rather than waiting
+for automatic retrieval on resume.
 
-Implemented in: `Sidecar.Memory`
+Implemented in: `Sidecar.SessionIndexer` (indexing), `Sidecar.Tools.SessionSearch` (tool)
 
 ### Short-term memory
 
@@ -83,19 +88,31 @@ Implemented in: `Sidecar.SkillReflector`
 
 ### Markdown web fetch
 
-The `fetch_web` tool fetches URLs and converts HTML to clean Markdown using
+The `web_fetch` tool fetches URLs and converts HTML to clean Markdown using
 [Readability](https://github.com/mozilla/readability)-style extraction. Fetched
 pages are cached in Typesense; repeated requests within a session return the
 cached version instantly.
 
 Implemented in: `Sidecar.Tools.WebFetch`
 
+### Shared task tracking (beads)
+
+A live kanban board (`dolt` + `beads` services) for the whole team, backed by
+seven tools — `bd_ready`, `bd_get`, `bd_done`, `bd_claim`, `bd_create`,
+`bd_delete`, `bd_list` — so agents can claim, create, and close work items.
+Every mutating call attaches a "view board" button so a human can always open
+the live widget. Issue ids use a `planck-N` prefix.
+
+Implemented in: `Sidecar.Beads`, `Sidecar.Widgets.Beads`
+
 ## Data directories
 
 | Directory | Contents |
 |---|---|
 | `$PLANCK_HOME/workspace/` | Agent workspace (files, sessions, teams, skills, sidecar) |
-| `$PLANCK_HOME/typesense-data/` | Workspace search index |
+| `$PLANCK_HOME/typesense-data/` | Workspace + session search index, per-agent memory |
 | `$PLANCK_HOME/vault-data/` | Agent-vault credentials and service rules |
+| `$PLANCK_HOME/dolt-data/` | Beads' SQL backend data |
+| `$PLANCK_HOME/beads-data/` | Beads service data |
 
 To reset a service's data, stop the stack and delete the corresponding directory.

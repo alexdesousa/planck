@@ -46,6 +46,7 @@ independent LiveComponents:
 | Prompt input | `PromptInput` | textarea text, streaming/waiting flags |
 | Status bar | `StatusBar` | total usage/cost, sidecar status |
 | Edit message modal | `EditMessageModal` | edited text |
+| Sidecar widget modal | `SidecarWidget` | current widget's rendered HTML, container type |
 
 `SessionLive` subscribes to `"session:#{id}"` and `"planck:sidecar"` via
 PubSub and routes events to the right component via `send_update/3`.
@@ -75,14 +76,25 @@ PubSub and routes events to the right component via `send_update/3`.
 - **Edit button** on user messages (always visible per NeoBrutalism): clicking
   opens `EditMessageModal` which calls `Headless.rewind_to_message/3` on confirm
 - Entries are classified by `ChatEntries` module into typed structs:
-  `:user`, `:text`, `:thinking`, `:tool`, `:inter_agent_in`, `:error`, `:summary`, `:agent_response`
+  `:user`, `:text`, `:thinking`, `:tool`, `:inter_agent_in`, `:error`, `:summary`, `:agent_response`,
+  `:ui_text`, `:ui_widget`
+- `:ui_text`/`:ui_widget` entries come from `{:custom, :ui}` messages — a UI-only
+  side effect attached to a tool result, invisible to the LLM's own context.
+  Spliced into the entry list right after the originating tool call by
+  `tool_call_id`, regardless of raw message order. `:ui_widget` entries render
+  a button that opens `SidecarWidget`.
 
 ## Agents sidebar — `AgentsSidebar`
 
 - One card per agent (orchestrator neutral card, workers colored by spawn order)
 - Each card: name, type, model, `↓input ↑output` tokens, cost, `ctx X%`
-- `ctx X%` — estimated current context window usage (`Message.estimate_tokens`
-  chars/4 approximation against `model.context_window`)
+- `ctx X%` — current context window usage, read directly from the agent's own
+  live `state.context_tokens` (the same figure `Planck.Agent.Hooks.Compactor`
+  checks against its own threshold — see `specs/compactors.md`), not a
+  separately recomputed estimate. An earlier version recomputed a
+  messages-only estimate on every sidebar reload, which silently disagreed
+  with (and periodically overwrote) the accurate figure; fixed to read one
+  single source of truth.
 - Streaming indicator: solid white pulsing dot (visible against card color)
 - Live updates via `usage_delta` events — no polling required
 - Sidecar status in the footer (hidden on desktop, visible on mobile where the
@@ -280,6 +292,8 @@ planck_cli/lib/planck/web/
     setup_modal.html.heex
     model_selector_modal.ex  — LiveComponent: runtime model switcher
     model_selector_modal.html.heex
+    sidecar_widget.ex        — LiveComponent: generic sidecar-rendered widget modal
+    sidecar_widget.html.heex
 ```
 
 ## Design system
@@ -388,7 +402,9 @@ planck_cli/lib/planck/web/api/
 {:phoenix_live_view, "~> 1.1"},
 {:phoenix_html, "~> 4.0"},
 {:bandit, "~> 1.0"},
-{:earmark, "~> 1.4"},    # Markdown rendering for completed chat entries
+{:mdex, "~> 0.13"},      # Markdown rendering for completed chat entries — replaced
+                         # Earmark (active, unpatched XSS CVE)
+{:live_toast, "~> 0.11"}, # Success/failure toasts for sidecar widget actions
 {:gettext, "~> 0.26"},   # i18n — pgettext/2 with msgctxt in .po files
 {:highlight_js, ...},    # Code block syntax highlighting via JS
 {:open_api_spex, "~> 3.21"},         # OpenAPI spec generation + Swagger UI

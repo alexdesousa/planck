@@ -6,7 +6,7 @@ defmodule Planck.Agent.Hooks.Compactor do
 
   Use `use Planck.Agent.Hooks.Compactor` to implement a custom compaction strategy
   in a sidecar. Two callbacks are required, `compact?/3` and `compact/3`;
-  `compact_timeout/0` has a default of #{120_000} ms.
+  `compact_timeout/0` has a default of #{600_000} ms.
 
       defmodule MySidecar.Compactors.Builder do
         use Planck.Agent.Hooks.Compactor
@@ -90,7 +90,10 @@ defmodule Planck.Agent.Hooks.Compactor do
   alias Planck.Agent.Message
   alias Planck.AI.Context
 
-  @default_compact_timeout_ms 120_000
+  # Local model prefill can take a long time, especially for a large
+  # summarization prompt — 120s was too tight for real self-hosted use, not
+  # just a theoretical concern.
+  @default_compact_timeout_ms 600_000
 
   @typedoc """
   `:on_compacting`/`:on_compacted` — both zero-arity, both optional (neither

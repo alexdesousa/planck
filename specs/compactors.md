@@ -49,7 +49,9 @@ older messages into a single checkpoint, keeping only recent messages verbatim.
   followed by `kept`. `summary_msg` should have role `{:custom, :summary}` to be
   stored as a checkpoint in the session and recognized by future compaction passes.
 
-`use Planck.Agent.Hooks.Compactor` injects a default 120 000 ms `compact_timeout/0`.
+`use Planck.Agent.Hooks.Compactor` injects a default 600 000 ms (10 minutes)
+`compact_timeout/0` — local model prefill can take a long time, especially
+for a large summarization prompt.
 
 ## Dispatch
 
