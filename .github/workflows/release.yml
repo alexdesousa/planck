@@ -133,13 +133,14 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.20.4"
-          # Pinned to an exact hotfix, not just "29.1": ubuntu-latest's package
-          # for that line resolves any looser pin to its latest hotfix, and
-          # beam-machine.b-cdn.net (Burrito's Linux ERTS mirror) lags behind —
-          # confirmed via curl on 2026-09-18 that OTP-29.1 isn't built there
-          # yet (404), only up to 29.0.6 (200). Verify before bumping: see
+          # beam-machine.b-cdn.net (Burrito's Linux ERTS mirror) can lag behind
+          # official OTP releases — a loose pin here would resolve to
+          # ubuntu-latest's newest package for the line, which may not be
+          # mirrored yet, 404ing deep inside Burrito. Re-confirmed via curl on
+          # 2026-09-21 that OTP-29.1 is now mirrored (200) — matches every
+          # other job's pin again. Verify before bumping further: see
           # specs/releases-and-distribution.md.
-          otp-version: "29.0.6"
+          otp-version: "29.1"
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.16.0"
