@@ -2,8 +2,7 @@ defmodule Planck.Web.SessionLive do
   use Planck.Web, :live_view
 
   alias Planck.Agent
-  alias Planck.Agent.{Message, Session}
-  alias Planck.AI.Context
+  alias Planck.Agent.Session
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
   alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
@@ -126,6 +125,10 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_info({:agent_event, :worker_spawned, _}, socket) do
+    {:noreply, do_refresh_agents(socket)}
+  end
+
+  def handle_info({:agent_event, :worker_exit, _}, socket) do
     {:noreply, do_refresh_agents(socket)}
   end
 
@@ -486,15 +489,31 @@ defmodule Planck.Web.SessionLive do
 
   @spec do_open_agent(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp do_open_agent(agent_id, socket) do
+    streaming = agent_active?(agent_id)
+
     send_update(ChatComponent,
       id: "chat-overlay",
       action: :load,
       session_id: socket.assigns.active_session,
       perspective_agent_id: agent_id,
-      agents: socket.assigns.agents
+      agents: socket.assigns.agents,
+      streaming: streaming,
+      streaming_agent_id: if(streaming, do: agent_id)
     )
 
     assign(socket, :overlay, agent_id)
+  end
+
+  # A fresh Agent.get_state/1 lookup, not socket.assigns.agents[agent_id][:status] —
+  # that map is only refreshed on session load or :worker_spawned/:worker_exit, not
+  # on every turn_start/turn_end, so it can be stale by the time a worker's card is
+  # clicked mid-turn.
+  @spec agent_active?(String.t()) :: boolean()
+  defp agent_active?(agent_id) do
+    case Agent.whereis(agent_id) do
+      {:ok, pid} -> Agent.get_state(pid).status in [:streaming, :executing_tools]
+      _ -> false
+    end
   end
 
   @spec do_resend_message(non_neg_integer(), String.t(), Phoenix.LiveView.Socket.t()) ::
@@ -585,32 +604,12 @@ defmodule Planck.Web.SessionLive do
       cost: Map.get(state, :cost, 0.0),
       model_cost: model_cost,
       context_window: context_window,
-      context_tokens: load_context_tokens(state.session_id, meta.id),
+      context_tokens: state.context_tokens,
       color_index: color_index
     }
 
     new_orch = if meta.type == "orchestrator", do: meta.id, else: orch
     {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
-  end
-
-  # Planck.Agent.Message carries no estimate_tokens/1 of its own — converting
-  # to Planck.AI.Message and wrapping in a bare Context (system/tools left at
-  # their defaults) reuses Context.estimate_tokens/1's per-part counting
-  # rather than a separate copy of it here. This is a messages-only estimate
-  # (no system prompt/tools) since neither is known for a session that may
-  # not have a live agent process to ask.
-  @spec load_context_tokens(String.t() | nil, String.t()) :: non_neg_integer()
-  defp load_context_tokens(nil, _agent_id), do: 0
-
-  defp load_context_tokens(session_id, agent_id) do
-    case Session.messages(session_id, agent_id: agent_id) do
-      {:ok, rows} ->
-        messages = rows |> Enum.map(& &1.message) |> Message.to_ai_messages()
-        Context.estimate_tokens(%Context{messages: messages})
-
-      _ ->
-        0
-    end
   end
 
   @spec agent_model_info(map()) :: {map(), String.t(), String.t(), pos_integer()}
