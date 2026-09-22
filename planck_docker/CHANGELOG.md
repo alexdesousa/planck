@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.2.1
+
+### Release CI fixes
+
+`v0.2.0`'s tag had to be re-cut twice while chasing release pipeline failures,
+and Hex.pm rejected re-publishing the same version once more than an hour had
+passed since its first publish — hence this version bump, with no functional
+changes to the shipped image. The underlying pipeline fixes, kept from that
+work:
+
+- `build-linux`/`build-macos-arm` in `release.yml` pinned to the exact OTP
+  patch (`29.0.6`) confirmed mirrored on Burrito's ERTS CDN, instead of a
+  two-component pin that can silently drift to a newer, unmirrored patch
+  between runs.
+- `planck_docker.yml`'s Docker image build now builds `linux/amd64` and
+  `linux/arm64` on their own native runners and merges the digests into one
+  multi-arch manifest, instead of a single QEMU-emulated multi-platform build.
+- `erlexec`'s C build (a transitive dep of both `planck_cli` and the sidecar)
+  shells out to bare `erl` to detect the system architecture and
+  `erl_interface` paths; that `erl` invocation crashes on boot on the
+  `hexpm/elixir:*-erlang-29.1-*` image regardless of architecture or QEMU
+  (`prim_tty`'s NIF-based terminal handling fails with `undef`). Fixed in
+  `planck_docker/planck/Dockerfile` by setting `CROSS_COMPILE=1` and
+  pre-computing `ERL_CXXFLAGS`/`ERL_LDFLAGS` from the filesystem, so `erl` is
+  never invoked for this.
+
 ## v0.2.0
 
 ### Shared task tracking — beads

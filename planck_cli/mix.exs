@@ -1,7 +1,7 @@
 defmodule Planck.CLI.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.2.1"
   @app :planck_cli
   @description "Planck coding agent CLI"
   def project do

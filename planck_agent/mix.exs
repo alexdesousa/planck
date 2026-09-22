@@ -1,7 +1,7 @@
 defmodule Planck.Agent.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.2.1"
   @app :planck_agent
   @description "OTP-based agent runtime built on top of planck_ai"
   @repo "https://github.com/alexdesousa/planck"

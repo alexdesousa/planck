@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.1
+
+- Version bump to stay in sync with the monorepo release; no functional changes.
+
 ## v0.2.0
 
 ### Sidecar widgets
