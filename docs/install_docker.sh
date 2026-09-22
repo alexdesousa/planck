@@ -155,8 +155,13 @@ $COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
 # install script itself runs via `curl | sh`, stdin is the pipe, not a real
 # terminal, so TTY allocation fails outright ("the input device is not a TTY")
 # and aborts the whole install before services ever start.
+# < /dev/null: -T alone isn't enough — `docker compose run` still attaches to
+# stdin regardless of TTY allocation, and while piped through `sh` that stdin
+# IS the rest of this very script. Without this redirect, the command reads
+# and silently discards everything after it, so `sh` sees the script end here
+# and drops back to a prompt — services never start, with no error at all.
 echo "Running first-run setup..."
-$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm -T setup
+$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm -T setup < /dev/null
 
 # ── Start services ────────────────────────────────────────────────────────────
 echo "Starting Planck..."
