@@ -151,8 +151,12 @@ Write-Host "Pulling Docker images..."
 Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" pull
 
 # ── Run setup container ───────────────────────────────────────────────────────
+# -T: setup's entrypoint is a plain script, not interactive — and when this
+# install script itself runs via `irm | iex`, there's no real terminal
+# attached, so TTY allocation fails outright and aborts the whole install
+# before services ever start.
 Write-Host "Running first-run setup..."
-Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" run --rm setup
+Invoke-Compose -f "$ComposeFile" --env-file "$EnvFile" run --rm -T setup
 
 # ── Start services ────────────────────────────────────────────────────────────
 Write-Host "Starting Planck..."

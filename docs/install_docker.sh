@@ -136,8 +136,12 @@ echo "Pulling Docker images..."
 $COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
 
 # ── Run setup container (renders templates, copies sidecar) ──────────────────
+# -T: setup's entrypoint is a plain script, not interactive — and when this
+# install script itself runs via `curl | sh`, stdin is the pipe, not a real
+# terminal, so TTY allocation fails outright ("the input device is not a TTY")
+# and aborts the whole install before services ever start.
 echo "Running first-run setup..."
-$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm setup
+$COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm -T setup
 
 # ── Start services ────────────────────────────────────────────────────────────
 echo "Starting Planck..."

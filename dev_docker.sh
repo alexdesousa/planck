@@ -136,7 +136,7 @@ dc -f planck_docker/compose.yml --env-file "$ENV_FILE" build
 
 # ── Run setup container ───────────────────────────────────────────────────────
 echo "Running setup..."
-dc -f planck_docker/compose.yml --env-file "$ENV_FILE" run --rm setup
+dc -f planck_docker/compose.yml --env-file "$ENV_FILE" run --rm -T setup
 
 # ── Start stack ───────────────────────────────────────────────────────────────
 echo "Starting..."
