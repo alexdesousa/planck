@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.3
+
+### `prompt/2` → `prompt/3`
+
+Gained an `opts` parameter (default `[]`), forwarded straight through to
+`Planck.Agent.prompt/3` — fully backward-compatible with every existing
+2-arity call site. Pass `edit: id` to replace the text of a message still
+queued (not yet persisted) on the session's orchestrator, instead of
+sending a new one; fails with `{:error, :already_sent}` once that message
+has already been flushed to the session.
+
 ## v0.2.2
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.2.3
+
+### Messages sent while the agent is busy now show up immediately
+
+Sending a message mid-turn used to sit invisibly in LiveView's own
+`prompt_queue` state until the turn ended, at which point it was both sent
+for real *and* separately injected as a synthetic chat entry — the two
+would collide once the next reload pulled in the now-persisted copy,
+rendering the same message twice (one with an edit button, one without).
+
+`prompt_queue` is gone. A busy-path submit now calls `Headless.prompt/3`
+immediately — `Planck.Agent` already queues it safely and in order — and
+`ChatComponent` renders it right away from the new `:message_queued`
+broadcast, tracked separately from persisted `entries` so it survives the
+current turn's own `:turn_end` reload and is only cleared once
+`:messages_flushed` confirms it's actually persisted. Only the
+most-recently-queued message is editable, via a generalized
+`EditMessageModal` that now handles both a persisted message (`db_id`,
+rewind-based edit) and a still-queued one (`queued_id`, in-place edit).
+
+Two accepted edge cases: aborting while a message is queued now
+immediately starts a new turn for it (it's already been sent to the agent,
+not just held client-side); and editing a queued message in the split
+second before its turn ends silently drops the edit rather than falling
+back to a rewind, since the original text has already been sent.
+
 ## v0.2.2
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

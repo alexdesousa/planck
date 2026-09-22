@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.3
+
+### Messages queued while busy are now visible and editable
+
+A message sent while the agent is mid-turn used to sit invisibly in
+`state.messages`, unpersisted, until the current turn ended — the only way
+to know it was accepted at all was the eventual side effect of a new turn
+starting. `prompt/3` now broadcasts `:message_queued` (id + content) the
+moment it's queued, so a subscriber can render it immediately instead of
+guessing. `flush_unpersisted_messages/1` now broadcasts `:messages_flushed`
+right after a queued message is actually persisted — previously the closest
+signal was `:turn_start`, which fires *before* the flush runs, a real (if
+narrow) race for anything trying to reload session state at that point.
+
+`prompt/3` also gained an `edit: id` option: replaces the text of that
+message in place if it's still the last, unpersisted entry in
+`state.messages`, or returns `{:error, :already_sent}` if it's already been
+flushed (the caller decides how to fall back — e.g. the normal rewind-based
+edit, once the message has a real db id). This reuses `prompt/3`'s existing
+busy/idle dispatch rather than adding a second function — the same
+`state.status` check that already decided queue-vs-run governs the edit
+path too.
+
 ## v0.2.2
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

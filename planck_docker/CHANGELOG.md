@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.3
+
+### `read` tool double-joined the workspace path
+
+`Sidecar.Tools.Read` (the Tika-extraction-aware `read` shadowing the
+built-in) failed with `enoent` on an absolute path like
+`/workspace/.planck/skills/planck_setup/references/teams.md`, even though
+the file existed — `check_allowed_path/1` already returns a fully-expanded
+absolute path (needed to validate against both `/workspace/` and `/tmp/`),
+but `do_read/2` joined `workspace` onto it a second time. Elixir's
+`Path.join/2` doesn't special-case an absolute right-hand side, so the
+result was `/workspace/workspace/...` — a path that never exists. Fixed by
+passing the already-resolved absolute path straight through to `do_read/3`
+instead of re-deriving it; the original (possibly relative) path is kept
+alongside it only for display purposes. Two regression tests added: reading
+via an absolute path under the workspace, and via an absolute path under
+`/tmp`.
+
 ## v0.2.2
 
 ### Fresh installs via `curl | sh` were completely broken

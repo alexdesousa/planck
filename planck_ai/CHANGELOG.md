@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.3
+
+- Version bump to stay in sync with the monorepo release; no functional changes.
+
 ## v0.2.2
 
 - Version bump to stay in sync with the monorepo release; no functional changes.
