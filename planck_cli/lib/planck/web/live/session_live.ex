@@ -2,7 +2,7 @@ defmodule Planck.Web.SessionLive do
   use Planck.Web, :live_view
 
   alias Planck.Agent
-  alias Planck.Agent.{Message, Session}
+  alias Planck.Agent.Session
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
   alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
@@ -29,6 +29,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:model_selector, nil)
       |> assign(:available_models, [])
       |> assign(:first_run, false)
+      |> assign(:open_widget_id, nil)
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -127,6 +128,10 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_refresh_agents(socket)}
   end
 
+  def handle_info({:agent_event, :worker_exit, _}, socket) do
+    {:noreply, do_refresh_agents(socket)}
+  end
+
   def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
 
   # ---------------------------------------------------------------------------
@@ -180,6 +185,30 @@ defmodule Planck.Web.SessionLive do
 
   def handle_info(:close_edit_modal, socket) do
     {:noreply, assign(socket, :edit_message, nil)}
+  end
+
+  # Forwarded from Planck.Web.Live.ChatComponent, which resolves widget_id
+  # from its own `entries` assign before forwarding — see
+  # Planck.Web.Live.SidecarWidget's moduledoc for why this owning LiveView,
+  # not the component itself, owns the PubSub subscribe/unsubscribe lifecycle.
+  def handle_info({:open_widget, %{widget_id: widget_id}}, socket) do
+    # Opening a second widget without closing the first would otherwise leave
+    # the old topic subscribed forever (only close_widget unsubscribes) —
+    # treat opening a different widget as an implicit switch.
+    if id = socket.assigns.open_widget_id do
+      Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+    end
+
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "sidecar:widget:#{widget_id}")
+    {:noreply, assign(socket, :open_widget_id, widget_id)}
+  end
+
+  def handle_info({:widget_rendered, widget_id, html}, socket) do
+    if socket.assigns.open_widget_id == widget_id do
+      send_update(Planck.Web.Live.SidecarWidget, id: "sidecar-widget-modal", html: html)
+    end
+
+    {:noreply, socket}
   end
 
   def handle_info({:switch_session, session_id}, socket) do
@@ -296,6 +325,14 @@ defmodule Planck.Web.SessionLive do
 
   def handle_event("close_model_selector", _params, socket) do
     {:noreply, assign(socket, :model_selector, nil)}
+  end
+
+  def handle_event("close_widget", _params, socket) do
+    if id = socket.assigns.open_widget_id do
+      Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:#{id}")
+    end
+
+    {:noreply, assign(socket, :open_widget_id, nil)}
   end
 
   def handle_event("open_setup", _params, socket) do
@@ -452,15 +489,31 @@ defmodule Planck.Web.SessionLive do
 
   @spec do_open_agent(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp do_open_agent(agent_id, socket) do
+    streaming = agent_active?(agent_id)
+
     send_update(ChatComponent,
       id: "chat-overlay",
       action: :load,
       session_id: socket.assigns.active_session,
       perspective_agent_id: agent_id,
-      agents: socket.assigns.agents
+      agents: socket.assigns.agents,
+      streaming: streaming,
+      streaming_agent_id: if(streaming, do: agent_id)
     )
 
     assign(socket, :overlay, agent_id)
+  end
+
+  # A fresh Agent.get_state/1 lookup, not socket.assigns.agents[agent_id][:status] —
+  # that map is only refreshed on session load or :worker_spawned/:worker_exit, not
+  # on every turn_start/turn_end, so it can be stale by the time a worker's card is
+  # clicked mid-turn.
+  @spec agent_active?(String.t()) :: boolean()
+  defp agent_active?(agent_id) do
+    case Agent.whereis(agent_id) do
+      {:ok, pid} -> Agent.get_state(pid).status in [:streaming, :executing_tools]
+      _ -> false
+    end
   end
 
   @spec do_resend_message(non_neg_integer(), String.t(), Phoenix.LiveView.Socket.t()) ::
@@ -551,22 +604,12 @@ defmodule Planck.Web.SessionLive do
       cost: Map.get(state, :cost, 0.0),
       model_cost: model_cost,
       context_window: context_window,
-      context_tokens: load_context_tokens(state.session_id, meta.id),
+      context_tokens: state.context_tokens,
       color_index: color_index
     }
 
     new_orch = if meta.type == "orchestrator", do: meta.id, else: orch
     {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
-  end
-
-  @spec load_context_tokens(String.t() | nil, String.t()) :: non_neg_integer()
-  defp load_context_tokens(nil, _agent_id), do: 0
-
-  defp load_context_tokens(session_id, agent_id) do
-    case Session.messages(session_id, agent_id: agent_id) do
-      {:ok, rows} -> rows |> Enum.map(& &1.message) |> Message.estimate_tokens()
-      _ -> 0
-    end
   end
 
   @spec agent_model_info(map()) :: {map(), String.t(), String.t(), pos_integer()}

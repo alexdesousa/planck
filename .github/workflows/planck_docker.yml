@@ -24,8 +24,8 @@ jobs:
         working-directory: planck_docker/sidecar
     strategy:
       matrix:
-        otp: ["28.5"]
-        elixir: ["1.19.5"]
+        otp: ["29.1"]
+        elixir: ["1.20.4"]
     env:
       MIX_ENV: test
     steps:
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-node@v4
         name: Setup Node.js
         with:
-          node-version: "24"
+          node-version: "26"
       - name: Setup (deps.get + npm install --prefix assets)
         run: mix do local.rebar --force + local.hex --force + setup
       - name: Compile dependencies
@@ -61,8 +61,8 @@ jobs:
         working-directory: planck_docker/sidecar
     strategy:
       matrix:
-        otp: ["28.5"]
-        elixir: ["1.19.5"]
+        otp: ["29.1"]
+        elixir: ["1.20.4"]
     env:
       MIX_ENV: dev
     steps:

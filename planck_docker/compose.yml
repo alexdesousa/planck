@@ -8,7 +8,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.1.13
+    image: ghcr.io/alexdesousa/planck:0.2.0
     entrypoint: ["/setup.sh"]
     volumes:
       - ${PLANCK_HOME}/workspace:/workspace
@@ -28,7 +28,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.1.13
+    image: ghcr.io/alexdesousa/planck:0.2.0
     hostname: planck
     ports:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
@@ -49,6 +49,8 @@ services:
       PLANCK_SECRETS_HOOK: ${PLANCK_SECRETS_HOOK}
       AGENT_VAULT_URL: http://vault:14321
       AGENT_VAULT_TOKEN: ${AGENT_VAULT_TOKEN}
+      BEADS_URL: http://beads:8377
+      BEADS_TOKEN: ${BEADS_TOKEN}
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -59,6 +61,8 @@ services:
       tika:
         condition: service_started
       vault:
+        condition: service_started
+      beads:
         condition: service_started
     restart: unless-stopped
 
@@ -100,3 +104,41 @@ services:
       - ${PLANCK_HOME}/vault-data:/root/.agent-vault
     environment:
       AGENT_VAULT_MASTER_PASSWORD: ${AGENT_VAULT_MASTER_PASSWORD}
+
+  # ── Dolt SQL server — backing store for the shared beads task board ────────
+  # Pinned below 2.3.0: that release (and 2.3.1) regressed DOLT_RESET('--hard'),
+  # and nothing in the 2.3.2–2.3.5 release notes indicates a fix.
+  dolt:
+    build:
+      context: ..
+      dockerfile: planck_docker/dolt/Dockerfile
+    volumes:
+      - ${PLANCK_HOME}/dolt-data:/var/lib/dolt
+    healthcheck:
+      # No mysql client and no HTTP health endpoint ship in the base image
+      # (verified against dolthub/dolt's own published Dockerfile — just
+      # dolt/curl/tini) — a raw TCP connect via bash's /dev/tcp is the only
+      # thing available that confirms sql-server has actually started and
+      # is listening. NOT a check that a remote client can authenticate —
+      # entrypoint.sh's root@'%' grant runs after the port opens, so a
+      # request landing in that narrow window can still see the same
+      # "Access denied" this was written to fix; it's expected to be
+      # rare and self-heal via beads' own restart, not fully closed here.
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306'"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Beads — shared task board API, fronting the dolt server above ──────────
+  beads:
+    build:
+      context: ..
+      dockerfile: planck_docker/beads/Dockerfile
+    volumes:
+      - ${PLANCK_HOME}/beads-data:/data/.beads
+    environment:
+      BEADS_TOKEN: ${BEADS_TOKEN}
+    depends_on:
+      dolt:
+        condition: service_healthy   # bd init --server would otherwise race dolt's own boot
+    restart: unless-stopped

@@ -50,8 +50,6 @@ defmodule Planck.Agent.Session do
 
   use GenServer
 
-  require Logger
-
   alias Planck.Agent.Message
 
   @type session_id :: String.t()

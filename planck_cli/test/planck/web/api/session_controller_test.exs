@@ -15,7 +15,7 @@ defmodule Planck.Web.API.SessionControllerTest do
   @model %Model{
     id: "llama3.2",
     provider: :openai,
-    context_window: 4_096,
+    context_window: 32_768,
     max_tokens: 2_048
   }
 

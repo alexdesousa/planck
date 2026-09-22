@@ -7,5 +7,5 @@ erl_crash.dump
 *.ez
 sidecar-*.tar
 /tmp/
-/priv/
+/priv/plts/
 /assets/node_modules/

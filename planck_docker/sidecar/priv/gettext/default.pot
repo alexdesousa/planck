@@ -1,0 +1,72 @@
+## This file is a PO Template file.
+##
+## "msgid"s here are often extracted from source code.
+## Add new messages manually only if they're dynamic
+## messages that can't be statically extracted.
+##
+## Run "mix gettext.extract" to bring this file up to
+## date. Leave "msgstr"s empty as changing them here has no
+## effect: edit them in PO (.po) files instead.
+#
+msgid ""
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:342
+#, elixir-autogen, elixir-format
+msgctxt "bead status"
+msgid "in progress"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:344
+#, elixir-autogen, elixir-format
+msgctxt "bead status"
+msgid "open"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:136
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "New task"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:141
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "Title"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:167
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "none"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:161
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Create"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:205
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "Delete"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:339
+#, elixir-autogen, elixir-format
+msgctxt "bead status"
+msgid "done"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:149
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "Description"
+msgstr ""
+
+#: lib/sidecar/widgets/beads.ex:190
+#, elixir-autogen, elixir-format
+msgctxt "bead widget"
+msgid "assigned to"
+msgstr ""

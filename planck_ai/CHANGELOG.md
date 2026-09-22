@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.0
+
+### Default `context_window` raised to 32,768
+
+`Planck.AI.Config`, the LLMDB catalog translation, and custom OpenAI-compatible
+endpoint resolution all silently defaulted a missing `context_window` to
+`4_096`. Since v0.1.6 dropped the old reconciliation against the bundled LLMDB
+catalog for manually configured models, any model missing an explicit
+`context_window` in `.planck/config.json` stayed capped at that value — which,
+combined with more accurate context-usage estimation in `planck_agent`, could
+trigger compaction before a single message was even sent. Raised to `32_768`
+as a safer generic fallback; still no substitute for setting the real value
+for your model.
+
 ## v0.1.13
 
 ### Provider identifiers are sanitized instead of rejected

@@ -21,6 +21,8 @@ defmodule Sidecar.Config do
   | `agent_vault_url` | `AGENT_VAULT_URL` | `nil` |
   | `agent_vault_token` | `AGENT_VAULT_TOKEN` | `nil` |
   | `agent_vault_vault` | `AGENT_VAULT_VAULT` | `"planck"` |
+  | `beads_url` | `BEADS_URL` | `http://beads:8377` |
+  | `beads_token` | `BEADS_TOKEN` | `nil` |
   """
   use Skogsra
 
@@ -86,4 +88,19 @@ defmodule Sidecar.Config do
   app_env :agent_vault_vault, :sidecar, :agent_vault_vault,
     os_env: "AGENT_VAULT_VAULT",
     default: "planck"
+
+  @envdoc "Base URL of the beads HTTP API service (internal Docker service)."
+  app_env :beads_url, :sidecar, :beads_url,
+    os_env: "BEADS_URL",
+    default: "http://beads:8377"
+
+  @envdoc """
+  Bearer token for the beads HTTP API. Required, since `bd serve` runs with
+  `--allow-non-loopback` (traffic from this container isn't loopback traffic
+  from its point of view, even though it's internal to the stack) — see
+  `planck_docker/beads/entrypoint.sh`.
+  """
+  app_env :beads_token, :sidecar, :beads_token,
+    os_env: "BEADS_TOKEN",
+    default: nil
 end

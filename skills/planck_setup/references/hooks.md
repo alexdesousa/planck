@@ -34,19 +34,61 @@ capacity. Called before every LLM turn.
 ### Callbacks
 
 ```elixir
-@callback compact(model :: Planck.AI.Model.t(), messages :: [Planck.Agent.Message.t()]) ::
+@callback compact?(
+            state   :: Planck.Agent.t(),
+            context :: Planck.AI.Context.t(),
+            recent  :: [Planck.Agent.Message.t()]
+          ) :: boolean()
+
+@callback compact(
+            state :: Planck.Agent.t(),
+            context :: Planck.AI.Context.t(),
+            recent :: [Planck.Agent.Message.t()]
+          ) ::
             {:compact, summary :: Planck.Agent.Message.t(), kept :: [Planck.Agent.Message.t()]}
             | :skip
 
-@callback compact_timeout() :: pos_integer()   # default: 120_000 ms
+@callback compact_timeout() :: pos_integer()   # default: 600_000 ms (10 minutes)
 ```
 
-Return `{:compact, summary_msg, kept}` to replace older messages with a
-summary checkpoint, or `:skip` to leave the history unchanged.
+Two callbacks are required. `compact?/3` is a cheap decision — must not do
+anything slow (no LLM call) — and is checked first; `compact/3`, the
+potentially slow part, is only ever called when `compact?/3` returns `true`.
+Splitting the decision from the work lets Planck announce "compacting" to the
+UI accurately for any compactor (see "Progress notification" below), without
+needing to predict the outcome itself.
+
+Return `{:compact, summary_msg, kept}` from `compact/3` to replace older
+messages with a summary checkpoint, or `:skip` to leave the history
+unchanged — a compactor is free to still decide against compacting here even
+after saying `true` to `compact?/3` (e.g. nothing old enough left worth
+summarizing).
+
+`context` is the full request Planck is about to send — system prompt, tool
+schemas, and `recent` itself, already assembled into one `Planck.AI.Context.t()`.
+It's passed alongside `recent` (not just `recent` alone) because a custom
+compactor typically runs on the sidecar node, which has no other way to see
+the agent's system prompt or tool list — judging how close to the model's
+real context window the conversation is requires all three, not just the
+message count. `state` is the agent's full state (model, messages, etc.), for
+anything else a custom strategy might need.
+
+> Breaking change: earlier versions had a single `compact/3` callback with no
+> `compact?/3`. Update any custom compactor to add `compact?/3` — for a
+> simple port, `compact?/3` can just re-run whatever check `compact/3` used
+> to do up front, returning `true`/`false` instead of `:skip`.
 
 When `compactor` is not declared, Planck uses a built-in LLM-based strategy
-that triggers at 80% of `model.context_window` and keeps the 10 most recent
-messages verbatim.
+that triggers at 80% of `model.context_window` (estimated from the full
+`context`, not just `recent`) and keeps the 10 most recent messages verbatim.
+
+### Progress notification
+
+Planck's own dispatcher — not any compactor implementation — wraps the call
+to `compact/3` with `on_compacting`/`on_compacted` callbacks so the UI can
+show a "compacting" indicator for the (potentially slow, blocking) duration
+of the call. This is internal to `Planck.Agent`; a custom compactor
+implementation never sees or needs to call these itself.
 
 ### Example
 
@@ -55,10 +97,15 @@ defmodule MySidecar.Compactors.Summary do
   use Planck.Agent.Hooks.Compactor
 
   @impl true
-  def compact(_model, messages) do
-    text    = summarise(messages)
+  def compact?(state, context, _recent) do
+    Planck.AI.Context.estimate_tokens(context) >= state.model.context_window * 0.8
+  end
+
+  @impl true
+  def compact(_state, _context, recent) do
+    text    = summarise(recent)
     summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
-    kept    = Enum.take(messages, -5)
+    kept    = Enum.take(recent, -5)
     {:compact, summary, kept}
   end
 
@@ -319,3 +366,8 @@ any caller default.
 On `:badrpc` the compactor falls back to the local LLM strategy; the prompt
 hook returns `nil` (no injection); the turn-end hook logs a warning and returns
 `:ok`. No hook raises or crashes the agent.
+
+The compactor's remote dispatch makes two RPC calls when it decides to
+compact — `compact?/3` then `compact/3` — since the decision must be checked
+before committing to the (potentially slow) work. A `:badrpc` from either
+call falls back to the built-in local strategy.

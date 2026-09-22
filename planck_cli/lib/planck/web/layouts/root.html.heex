@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang={assigns[:locale] || "en"} class="h-full">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,6 +10,7 @@
     </script>
   </head>
   <body class="h-full bg-background text-foreground antialiased">
+    <LiveToast.toast_group flash={@flash} connected={assigns[:socket] != nil} toasts_sync={assigns[:toasts_sync]} />
     {@inner_content}
   </body>
 </html>

@@ -138,6 +138,15 @@
     />
   <% end %>
 
+  <%!-- Sidecar widget modal — one fixed instance, retargeted at whichever widget is open --%>
+  <%= if @open_widget_id do %>
+    <.live_component
+      module={Planck.Web.Live.SidecarWidget}
+      id="sidecar-widget-modal"
+      widget_id={@open_widget_id}
+    />
+  <% end %>
+
   <%!-- Setup modal — shown on first run or when ⚙ is clicked --%>
   <%= if @setup_visible do %>
     <.live_component

@@ -67,7 +67,11 @@ defmodule Planck.Agent.ToolRunner do
           String.t(),
           String.t(),
           map()
-        ) :: {t(), (-> {:ok, String.t()} | {:error, term()})}
+        ) ::
+          {t(),
+           (-> {:ok, String.t()}
+               | {:ok, String.t(), %{ui: Tool.ui_content()}}
+               | {:error, term()})}
   def prepare_call(runner, tools, agent_id, name, call_id, args)
 
   def prepare_call(runner, tools, agent_id, name, call_id, args) do
@@ -128,6 +132,7 @@ defmodule Planck.Agent.ToolRunner do
 
   @spec run_tool(Tool.t(), String.t(), String.t(), map()) ::
           {:ok, String.t()}
+          | {:ok, String.t(), %{ui: Tool.ui_content()}}
           | {:error, String.t()}
   defp run_tool(tool, agent_id, call_id, args)
 
@@ -142,20 +147,30 @@ defmodule Planck.Agent.ToolRunner do
   end
 
   @spec maybe_append_loop_nudge(result, String.t(), pos_integer()) :: result
-        when result: {:ok, String.t()} | {:error, String.t()}
+        when result:
+               {:ok, String.t()}
+               | {:ok, String.t(), %{ui: Tool.ui_content()}}
+               | {:error, String.t()}
   defp maybe_append_loop_nudge(result, name, count)
 
   defp maybe_append_loop_nudge({:ok, result}, name, count)
        when is_binary(result) and is_binary(name) and count >= @loop_threshold do
-    nudge =
-      "\n\n> Note: you have called `#{name}` with identical arguments #{count} times " <>
-        "this turn and received the same result. If you need different information, " <>
-        "consider changing your arguments or trying a different approach."
+    {:ok, result <> loop_nudge(name, count)}
+  end
 
-    {:ok, result <> nudge}
+  defp maybe_append_loop_nudge({:ok, result, %{ui: ui}}, name, count)
+       when is_binary(result) and is_binary(name) and count >= @loop_threshold do
+    {:ok, result <> loop_nudge(name, count), %{ui: ui}}
   end
 
   defp maybe_append_loop_nudge(result, _name, _count) do
     result
+  end
+
+  @spec loop_nudge(String.t(), pos_integer()) :: String.t()
+  defp loop_nudge(name, count) do
+    "\n\n> Note: you have called `#{name}` with identical arguments #{count} times " <>
+      "this turn and received the same result. If you need different information, " <>
+      "consider changing your arguments or trying a different approach."
   end
 end

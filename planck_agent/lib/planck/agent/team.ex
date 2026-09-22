@@ -53,8 +53,6 @@ defmodule Planck.Agent.Team do
   resolved against the global pool at agent-start time.
   """
 
-  require Logger
-
   alias Planck.Agent.AgentSpec
 
   @team_file "TEAM.json"

@@ -24,12 +24,32 @@ defmodule Planck.Agent.Sidecar do
   - `list_tools/1` — same but takes an explicit module; intended for tests.
   - `execute_tool/3` — discovers the entry module and executes a named tool.
   - `execute_tool/4` — same but takes an explicit module; intended for tests.
+  - `list_widgets/0` — discovers the entry module and returns the widget
+    modules paired with its tools via each tool's `:widget` field. There is no
+    separate `widgets/0` callback; see `Planck.Agent.Widget`.
+  - `list_widgets/1` — same but takes an explicit module; intended for tests.
+  - `widget_render/2` — discovers the entry module and renders a widget by id.
+  - `widget_action/3` — discovers the entry module and dispatches an action to
+    a widget by id.
+  - `widget_container/1` — discovers the entry module and returns a widget's
+    declared container type by id (`:modal` if unset).
+  - `set_locale/1` — caches the current UI locale in `:persistent_term`,
+    idempotently. Not tied to any i18n library — see below.
+  - `get_locale/0` — returns the cached locale, `"en"` if never set.
 
   planck_headless calls:
 
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_tools, [])
       :rpc.call(sidecar_node, Planck.Agent.Sidecar, :execute_tool,
                 [tool_name, agent_id, args], timeout)
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_widgets, [])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_render,
+                [widget_id, myself])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_action,
+                [widget_id, action, args])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_container,
+                [widget_id])
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :set_locale, [locale])
 
   ## Minimal example
 
@@ -63,7 +83,8 @@ defmodule Planck.Agent.Sidecar do
         end
       end
 
-  See `specs/sidecar.md` for the full design.
+  See `specs/sidecar.md` for the full sidecar design, and `specs/widgets.md`
+  for the widget mechanism specifically.
   """
 
   @doc """
@@ -245,4 +266,126 @@ defmodule Planck.Agent.Sidecar do
       tool -> tool.execute_fn.(agent_id, tool_call_id, args)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Widgets — derived from tools/0, not a second declared list
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Discover the sidecar entry module and return the widget modules paired with
+  its tools via their `:widget` field.
+
+  Combines `discover/0` and `list_widgets/1`. Returns `[]` if no entry module
+  is found. There is no separate `widgets/0` callback — a widget is declared
+  by setting a `Planck.Agent.Tool.t()`'s `:widget` field, and this just
+  filters `tools/0` for tools that have one.
+
+  Called by planck_headless on the sidecar node:
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :list_widgets, [])
+  """
+  @spec list_widgets() :: [module()]
+  def list_widgets do
+    case discover() do
+      nil -> []
+      module -> list_widgets(module)
+    end
+  end
+
+  @doc """
+  Return the widget modules paired with an explicit module's `tools/0`.
+
+  Intended for tests. Production code should use `list_widgets/0`.
+  """
+  @spec list_widgets(module()) :: [module()]
+  def list_widgets(module) do
+    module.tools()
+    |> Enum.filter(& &1.widget)
+    |> Enum.map(& &1.widget)
+  end
+
+  @doc """
+  Render a widget by id, via the discovered entry module.
+
+  `myself` is passed through opaquely — see `c:Planck.Agent.Widget.render/1`.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_render,
+                [widget_id, myself])
+  """
+  @spec widget_render(String.t(), term()) :: {:ok, term()} | {:error, term()}
+  def widget_render(widget_id, myself) do
+    with {:ok, widget_module} <- fetch_widget(widget_id) do
+      {:ok, widget_module.render(myself)}
+    end
+  end
+
+  @doc """
+  Dispatch an action to a widget by id, via the discovered entry module.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_action,
+                [widget_id, action, args])
+  """
+  @spec widget_action(String.t(), String.t(), map()) :: :ok | {:error, term()}
+  def widget_action(widget_id, action, args) do
+    with {:ok, widget_module} <- fetch_widget(widget_id) do
+      widget_module.handle_action(action, args)
+    end
+  end
+
+  @doc """
+  Return a widget's declared container type by id — `:modal`, `:drawer`, or
+  `:fullscreen`. See `c:Planck.Agent.Widget.container/0`. Defaults to
+  `:modal` if the widget doesn't implement `container/0`.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :widget_container, [widget_id])
+  """
+  @spec widget_container(String.t()) :: {:ok, Planck.Agent.Widget.container()} | {:error, term()}
+  def widget_container(widget_id) do
+    with {:ok, widget_module} <- fetch_widget(widget_id) do
+      {:ok, widget_module.container()}
+    end
+  end
+
+  @spec fetch_widget(String.t()) :: {:ok, module()} | {:error, term()}
+  defp fetch_widget(widget_id) do
+    case Enum.find(list_widgets(), &(&1.id() == widget_id)) do
+      nil -> {:error, "unknown widget: #{widget_id}"}
+      module -> {:ok, module}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Locale — a plain cached fact, not wired to any i18n library
+  # ---------------------------------------------------------------------------
+
+  @locale_key {__MODULE__, :locale}
+
+  @doc """
+  Caches the sidecar-wide current UI locale (e.g. `"en"`, `"es"`).
+
+  Called by `planck_headless` (via `Planck.Headless.Locale.set/1`) on the
+  sidecar node whenever `Planck.Web.Locale.Plug` resolves a locale — on
+  every request, in practice, since the plug has no cheap way to know
+  whether this call would be a no-op before making it. So this function is
+  itself idempotent instead: absent, it's set; present and equal, no-op;
+  present and different, updated. A widget module decides what to do with
+  the value — this function knows nothing about Gettext or any other i18n
+  library, only that it's tracking "the current locale" as a plain string.
+
+      :rpc.call(sidecar_node, Planck.Agent.Sidecar, :set_locale, [locale])
+  """
+  @spec set_locale(String.t()) :: :ok
+  def set_locale(locale) do
+    case :persistent_term.get(@locale_key, nil) do
+      ^locale -> :ok
+      _ -> :persistent_term.put(@locale_key, locale)
+    end
+  end
+
+  @doc """
+  Returns the cached current UI locale, `"en"` if `set_locale/1` was never
+  called (e.g. before `planck_headless`'s sidecar connects, or in tests).
+  """
+  @spec get_locale() :: String.t()
+  def get_locale, do: :persistent_term.get(@locale_key, "en")
 end

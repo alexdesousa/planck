@@ -466,27 +466,59 @@ Additional Session API:
 
 ## Compaction
 
-`Planck.Agent.Hooks.Compactor.compact/4` dispatches context compaction. It estimates
-token usage from message content (chars ÷ 4) and triggers when usage exceeds
-`ratio * model.context_window` (default ratio: 0.8).
+`Planck.Agent.Hooks.Compactor.compact/4` dispatches context compaction. The
+behaviour splits the decision from the work across two callbacks:
+`compact?/3` (cheap — no LLM call) decides whether compaction would do
+anything right now; `compact/3` (potentially slow) does the actual work, and
+is only ever called when `compact?/3` already returned `true`. The built-in
+`compact?/3` estimates token usage from the full request context — system
+prompt, tool schemas, and messages (chars ÷ 4 per part; see
+`Planck.AI.Context.estimate_tokens/1`) — and returns `true` when usage exceeds
+`ratio * model.context_window` (default ratio: 0.8). Estimating from the whole
+context rather than messages alone matters: a sizeable system prompt or tool
+list can itself account for a large share of the window.
 
-Signature: `Hooks.Compactor.compact(module, model, messages, sidecar_node)`
+Signature: `Hooks.Compactor.compact(state, context, recent, opts)` — `state`
+is the agent's full state, `context` is the `Planck.AI.Context.t()` built for
+`recent`, `recent` is the messages since the last summary checkpoint, and
+`opts` is `[on_compacting: (-> any()), on_compacted: (-> any())]` (both
+zero-arity, both optional). `context` is passed through (not just `recent`)
+so a custom compactor running on the sidecar node — which otherwise has no
+visibility into the agent's system prompt or tool list — can make an
+informed decision too.
 
-When `module` is `nil`, the built-in LLM-based compactor runs locally. When a module
-is set, dispatch goes to the sidecar node via RPC, with the built-in compactor as
-fallback if the sidecar is unavailable.
+`Planck.Agent` supplies `opts` with closures that broadcast `:compacting`
+before and `:compacted` after the dispatcher's call to `compact/3` — never
+called by a compactor implementation itself, and never fired at all when
+`compact?/3` returns `false`. This is why the split exists: `Planck.Agent`
+calls the dispatcher on every turn and can't know in advance whether a given
+call will actually compact, so broadcasting unconditionally would flash
+"compacting" on every ordinary turn; predicting the outcome from
+`Planck.Agent`'s side would only be accurate for the built-in compactor.
+Checking `compact?/3` first lets the dispatcher announce progress accurately
+around the part that's genuinely slow, for any compactor. The built-in
+summarization LLM call is synchronous and blocks the agent's `GenServer` for
+its duration (same as any other turn) — `:compacting`/`:compacted` exist so
+the UI reflects that blocking instead of appearing to hang.
 
-When triggered, it summarises older messages via an LLM call using a prompt that
-prioritises the active goal and recent requests. Returns `{:compact, summary_msg, kept}`
-on success or `:skip` on failure (original messages unchanged).
+When `state.compactor` is `nil`, the built-in LLM-based compactor runs locally.
+When a module is set, dispatch goes to the sidecar node via RPC (`compact?/3`
+then, only if `true`, `compact/3` — same two-call shape as the local path),
+with the built-in compactor as fallback if the sidecar is unavailable.
+
+When triggered, `compact/3` summarises older messages via an LLM call using a
+prompt that prioritises the active goal and recent requests. Returns
+`{:compact, summary_msg, kept}` on success or `:skip` on failure (original
+messages unchanged).
 
 The agent inserts the summary as a `{:custom, :summary}` checkpoint in `state.messages`
 and persists it to the session. Future LLM calls are built from the latest checkpoint
 onward — full history is retained in the session for audit and UI pagination.
 
-Custom compactors implement the `Planck.Agent.Hooks.Compactor` behaviour and are
-referenced by module name in `AgentSpec.compactor`; the module lives in the
-sidecar application (see `specs/sidecar.md`).
+Custom compactors implement the `Planck.Agent.Hooks.Compactor` behaviour
+(`compact?/3`, `compact/3`, `compact_timeout/0`) and are referenced by module
+name in `AgentSpec.compactor`; the module lives in the sidecar application
+(see `specs/sidecar.md`).
 
 ## Pub/Sub events
 

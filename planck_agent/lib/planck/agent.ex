@@ -49,8 +49,6 @@ defmodule Planck.Agent do
 
   use GenServer
 
-  require Logger
-
   alias Planck.Agent.Hooks
 
   alias Planck.Agent.{
@@ -105,6 +103,9 @@ defmodule Planck.Agent do
     detect messages appended *during* streaming that the LLM did not see
   - `stream_buffer` — accumulates text/thinking/tool-call deltas during streaming
   - `tool_runner` — tracks in-flight tool tasks and their accumulated results
+  - `context_tokens` — estimated size (system prompt + messages + tool schemas)
+    of the request built for the most recently started LLM call; see
+    `Planck.AI.Context.estimate_tokens/1`
   - `compactor` — resolved module atom for context compaction; `nil` uses the
     built-in LLM-based compactor
   - `prompt_hook` — resolved module atom for per-turn system prompt injection
@@ -145,7 +146,8 @@ defmodule Planck.Agent do
           turn_state: TurnState.t(),
           stream_buffer: StreamBuffer.t(),
           usage: Usage.t(),
-          tool_runner: ToolRunner.t()
+          tool_runner: ToolRunner.t(),
+          context_tokens: non_neg_integer()
         }
 
   defstruct [
@@ -177,7 +179,8 @@ defmodule Planck.Agent do
     turn_state: %TurnState{},
     stream_buffer: %StreamBuffer{},
     usage: %Usage{},
-    tool_runner: %ToolRunner{}
+    tool_runner: %ToolRunner{},
+    context_tokens: 0
   ]
 
   # ---------------------------------------------------------------------------
@@ -285,7 +288,12 @@ defmodule Planck.Agent do
     GenServer.call(agent, :get_info)
   end
 
-  @doc "Estimate the number of tokens currently in the agent's context window."
+  @doc """
+  Estimate the number of tokens currently in the agent's context window —
+  system prompt, tool schemas, and conversation, not just the conversation.
+  Reflects the request built for the most recently started LLM call (see
+  `state.context_tokens`'s own doc), not a fresh recomputation.
+  """
   @spec estimate_tokens(agent()) :: non_neg_integer()
   def estimate_tokens(agent) do
     GenServer.call(agent, :estimate_tokens)
@@ -313,12 +321,68 @@ defmodule Planck.Agent do
     Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "agent:#{id}")
   end
 
-  @doc "Resolve an agent id to its pid via the Registry."
+  @doc """
+  Resolve an agent id to its pid, anywhere in the connected distributed
+  Erlang cluster — not just the calling node's own `Registry`.
+
+  Checks the calling node's own `Registry` first (fast, no RPC — and the
+  only thing that can find it when the caller and the agent share a node,
+  which every call site originally assumed). Falls back to asking every
+  node in `Node.list/0`, in order, stopping at the first hit.
+
+  The fallback matters for code that runs on a **different** node than
+  `planck_agent`'s own processes — concretely, sidecar tools and hooks
+  (`Sidecar.Tools.Beads`, `Sidecar.Tools.UpdateMemory`,
+  `Sidecar.SkillReflector.Runner`), which execute on the sidecar node while
+  every real `Planck.Agent` GenServer runs on the connected
+  `planck_headless` node. A local-only lookup there always returned
+  `{:error, :not_found}` regardless of whether the agent was actually
+  running — `Registry` is per-node and does not replicate across a
+  distributed Erlang connection, confirmed by this failing in exactly that
+  shape in real (non-test) use. Every one of those call sites' own unit
+  tests passed anyway, because a unit test starts a real `Planck.Agent` in
+  the *same* test process/node — the one topology where the gap was never
+  going to show up.
+
+  Headless-side callers (inter-agent tools, `planck_cli`'s session/event
+  code) always target a same-node agent, so the fallback is a no-op there
+  in the success case; on a genuine miss it costs one extra, fast RPC round
+  trip to the connected sidecar (which never has a matching entry) before
+  returning `{:error, :not_found}` — a small, bounded cost worth paying to
+  have one function that's simply always correct, rather than a second,
+  easy-to-forget name for callers that happen to run elsewhere.
+  """
   @spec whereis(String.t()) :: {:ok, pid()} | {:error, :not_found}
-  def whereis(id) do
+  def whereis(id)
+
+  def whereis(id) when is_binary(id) do
+    with {:error, :not_found} <- locate_local(id) do
+      locate_remote(id, Node.list())
+    end
+  end
+
+  @doc false
+  @spec locate_local(String.t()) :: {:ok, pid()} | {:error, :not_found}
+  def locate_local(id)
+
+  def locate_local(id) when is_binary(id) do
     case Registry.lookup(Planck.Agent.Registry, {:agent, id}) do
       [{pid, _}] -> {:ok, pid}
       _ -> {:error, :not_found}
+    end
+  end
+
+  @spec locate_remote(String.t(), [node()]) :: {:ok, pid()} | {:error, :not_found}
+  defp locate_remote(id, nodes)
+
+  defp locate_remote(_id, []) do
+    {:error, :not_found}
+  end
+
+  defp locate_remote(id, [node | rest]) when is_binary(id) do
+    case :rpc.call(node, __MODULE__, :locate_local, [id], 5_000) do
+      {:ok, pid} -> {:ok, pid}
+      _ -> locate_remote(id, rest)
     end
   end
 
@@ -415,7 +479,7 @@ defmodule Planck.Agent do
   end
 
   def handle_call(:estimate_tokens, _from, state) do
-    {:reply, Message.estimate_tokens(state.messages), state}
+    {:reply, state.context_tokens, state}
   end
 
   def handle_call({:prompt, content, _opts}, _from, %{status: :idle} = state) do
@@ -593,7 +657,7 @@ defmodule Planck.Agent do
   end
 
   defp do_run_llm(state, turn_type) do
-    {messages, state} = apply_compact(state)
+    {_messages, state} = apply_compact(state)
     state = flush_unpersisted_messages(state)
 
     # Only advance stream_start for fresh turns. Tool continuations keep the
@@ -605,14 +669,8 @@ defmodule Planck.Agent do
         :continuation -> state.stream_start
       end
 
-    ai_tools = state.tools |> Map.values() |> Enum.map(&Tool.to_ai_tool/1)
-    system = build_system_prompt(state)
-
-    context = %Context{
-      system: presence(system),
-      messages: Message.to_ai_messages(messages),
-      tools: ai_tools
-    }
+    {_messages, context} = calculate_context(state)
+    context_tokens = Context.estimate_tokens(context)
 
     ref = make_ref()
     parent = self()
@@ -646,6 +704,7 @@ defmodule Planck.Agent do
         stream_ref: ref,
         stream_start: stream_start,
         status: :streaming,
+        context_tokens: context_tokens,
         turn_state: TurnState.advance(state.turn_state),
         tool_runner: tool_runner
     }
@@ -680,15 +739,30 @@ defmodule Planck.Agent do
 
   @spec finish_tool_execution(list(), t()) :: t()
   defp finish_tool_execution(results, state) do
-    tool_result_msg = results |> Enum.reverse() |> MessageBuilder.build_tool_result()
-    tool_result_msg = persist_message(state, tool_result_msg)
+    results = Enum.reverse(results)
+
+    tool_result_msg =
+      results
+      |> Enum.map(fn {id, result} -> {id, strip_ui(result)} end)
+      |> MessageBuilder.build_tool_result()
+      |> then(&persist_message(state, &1))
+
+    ui_msgs =
+      for {id, {:ok, _text, %{ui: content}}} <- results do
+        Message.new({:custom, :ui}, [], %{tool_call_id: id, ui: content})
+        |> then(&persist_message(state, &1))
+      end
 
     %{
       state
-      | messages: state.messages ++ [tool_result_msg],
+      | messages: state.messages ++ [tool_result_msg | ui_msgs],
         status: :streaming
     }
   end
+
+  @spec strip_ui(term()) :: term()
+  defp strip_ui({:ok, text, %{ui: _}}), do: {:ok, text}
+  defp strip_ui(result), do: result
 
   @spec cancel_running_tools(t()) :: :ok
   defp cancel_running_tools(state) do
@@ -881,7 +955,7 @@ defmodule Planck.Agent do
         output_tokens: new_usage.output_tokens,
         cost: new_usage.cost
       },
-      context_tokens: Message.estimate_tokens(new_state.messages)
+      context_tokens: new_state.context_tokens
     })
 
     new_state
@@ -889,17 +963,57 @@ defmodule Planck.Agent do
 
   defp process_event(state, _other), do: state
 
-  @spec apply_compact(t()) :: {[Message.t()], t()}
-  defp apply_compact(%__MODULE__{messages: messages} = state) do
+  @spec calculate_context(t()) :: {[Message.t()], Context.t()}
+  defp calculate_context(state)
+
+  defp calculate_context(%__MODULE__{messages: messages} = state) do
+    ai_tools =
+      state.tools
+      |> Map.values()
+      |> Enum.map(&Tool.to_ai_tool/1)
+
+    system = build_system_prompt(state)
+
     recent = TurnContext.messages_since_last_summary(messages)
 
-    case Hooks.Compactor.compact(state.compactor, state.model, recent, state.sidecar_node) do
+    context =
+      %Context{
+        system: presence(system),
+        messages: Message.to_ai_messages(recent),
+        tools: ai_tools
+      }
+
+    {recent, context}
+  end
+
+  @spec apply_compact(t()) :: {[Message.t()], t()}
+  defp apply_compact(state)
+
+  defp apply_compact(%__MODULE__{messages: messages} = state) do
+    {recent, context} = calculate_context(state)
+
+    # Hooks.Compactor.compact/4 is a synchronous call that can (and, for the
+    # built-in compactor, does) block on an LLM request for as long as that
+    # takes — passed in as callbacks rather than broadcasting :compacting
+    # unconditionally before every call, since apply_compact/1 runs on every
+    # turn and can't know in advance whether this particular call will
+    # actually compact (that decision belongs to the compactor, and for a
+    # custom one, its criteria are opaque here) — broadcasting before every
+    # call would flash "compacting" on every ordinary turn, not just the
+    # rare one that actually does it. Only `id`/`session_id`/`name`/`team_name`
+    # matter to broadcast/3, all stable across compaction, so closing over
+    # the pre-compaction `state` here is safe even though these callbacks
+    # might not run until after this function would otherwise have returned.
+    compact_opts = [
+      on_compacting: fn -> broadcast(state, :compacting, %{}) end,
+      on_compacted: fn -> broadcast(state, :compacted, %{}) end
+    ]
+
+    case Hooks.Compactor.compact(state, context, recent, compact_opts) do
       :skip ->
         {recent, state}
 
       {:compact, %Message{} = summary_msg, kept} ->
-        broadcast(state, :compacting, %{})
-
         summary_msg = persist_message(state, summary_msg)
 
         prefix_len = length(messages) - length(recent)
@@ -909,7 +1023,6 @@ defmodule Planck.Agent do
         new_state = %{state | messages: new_messages}
 
         refreshed = %{new_state | skills: SkillIndex.refresh(new_state.skills)}
-        broadcast(refreshed, :compacted, %{})
         {[summary_msg | kept], refreshed}
     end
   end

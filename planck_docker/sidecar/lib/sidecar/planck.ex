@@ -11,7 +11,14 @@ defmodule Sidecar.Planck do
       Sidecar.Tools.SessionSearch.tool(),
       Sidecar.Tools.UpdateMemory.tool(),
       Sidecar.Tools.SearchWeb.tool(),
-      Sidecar.Tools.WebFetch.tool()
+      Sidecar.Tools.WebFetch.tool(),
+      Sidecar.Tools.BeadsReady.tool(),
+      Sidecar.Tools.BeadsGet.tool(),
+      Sidecar.Tools.BeadsList.tool(),
+      Sidecar.Tools.BeadsDone.tool(),
+      Sidecar.Tools.BeadsClaim.tool(),
+      Sidecar.Tools.BeadsCreate.tool(),
+      Sidecar.Tools.BeadsDelete.tool()
     ]
   end
 end

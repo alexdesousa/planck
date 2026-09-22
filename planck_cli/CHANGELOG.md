@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.2.0
+
+### Sidecar widgets
+
+A sidecar tool can now render real UI in the chat instead of being limited to
+plain text — `Planck.Web.Live.SidecarWidget`, a generic `LiveComponent`,
+renders whatever markup a widget module returns (in a modal, drawer, or
+fullscreen container) and pushes live updates over PubSub as the sidecar's
+underlying state changes. `{:custom, :ui}` messages (`:ui_text`/`:ui_widget`)
+carry UI-only side effects — like a "view board" button after a tool call —
+spliced into the chat at the right position by `tool_call_id`, invisible to
+the LLM's own context.
+
+### Beads task board
+
+The bundled Docker stack's sidecar can now render a live kanban board for
+shared task tracking (claim, create, delete, mark done), backed by the new
+`dolt`/`beads` services. Redesigned mid-implementation into a single
+scrollable list with stable per-row ids (fixing a real crash when deleting one
+bead and then clicking another), with markdown-rendered descriptions and a
+real dropdown for priority.
+
+### Action feedback via `live_toast`
+
+Widget actions (claim, create, delete, done) now show a translated success/failure
+toast instead of failing silently in the UI.
+
+### Three sidebar/chat live-update bugs fixed
+
+All three required a manual page refresh to reflect real backend state before this fix:
+
+- The worker chat modal never showed a busy indicator — it always mounted
+  looking idle regardless of the worker's real status, since it never seeded
+  `streaming`/`streaming_agent_id` at open time. Fixed with a fresh
+  `Agent.get_state/1` lookup when the modal opens.
+- `destroy_agent` didn't remove the agent from the sidebar until a full page
+  refresh, even though the backend was already correct — a missing
+  `handle_info` clause for `:worker_exit` (the symmetric `:worker_spawned`
+  clause already existed).
+- The sidebar's context-usage figure only reflected reality right after a
+  message and went stale otherwise — two disagreeing sources of truth existed
+  for the same number (a live-tracked accurate figure vs. a cruder
+  messages-only estimate recomputed on every sidebar reload, which overwrote
+  the accurate one). Now reads the agent's own live `state.context_tokens`
+  directly, the same figure the compactor itself uses.
+
+### `Earmark` replaced with `MDEx`
+
+Earmark had an active, unpatched XSS CVE. Markdown rendering (chat messages,
+bead descriptions) now goes through MDEx instead.
+
+### Sidecar widget localization
+
+Sidecar-rendered widgets (the beads board) now translate through the
+sidecar's own Gettext backend, kept in sync with the user's locale via
+`Planck.Web.Locale.Plug` pushing on every request.
+
 ## v0.1.13
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

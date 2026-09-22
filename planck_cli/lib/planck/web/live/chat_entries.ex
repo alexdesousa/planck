@@ -71,6 +71,10 @@ defmodule Planck.Web.Live.ChatEntries do
   - `:error` — agent-level error; has `:text`, `:expanded`
   - `:summary` — context-compaction marker; has `:text`
   - `:agent_response` — a worker's response sent back to the orchestrator; has `:text`, `:expanded`
+  - `:ui_text` — a UI-only note attached to a tool result, invisible to the
+    LLM, no widget involved; has `:text`
+  - `:ui_widget` — a UI-only button attached to a tool result, invisible to
+    the LLM, opens a sidecar widget when clicked; has `:label`, `:widget`, `:widget_data`
   """
   @type entry_type ::
           :user
@@ -81,6 +85,8 @@ defmodule Planck.Web.Live.ChatEntries do
           | :error
           | :summary
           | :agent_response
+          | :ui_text
+          | :ui_widget
 
   @typedoc """
   A display-ready map consumed by the chat template.
@@ -102,6 +108,9 @@ defmodule Planck.Web.Live.ChatEntries do
           optional(:tool_args) => map(),
           optional(:tool_result) => String.t() | nil,
           optional(:tool_error) => boolean(),
+          optional(:label) => String.t(),
+          optional(:widget) => String.t(),
+          optional(:widget_data) => term(),
           optional(:timestamp) => DateTime.t() | nil
         }
 
@@ -112,6 +121,16 @@ defmodule Planck.Web.Live.ChatEntries do
            tool_id: String.t(),
            result: term()
          }
+
+  # Internal marker produced by classify_row/4's {:custom, :ui} clause and
+  # consumed by insert_ui_entries/1. Never present in the final [entry()]
+  # output — the wrapped entry is spliced in next to its originating tool
+  # call instead, regardless of where the underlying message actually sits
+  # in the row list (finish_tool_execution/2 always persists the {:custom, :ui}
+  # message after the batch's combined tool_result message, so relying on raw
+  # row order would put every UI trigger after every tool result in the same
+  # batch, not interleaved with each one).
+  @typep ui_marker :: %{__ui__: true, tool_id: String.t(), entry: entry()}
 
   # ---------------------------------------------------------------------------
   # Public API — factories
@@ -239,6 +258,7 @@ defmodule Planck.Web.Live.ChatEntries do
     |> Enum.flat_map(
       &classify_row(&1, perspective_id, agents, orchestrator?(perspective_id, agents))
     )
+    |> insert_ui_entries()
     |> pair_tool_results()
   end
 
@@ -259,6 +279,37 @@ defmodule Planck.Web.Live.ChatEntries do
         result -> %{entry | tool_result: format_tool_result(result), tool_error: error?(result)}
       end
     end)
+  end
+
+  @doc """
+  Splice `:__ui__` markers in right after the `:tool` entry sharing their
+  `tool_id`, regardless of where the underlying `{:custom, :ui}` message
+  actually sits in the row list — see the `ui_marker` typedoc. A marker whose
+  tool call entry is missing (shouldn't normally happen) is appended at the
+  end rather than silently dropped.
+  """
+  @spec insert_ui_entries([entry() | ui_marker()]) :: [entry()]
+  def insert_ui_entries(entries) do
+    {ui_markers, rest} = Enum.split_with(entries, & &1[:__ui__])
+    ui_by_tool_id = Map.new(ui_markers, &{&1.tool_id, &1.entry})
+
+    {paired, used_ids} =
+      Enum.map_reduce(rest, MapSet.new(), fn entry, used ->
+        case entry[:type] == :tool && Map.get(ui_by_tool_id, entry[:tool_id]) do
+          match when match in [false, nil] ->
+            {[entry], used}
+
+          ui_entry ->
+            {[entry, ui_entry], MapSet.put(used, entry.tool_id)}
+        end
+      end)
+
+    orphaned =
+      ui_markers
+      |> Enum.reject(&MapSet.member?(used_ids, &1.tool_id))
+      |> Enum.map(& &1.entry)
+
+    List.flatten(paired) ++ orphaned
   end
 
   @doc "Short subtitle for a tool call, used in collapsed tool cards."
@@ -289,6 +340,7 @@ defmodule Planck.Web.Live.ChatEntries do
   @doc "Format a raw tool result value to a display string."
   @spec format_tool_result(term()) :: String.t()
   def format_tool_result({:ok, text}) when is_binary(text), do: text
+  def format_tool_result({:ok, text, %{ui: _}}) when is_binary(text), do: text
   def format_tool_result({:error, reason}), do: "Error: #{inspect(reason)}"
   def format_tool_result(result) when is_binary(result), do: result
   def format_tool_result(result), do: inspect(result, pretty: true)
@@ -325,9 +377,46 @@ defmodule Planck.Web.Live.ChatEntries do
     }
   end
 
-  @spec orchestrator?(String.t() | nil, agents()) :: boolean()
-  defp orchestrator?(id, agents)
-  defp orchestrator?(nil, _agents), do: false
+  @doc """
+  Builds the display entry for a tool result's `ui:` content.
+
+  Public so `ChatComponent` can insert one immediately on the live
+  `:tool_end` event — the same shape `insert_ui_entries/1` produces from the
+  persisted `{:custom, :ui}` message, just not waiting for the turn-end
+  rebuild that reads that message back.
+  """
+  @spec ui_entry(Planck.Agent.Tool.ui_content(), String.t(), author(), DateTime.t() | nil) ::
+          entry()
+  def ui_entry(%{kind: :text, text: text}, tool_id, author, timestamp) do
+    %{
+      id: "ui-#{tool_id}",
+      type: :ui_text,
+      side: :left,
+      author: author,
+      text: text,
+      timestamp: timestamp
+    }
+  end
+
+  def ui_entry(
+        %{kind: :widget, label: label, widget: widget_id, data: data},
+        tool_id,
+        author,
+        timestamp
+      ) do
+    %{
+      id: "ui-#{tool_id}",
+      type: :ui_widget,
+      side: :left,
+      author: author,
+      label: label,
+      widget: widget_id,
+      widget_data: data,
+      timestamp: timestamp
+    }
+  end
+
+  @spec orchestrator?(String.t(), agents()) :: boolean()
   defp orchestrator?(id, agents), do: get_in(agents, [id, :type]) == "orchestrator"
 
   @spec find_orchestrator_id([row()], agents()) :: String.t() | nil
@@ -394,6 +483,17 @@ defmodule Planck.Web.Live.ChatEntries do
 
       {:custom, :agent_response} ->
         [agent_response_entry(msg)]
+
+      {:custom, :ui} ->
+        %{tool_call_id: tool_id, ui: content} = msg.metadata
+
+        [
+          %{
+            __ui__: true,
+            tool_id: tool_id,
+            entry: ui_entry(content, tool_id, author, msg.timestamp)
+          }
+        ]
 
       _ ->
         []

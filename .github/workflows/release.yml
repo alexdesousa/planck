@@ -27,8 +27,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19.5"
-          otp-version: "28.5"
+          elixir-version: "1.20.4"
+          otp-version: "29.1"
 
       - name: Install dependencies
         run: mix do local.rebar --force + local.hex --force + deps.get
@@ -61,8 +61,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19.5"
-          otp-version: "28.5"
+          elixir-version: "1.20.4"
+          otp-version: "29.1"
 
       - name: Install dependencies
         run: mix do local.rebar --force + local.hex --force + deps.get
@@ -95,8 +95,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19.5"
-          otp-version: "28.5"
+          elixir-version: "1.20.4"
+          otp-version: "29.1"
 
       - name: Install dependencies
         run: mix do local.rebar --force + local.hex --force + deps.get
@@ -132,19 +132,21 @@ jobs:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19.5"
-          # Pinned to an exact hotfix, not just "28.5": ubuntu-latest's package
-          # for that line resolves any looser pin ("28.5", "28.5.0") to its
-          # latest hotfix, and beam-machine.b-cdn.net (Burrito's Linux ERTS
-          # mirror) lags behind — 28.5.0.6 isn't built there yet, only up to
-          # 28.5.0.5. Verify before bumping: see specs/releases-and-distribution.md.
-          otp-version: "28.5.0.5"
+          elixir-version: "1.20.4"
+          # beam-machine.b-cdn.net (Burrito's Linux ERTS mirror) can lag behind
+          # official OTP releases — a loose pin here would resolve to
+          # ubuntu-latest's newest package for the line, which may not be
+          # mirrored yet, 404ing deep inside Burrito. Re-confirmed via curl on
+          # 2026-09-21 that OTP-29.1 is now mirrored (200) — matches every
+          # other job's pin again. Verify before bumping further: see
+          # specs/releases-and-distribution.md.
+          otp-version: "29.1"
       - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: "0.15.2"
+          version: "0.16.0"
       - uses: actions/setup-node@v4
         with:
-          node-version: "25.9.0"
+          node-version: "26.8.2"
       - run: sudo apt-get install -y xz-utils p7zip-full
       - run: mix do local.rebar --force + local.hex --force + deps.get
         env:
@@ -176,14 +178,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19.5"
-          otp-version: "28.4"
+          elixir-version: "1.20.4"
+          otp-version: "29.1"
       - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: "0.15.2"
+          version: "0.16.0"
       - uses: actions/setup-node@v4
         with:
-          node-version: "25.9.0"
+          node-version: "26.8.2"
       - run: brew install xz p7zip
       - run: mix do local.rebar --force + local.hex --force + deps.get
         env:
@@ -215,14 +217,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19.5"
-          otp-version: "28.5"
+          elixir-version: "1.20.4"
+          otp-version: "29.1"
       - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: "0.15.2"
+          version: "0.16.0"
       - uses: actions/setup-node@v4
         with:
-          node-version: "25.9.0"
+          node-version: "26.8.2"
       - run: choco install 7zip -y
       - run: echo "C:\Program Files\Git\usr\bin" >> $env:GITHUB_PATH
       - run: mix do local.rebar --force + local.hex --force + deps.get

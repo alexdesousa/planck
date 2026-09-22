@@ -4,7 +4,7 @@ defmodule Sidecar.MixProject do
   def project do
     [
       app: :sidecar,
-      version: "0.1.13",
+      version: "0.2.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -47,9 +47,12 @@ defmodule Sidecar.MixProject do
       local_or_hex(:planck_agent, "~> 0.1"),
       {:skogsra, "~> 2.5"},
       {:req, "~> 0.5"},
+      {:phoenix_live_view, "~> 1.1"},
+      {:gettext, "~> 1.0"},
       {:ymlr, "~> 5.1"},
       {:erlexec, "~> 2.0"},
       {:file_system, "~> 1.0"},
+      {:mdex, "~> 0.13"},
       {:bypass, "~> 2.1", only: :test},
       {:mox, "~> 1.2", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

@@ -84,6 +84,13 @@ parameter translation.
 
 No inference params on Context — those are passed as keyword opts at the call site.
 
+`Context.estimate_tokens/1` is the canonical token-usage estimator: system
+prompt + tool schemas + messages, all three (chars ÷ 4 per content part, via
+`Planck.AI.Message.estimate_content_tokens/1`). Both `planck_agent`'s built-in
+compactor threshold and `planck_cli`'s sidebar context-usage figure depend on
+this being accurate — a messages-only estimate under-counts real usage
+whenever the system prompt or tool list is sizeable.
+
 ### `Planck.AI.Tool`
 
 ```elixir
@@ -157,6 +164,14 @@ Planck.AI.Config.from_config(providers, models)
 ```
 
 Invalid entries are skipped with a warning logged at `:warning`.
+
+A config entry that omits `"context_window"` defaults to `32_768` (raised from
+`4_096` — since v0.1.6 dropped LLMDB-catalog reconciliation for manually
+configured models, this fallback is the only value such a model gets unless
+`"context_window"` is set explicitly; a real production incident traced a
+compactor triggering on the very first message directly to this default
+being too low). The same fallback applies to the LLMDB catalog translation
+and to live-queried custom OpenAI-compatible endpoints.
 
 ## Context translation — `Planck.AI.Adapter`
 

@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.2.0
+
+### Shared task tracking — beads
+
+New `dolt` and `beads` compose services provide a shared task board for the
+whole team. `Sidecar.Beads` (HTTP client) and seven LLM-facing tools —
+`bd_ready`, `bd_get`, `bd_done`, `bd_claim`, `bd_create`, `bd_delete`,
+`bd_list` — let agents claim, create, and close work items; every mutating
+call attaches a "view board" UI button so a human can always open the live
+kanban widget. Issue ids use a `planck-N` prefix.
+
+Several real bugs found and fixed against the actual published images, not
+assumed: dolt's healthcheck uses a raw TCP connect (`sql-client` isn't a real
+subcommand, and the published image ships no MySQL client); dolt's
+auto-created `root` user is scoped to `localhost` only by default (a custom
+entrypoint self-grants `root@'%'` on boot); `bd init --server`'s `--prefix`
+derivation needed an explicit value; `Sidecar.Beads.close/3` always sent a
+literal `reason: nil`, which the API rejects outright (fixed to omit the key,
+matching how `create/3` already handled optional fields).
+
+### `phoenix_live_view` in the sidecar
+
+Added so sidecar widget modules can build their UI with `Phoenix.Component`/`~H`
+and flatten it to a plain HTML string before crossing the RPC boundary — no
+`Endpoint`/`Router`/Cowboy needed, the sidecar still runs standalone.
+
+### Sidecar localization
+
+`Sidecar.Gettext` — sidecar-rendered widgets (the beads board) now have their
+own translation catalog (`en`/`es`), since the sidecar runs as a genuinely
+separate distributed-Erlang node and can't share a Gettext process with
+`planck_cli`.
+
 ## v0.1.13
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

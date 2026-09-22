@@ -326,6 +326,44 @@ defmodule Planck.Agent.AgentTest do
       assert tool_result_msg != nil
     end
 
+    test "a ui-carrying result is stripped from the tool result and persisted as a sibling {:custom, :ui} message" do
+      ui = %{kind: :widget, label: "View widget", widget: "counter", data: nil}
+
+      tool =
+        Tool.new(
+          name: "tool_with_widget",
+          description: "tool_with_widget",
+          parameters: %{},
+          execute_fn: fn _agent_id, _id, _args -> {:ok, "done", %{ui: ui}} end
+        )
+
+      call = %{id: "c1", name: "tool_with_widget", args: %{}}
+
+      stub(MockAI, :stream, fn _model, %Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:done, %{}}]
+        else
+          [{:tool_call_complete, call}, {:done, %{}}]
+        end
+      end)
+
+      agent = start_agent(tools: [tool])
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "use tool_with_widget")
+
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      state = Agent.get_state(agent)
+
+      tool_result_msg = Enum.find(state.messages, &(&1.role == :tool_result))
+      assert [{:tool_result, "c1", "done"}] = tool_result_msg.content
+
+      ui_msg = Enum.find(state.messages, &match?(%{role: {:custom, :ui}}, &1))
+      assert ui_msg != nil
+      assert ui_msg.content == []
+      assert ui_msg.metadata == %{tool_call_id: "c1", ui: ui}
+    end
+
     test "unknown tool returns error result" do
       call = %{id: "c2", name: "ghost", args: %{}}
 
@@ -541,9 +579,12 @@ defmodule Planck.Agent.AgentTest do
     use Planck.Agent.Hooks.Compactor
 
     @impl true
-    def compact(_model, messages) do
+    def compact?(_state, _context, _recent), do: true
+
+    @impl true
+    def compact(_state, _context, recent) do
       summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "Past summary."}])
-      {:compact, summary, Enum.take(messages, -1)}
+      {:compact, summary, Enum.take(recent, -1)}
     end
   end
 

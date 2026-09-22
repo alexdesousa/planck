@@ -523,7 +523,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
       tools = call_spawn(spawn_tool, orch_id)
 
       assert Map.has_key?(tools, "call_agent")
@@ -538,7 +538,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [BuiltinTools.read()])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [BuiltinTools.read()])
       tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["read"]})
 
       assert Map.has_key?(tools, "read")
@@ -550,7 +550,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [BuiltinTools.read()])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [BuiltinTools.read()])
       tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["bash", "write"]})
 
       refute Map.has_key?(tools, "bash")
@@ -565,7 +565,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spawn_tool =
-        Tools.spawn_agent(unique_id(), team_id, [
+        Tools.spawn_agent(unique_id(), team_id, [], [
           BuiltinTools.read(),
           BuiltinTools.bash()
         ])
@@ -618,7 +618,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         skill_file: "/tmp/skills/code_review/SKILL.md"
       }
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [skill])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [], [skill])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["code_review"]})
 
       assert prompt =~ "You are a reviewer."
@@ -632,7 +632,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [], [])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id, %{"skills" => ["unknown"]})
 
       assert prompt == "You are a reviewer."
@@ -651,7 +651,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         skill_file: "/tmp/skills/code_review/SKILL.md"
       }
 
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [skill])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [], [skill])
       prompt = call_spawn_for_prompt(spawn_tool, orch_id)
 
       assert prompt == "You are a reviewer."
@@ -668,7 +668,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
     stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
     stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-    spawn_tool = Tools.spawn_agent(unique_id(), team_id, [tool])
+    spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [tool])
 
     {:ok, agent_id} =
       spawn_tool.execute_fn.(orch_id, "tc-spawn", %{

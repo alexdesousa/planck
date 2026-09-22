@@ -1,11 +1,13 @@
 import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
+import {createLiveToastHook} from "live_toast"
 import topbar from "../vendor/topbar"
 import hljs from "highlight.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const Hooks = {}
+Hooks.LiveToast = createLiveToastHook()
 
 // Submit on Enter, newline on Shift+Enter.
 // ↑/↓ on empty first line navigates message history.
