@@ -46,6 +46,25 @@ defmodule Sidecar.Tools.ReadTest do
     assert msg =~ "Access denied"
   end
 
+  test "reads a file via an absolute path under the workspace", %{workspace: workspace} do
+    abs_path = Path.join(workspace, "absolute.md")
+    File.write!(abs_path, "Absolute read works.")
+    assert {:ok, "Absolute read works."} = Read.read(abs_path)
+  end
+
+  test "reads a file via an absolute path under /tmp", %{workspace: _workspace} do
+    # Literal "/tmp", not System.tmp_dir!() — the allowlist checks against the
+    # literal "/tmp/" prefix, and System.tmp_dir!() resolves elsewhere on macOS.
+    dir = Path.join("/tmp", "planck_read_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    abs_path = Path.join(dir, "notes.txt")
+    File.write!(abs_path, "Reading outside the workspace via /tmp.")
+
+    assert {:ok, "Reading outside the workspace via /tmp."} = Read.read(abs_path)
+  end
+
   # ---------------------------------------------------------------------------
   # Binary files — Tika extraction
 

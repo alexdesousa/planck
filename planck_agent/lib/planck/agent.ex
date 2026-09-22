@@ -202,8 +202,18 @@ defmodule Planck.Agent do
     }
   end
 
-  @doc "Send a user message and kick off the agent loop. Returns once the agent status is :streaming."
-  @spec prompt(agent(), String.t() | [Planck.AI.Message.content_part()], keyword()) :: :ok
+  @doc """
+  Send a user message and kick off the agent loop. Returns once the agent
+  status is :streaming.
+
+  Pass `edit: id` to instead replace the text of a message with that id —
+  only succeeds if it's still the last, unpersisted message queued while
+  the agent was busy; fails with `{:error, :already_sent}` once it's been
+  flushed to the session (the caller decides how to fall back, e.g. the
+  normal rewind-based edit, once the message has a real db id).
+  """
+  @spec prompt(agent(), String.t() | [Planck.AI.Message.content_part()], keyword()) ::
+          :ok | {:error, :already_sent}
   def prompt(agent, content, opts \\ []) do
     GenServer.call(agent, {:prompt, content, opts})
   end
@@ -482,18 +492,11 @@ defmodule Planck.Agent do
     {:reply, state.context_tokens, state}
   end
 
-  def handle_call({:prompt, content, _opts}, _from, %{status: :idle} = state) do
-    do_prompt(content, state)
-  end
-
-  def handle_call({:prompt, content, _opts}, _from, state) do
-    # Agent is busy — append without persisting yet. Persisting now would give
-    # the queued message a db_id smaller than the current turn's assistant
-    # response, breaking edit-message truncation order. The message is flushed
-    # to the session in handle_continue(:run_llm) after the current turn ends.
-    parts = MessageBuilder.normalize_content(content)
-    msg = Message.new(:user, parts)
-    {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
+  def handle_call({:prompt, content, opts}, _from, state) when is_list(opts) do
+    case Keyword.fetch(opts, :edit) do
+      {:ok, id} -> do_edit_queued(id, content, state)
+      :error -> do_prompt_or_queue(content, state)
+    end
   end
 
   def handle_call(:abort, _from, state) do
@@ -637,6 +640,38 @@ defmodule Planck.Agent do
   # ---------------------------------------------------------------------------
   # Callback implementations
   # ---------------------------------------------------------------------------
+
+  @spec do_prompt_or_queue(String.t() | [Planck.AI.Message.content_part()], t()) ::
+          {:reply, :ok, t()}
+          | {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
+  defp do_prompt_or_queue(content, %{status: :idle} = state), do: do_prompt(content, state)
+
+  defp do_prompt_or_queue(content, state) do
+    # Agent is busy — append without persisting yet. Persisting now would give
+    # the queued message a db_id smaller than the current turn's assistant
+    # response, breaking edit-message truncation order. The message is flushed
+    # to the session in handle_continue(:run_llm) after the current turn ends.
+    parts = MessageBuilder.normalize_content(content)
+    msg = Message.new(:user, parts)
+    broadcast(state, :message_queued, %{id: msg.id, content: parts})
+    {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @spec do_edit_queued(String.t(), String.t() | [Planck.AI.Message.content_part()], t()) ::
+          {:reply, :ok | {:error, :already_sent}, t()}
+  defp do_edit_queued(id, content, state) do
+    case List.last(state.messages) do
+      %Message{id: ^id, role: :user} = msg ->
+        parts = MessageBuilder.normalize_content(content)
+        updated = %{msg | content: parts}
+        new_messages = List.replace_at(state.messages, -1, updated)
+        broadcast(state, :message_queued, %{id: id, content: parts})
+        {:reply, :ok, %{state | messages: new_messages}}
+
+      _ ->
+        {:reply, {:error, :already_sent}, state}
+    end
+  end
 
   @spec do_prompt(String.t() | [Planck.AI.Message.content_part()], t()) ::
           {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
@@ -882,8 +917,13 @@ defmodule Planck.Agent do
   @spec flush_unpersisted_messages(t()) :: t()
   defp flush_unpersisted_messages(state) do
     case SessionStore.flush_unpersisted(state.session_id, state.id, state.messages) do
-      :noop -> state
-      :flushed -> reload_messages_from_session(state)
+      :noop ->
+        state
+
+      :flushed ->
+        new_state = reload_messages_from_session(state)
+        broadcast(new_state, :messages_flushed, %{})
+        new_state
     end
   end
 

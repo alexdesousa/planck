@@ -270,6 +270,39 @@
     </div>
   <% end %>
 
+  <%!-- Messages queued while the agent is busy — rendered after the typing
+       indicator since they were sent during this turn, not persisted yet. --%>
+  <%= for entry <- @pending_entries do %>
+  <div data-entry>
+    <div class="flex justify-end">
+      <div class="max-w-[70%]">
+        <div class="flex flex-col items-end gap-1">
+          <%= if entry.editable do %>
+            <button
+              class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+              phx-click="open_edit_queued"
+              phx-value-queued-id={entry.id}
+              phx-value-text={entry.text}
+              phx-target={@myself}
+            >
+              <span class="text-base">✎</span> <%= pgettext("button label", "edit") %>
+            </button>
+          <% end %>
+          <div class="border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000] bg-muted opacity-70">
+            <p class="font-mono text-xs mb-1 flex items-center gap-2 text-muted-foreground">
+              <%= author_label(entry.author) %>
+              <span class="opacity-60"><%= pgettext("chat label", "queued") %></span>
+            </p>
+            <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <% end %>
+
   <%!-- Scroll anchor --%>
   <div id={"chat-bottom-#{@id}"} />
 </div>

@@ -76,6 +76,7 @@ msgid "Stop All"
 msgstr ""
 
 #: lib/planck/web/live/chat_component.html.heex:80
+#: lib/planck/web/live/chat_component.html.heex:290
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "edit"
@@ -123,7 +124,7 @@ msgctxt "chat label"
 msgid "thinking…"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.ex:352
+#: lib/planck/web/live/chat_component.ex:389
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"
@@ -904,4 +905,10 @@ msgstr ""
 #: lib/planck/web/live/sidecar_widget.ex:150
 #, elixir-autogen, elixir-format
 msgid "%{action} succeeded"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:296
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "queued"
 msgstr ""

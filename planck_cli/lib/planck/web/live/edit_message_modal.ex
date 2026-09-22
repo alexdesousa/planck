@@ -17,6 +17,7 @@ defmodule Planck.Web.Live.EditMessageModal do
      socket
      |> assign(:id, assigns.id)
      |> assign(:db_id, assigns.db_id)
+     |> assign(:queued_id, assigns.queued_id)
      |> assign(:text, assigns.text)}
   end
 
@@ -31,7 +32,13 @@ defmodule Planck.Web.Live.EditMessageModal do
   end
 
   def handle_event("resend", _params, socket) do
-    send(self(), {:resend_message, %{db_id: socket.assigns.db_id, text: socket.assigns.text}})
+    case socket.assigns.queued_id do
+      nil ->
+        send(self(), {:resend_message, %{db_id: socket.assigns.db_id, text: socket.assigns.text}})
+
+      queued_id ->
+        send(self(), {:resend_queued_message, %{id: queued_id, text: socket.assigns.text}})
+    end
 
     {:noreply, socket}
   end

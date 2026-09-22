@@ -812,11 +812,100 @@ defmodule Planck.Agent.AgentTest do
       assert_receive {:agent_event, :turn_start, _}, 2_000
       assert_receive {:agent_event, :turn_end, _}, 2_000
     end
+
+    test "queuing a message while busy broadcasts :message_queued" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(200)
+        [{:text_delta, "response"}, {:done, %{}}]
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(50)
+
+      Agent.prompt(agent, "second")
+
+      assert_receive {:agent_event, :message_queued, %{id: id, content: [{:text, "second"}]}},
+                     1_000
+
+      assert is_binary(id)
+    end
+
+    test "prompt/3 with edit: replaces the queued text and re-broadcasts :message_queued" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(200)
+        [{:text_delta, "response"}, {:done, %{}}]
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(50)
+      Agent.prompt(agent, "original")
+
+      assert_receive {:agent_event, :message_queued, %{id: id}}, 1_000
+
+      assert :ok = Agent.prompt(agent, "edited", edit: id)
+
+      assert_receive {:agent_event, :message_queued, %{id: ^id, content: [{:text, "edited"}]}},
+                     1_000
+
+      queued = Agent.get_state(agent).messages |> List.last()
+      assert queued.id == id
+      assert queued.content == [{:text, "edited"}]
+    end
+
+    test "prompt/3 with edit: fails once the message has already been flushed" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(50)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      agent = start_agent()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(20)
+      Agent.prompt(agent, "second")
+
+      assert_receive {:agent_event, :message_queued, %{id: id}}, 1_000
+
+      # Let the current turn end and the queued message get flushed + re-sent
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :turn_start, _}, 2_000
+
+      assert {:error, :already_sent} = Agent.prompt(agent, "too late", edit: id)
+    end
+
+    test "prompt/3 with edit: fails for an unknown id" do
+      agent = start_agent()
+      assert {:error, :already_sent} = Agent.prompt(agent, "text", edit: "nonexistent")
+    end
   end
 
   # --- persistence ordering ---
 
   describe "message persistence ordering" do
+    test "flushing a queued message broadcasts :messages_flushed" do
+      stub(MockAI, :stream, fn _model, _ctx, _opts ->
+        Process.sleep(50)
+        [{:text_delta, "ok"}, {:done, %{}}]
+      end)
+
+      {agent, _session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      Process.sleep(20)
+      Agent.prompt(agent, "second")
+
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+      assert_receive {:agent_event, :messages_flushed, _}, 2_000
+    end
+
     test "queued user message is persisted after the current assistant response" do
       stub(MockAI, :stream, fn _model, _ctx, _opts ->
         Process.sleep(100)

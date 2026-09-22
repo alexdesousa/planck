@@ -33,6 +33,7 @@ defmodule Planck.Web.Live.ChatComponent do
     {:ok,
      socket
      |> assign(:entries, [])
+     |> assign(:pending_entries, [])
      |> assign(:session_id, nil)
      |> assign(:perspective_agent_id, nil)
      |> assign(:agents, %{})
@@ -49,6 +50,7 @@ defmodule Planck.Web.Live.ChatComponent do
     {:ok,
      socket
      |> assign(:session_id, assigns.session_id)
+     |> assign(:pending_entries, [])
      |> assign(:perspective_agent_id, assigns[:perspective_agent_id])
      |> assign(:agents, assigns[:agents] || %{})
      |> assign(:description, assigns[:description])
@@ -84,6 +86,11 @@ defmodule Planck.Web.Live.ChatComponent do
   @impl true
   def handle_event("open_edit", %{"db-id" => db_id, "text" => text}, socket) do
     send(self(), {:open_edit_message, %{db_id: String.to_integer(db_id), text: text}})
+    {:noreply, socket}
+  end
+
+  def handle_event("open_edit_queued", %{"queued-id" => id, "text" => text}, socket) do
+    send(self(), {:open_edit_queued_message, %{id: id, text: text}})
     {:noreply, socket}
   end
 
@@ -235,6 +242,36 @@ defmodule Planck.Web.Live.ChatComponent do
 
   defp handle_agent_event(socket, {:agent_event, :waiting, _}) do
     assign(socket, :waiting, true)
+  end
+
+  # A message queued while the agent is busy — not yet persisted, so it can't
+  # go through load_entries/2. Tracked separately from `entries` because a
+  # :turn_end for the CURRENT turn (and its load_entries reload) can still
+  # land before this message is flushed; it must survive that reload and
+  # only be cleared once :messages_flushed confirms it's actually persisted.
+  # A repeat with the same id is an edit of the still-queued message,
+  # updating its text in place rather than appending a second entry.
+  defp handle_agent_event(socket, {:agent_event, :message_queued, %{id: id, content: content}}) do
+    text = ChatEntries.extract_text(content)
+    pending = socket.assigns.pending_entries
+
+    new_pending =
+      case Enum.find_index(pending, &(&1.id == id)) do
+        nil ->
+          Enum.map(pending, &Map.put(&1, :editable, false)) ++
+            [ChatEntries.new_pending_entry(id, text, true)]
+
+        idx ->
+          List.update_at(pending, idx, &Map.put(&1, :text, text))
+      end
+
+    assign(socket, :pending_entries, new_pending)
+  end
+
+  defp handle_agent_event(socket, {:agent_event, :messages_flushed, _}) do
+    socket
+    |> assign(:pending_entries, [])
+    |> load_entries(socket.assigns.session_id)
   end
 
   defp handle_agent_event(socket, _event), do: socket

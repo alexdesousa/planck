@@ -19,7 +19,6 @@ defmodule Planck.Web.SessionLive do
       |> assign(:orchestrator_id, nil)
       |> assign(:streaming, false)
       |> assign(:waiting, false)
-      |> assign(:prompt_queue, [])
       |> assign(:overlay, nil)
       |> assign(:left_open, false)
       |> assign(:right_open, false)
@@ -124,6 +123,16 @@ defmodule Planck.Web.SessionLive do
     {:noreply, socket}
   end
 
+  def handle_info({:agent_event, :message_queued, %{agent_id: agent_id}} = event, socket) do
+    send_to_chats(socket, agent_id, event)
+    {:noreply, socket}
+  end
+
+  def handle_info({:agent_event, :messages_flushed, %{agent_id: agent_id}} = event, socket) do
+    send_to_chats(socket, agent_id, event)
+    {:noreply, socket}
+  end
+
   def handle_info({:agent_event, :worker_spawned, _}, socket) do
     {:noreply, do_refresh_agents(socket)}
   end
@@ -180,7 +189,11 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_info({:open_edit_message, %{db_id: db_id, text: text}}, socket) do
-    {:noreply, assign(socket, :edit_message, %{db_id: db_id, text: text})}
+    {:noreply, assign(socket, :edit_message, %{db_id: db_id, queued_id: nil, text: text})}
+  end
+
+  def handle_info({:open_edit_queued_message, %{id: id, text: text}}, socket) do
+    {:noreply, assign(socket, :edit_message, %{db_id: nil, queued_id: id, text: text})}
   end
 
   def handle_info(:close_edit_modal, socket) do
@@ -304,6 +317,10 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_resend_message(db_id, text, socket)}
   end
 
+  def handle_info({:resend_queued_message, %{id: id, text: text}}, socket) do
+    {:noreply, do_edit_queued_message(id, text, socket)}
+  end
+
   # ---------------------------------------------------------------------------
   # Handled events
   # ---------------------------------------------------------------------------
@@ -414,21 +431,23 @@ defmodule Planck.Web.SessionLive do
     send_to_chats(socket, agent_id, event)
 
     if orchestrator_event?(agent_id, socket) do
-      socket = socket |> assign(:streaming, false) |> assign(:waiting, false)
-
-      case socket.assigns.prompt_queue do
-        [next | rest] -> socket |> assign(:prompt_queue, rest) |> do_send_prompt(next)
-        [] -> socket
-      end
+      socket |> assign(:streaming, false) |> assign(:waiting, false)
     else
       socket
     end
   end
 
+  # While the agent is busy, send immediately rather than holding text in
+  # LiveView state — Agent.prompt/2 already queues it safely (unpersisted,
+  # in order) and broadcasts :message_queued so ChatComponent can show it
+  # right away. Only the idle path needs the optimistic local entry, since
+  # there the agent has no other way to signal "message accepted" before
+  # streaming actually starts.
   @spec do_prompt_submit(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp do_prompt_submit(text, socket) do
     if socket.assigns.waiting or socket.assigns.streaming do
-      assign(socket, :prompt_queue, socket.assigns.prompt_queue ++ [text])
+      if socket.assigns.active_session, do: Headless.prompt(socket.assigns.active_session, text)
+      socket
     else
       do_send_prompt(socket, text)
     end
@@ -459,7 +478,7 @@ defmodule Planck.Web.SessionLive do
       event: {:agent_event, :aborted, %{}}
     )
 
-    assign(socket, streaming: false, waiting: false, prompt_queue: [])
+    assign(socket, streaming: false, waiting: false)
   end
 
   @spec do_abort_all(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -472,7 +491,7 @@ defmodule Planck.Web.SessionLive do
       event: {:agent_event, :aborted, %{}}
     )
 
-    assign(socket, streaming: false, waiting: false, prompt_queue: [])
+    assign(socket, streaming: false, waiting: false)
   end
 
   @spec do_delete_session(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -539,6 +558,21 @@ defmodule Planck.Web.SessionLive do
     socket
     |> assign(:edit_message, nil)
     |> assign(:waiting, true)
+  end
+
+  # Edits a message still sitting unpersisted in the agent's queue (no db_id
+  # yet). If the current turn ends in the gap between opening the edit form
+  # and submitting it, the message is already flushed and sent as originally
+  # typed by then — the edit is simply dropped rather than attempted against
+  # a message that's already on its way to the LLM.
+  @spec do_edit_queued_message(String.t(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp do_edit_queued_message(id, text, socket) do
+    if session_id = socket.assigns.active_session do
+      Headless.prompt(session_id, text, edit: id)
+    end
+
+    assign(socket, :edit_message, nil)
   end
 
   # ---------------------------------------------------------------------------
@@ -684,7 +718,6 @@ defmodule Planck.Web.SessionLive do
       |> assign(:orchestrator_id, orchestrator_id)
       |> assign(:streaming, streaming)
       |> assign(:waiting, false)
-      |> assign(:prompt_queue, [])
       |> assign(:overlay, nil)
 
     if sidecar_status == :connected, do: maybe_sync_sidecar_tools(socket), else: socket

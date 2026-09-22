@@ -156,12 +156,20 @@ defmodule Planck.Headless do
     end
   end
 
-  @doc "Send a user prompt to the orchestrator of a session."
-  @spec prompt(session_id(), String.t()) :: :ok | {:error, term()}
-  def prompt(session_id, text) do
+  @doc """
+  Send a user prompt to the orchestrator of a session.
+
+  Pass `edit: id` to instead replace the text of a message with that id —
+  only succeeds if it's still the last, unpersisted message queued while
+  the orchestrator was busy; fails with `{:error, :already_sent}` once it's
+  been flushed to the session.
+  """
+  @spec prompt(session_id(), String.t(), keyword()) ::
+          :ok | {:error, :already_sent} | {:error, term()}
+  def prompt(session_id, text, opts \\ []) do
     with {:ok, team_id} <- read_team_id(session_id),
          {:ok, pid} <- find_orchestrator(team_id) do
-      Agent.prompt(pid, text)
+      Agent.prompt(pid, text, opts)
     end
   end
 

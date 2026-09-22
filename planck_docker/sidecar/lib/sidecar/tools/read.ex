@@ -25,7 +25,7 @@ defmodule Sidecar.Tools.Read do
       parameters: %{
         "type" => "object",
         "properties" => %{
-          "path" => %{"type" => "string", "description" => "File path (relative to workspace)"},
+          "path" => %{"type" => "string", "description" => "File path"},
           "offset" => %{
             "type" => "integer",
             "description" => "Line offset (default: 0)"
@@ -53,38 +53,46 @@ defmodule Sidecar.Tools.Read do
   def read(path, opts \\ [])
 
   def read(path, opts) when is_binary(path) and is_list(opts) do
-    workspace = Sidecar.Config.workspace_dir!()
-
-    abs_path =
-      workspace
-      |> Path.join(path)
-      |> Path.expand()
-
-    if String.starts_with?(abs_path, workspace) do
-      do_read(path, opts)
-    else
-      {:error, "Access denied: path is outside the workspace"}
+    with {:ok, expanded} <- check_allowed_path(path) do
+      do_read(expanded, path, opts)
     end
   end
 
   # ---------------------------------------------------------------------------
   # Private
 
-  @spec do_read(String.t(), keyword()) ::
+  @spec check_allowed_path(String.t()) ::
+          {:ok, Path.t()}
+          | {:error, String.t()}
+  defp check_allowed_path(path)
+
+  defp check_allowed_path("/" <> _ = path) do
+    workspace = Sidecar.Config.workspace_dir!()
+    allow_list = [workspace <> "/", "/tmp/"]
+    expanded = Path.expand(path)
+
+    if Enum.any?(allow_list, &String.starts_with?(expanded, &1)) do
+      {:ok, expanded}
+    else
+      {:error, "Access denied: path is outside #{workspace}/ and /tmp/"}
+    end
+  end
+
+  defp check_allowed_path(path) when is_binary(path) do
+    Sidecar.Config.workspace_dir!()
+    |> Path.join(path)
+    |> check_allowed_path()
+  end
+
+  @spec do_read(Path.t(), String.t(), keyword()) ::
           {:ok, String.t()}
           | {:error, String.t()}
-  defp do_read(path, opts)
+  defp do_read(abs_path, path, opts)
 
-  defp do_read(path, opts) when is_binary(path) and is_list(opts) do
-    workspace = Sidecar.Config.workspace_dir!()
-
-    abs_path =
-      workspace
-      |> Path.join(path)
-      |> Path.expand()
-
+  defp do_read(abs_path, path, opts)
+       when is_binary(abs_path) and is_binary(path) and is_list(opts) do
     if Sidecar.FileType.binary?(abs_path) do
-      ext = Path.extname(path)
+      ext = Path.extname(abs_path)
       read_binary(abs_path, path, ext, opts)
     else
       read_text(abs_path, opts)

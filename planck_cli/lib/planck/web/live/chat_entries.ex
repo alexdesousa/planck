@@ -111,7 +111,9 @@ defmodule Planck.Web.Live.ChatEntries do
           optional(:label) => String.t(),
           optional(:widget) => String.t(),
           optional(:widget_data) => term(),
-          optional(:timestamp) => DateTime.t() | nil
+          optional(:timestamp) => DateTime.t() | nil,
+          optional(:pending) => boolean(),
+          optional(:editable) => boolean()
         }
 
   # Internal marker produced by content_to_entries/tool_result_markers and
@@ -146,6 +148,27 @@ defmodule Planck.Web.Live.ChatEntries do
       author: :user,
       text: text,
       streaming: false,
+      timestamp: DateTime.utc_now()
+    }
+  end
+
+  @doc """
+  Build a pending entry for a message queued while the agent is busy —
+  not yet persisted, so `id` is the agent's own (string) message id rather
+  than a real db id. `editable` marks whether this is the most recently
+  queued message, the only one the UI allows editing.
+  """
+  @spec new_pending_entry(String.t(), String.t(), boolean()) :: entry()
+  def new_pending_entry(id, text, editable) do
+    %{
+      id: id,
+      type: :user,
+      side: :right,
+      author: :user,
+      text: text,
+      streaming: false,
+      pending: true,
+      editable: editable,
       timestamp: DateTime.utc_now()
     }
   end
@@ -647,8 +670,9 @@ defmodule Planck.Web.Live.ChatEntries do
   defp error?(result) when is_binary(result), do: String.starts_with?(result, "Error: ")
   defp error?(_), do: false
 
+  @doc "Extract the displayable text from a message's content parts, dropping non-text parts."
   @spec extract_text([tuple()]) :: String.t()
-  defp extract_text(content) do
+  def extract_text(content) do
     content
     |> Enum.filter(&match?({:text, _}, &1))
     |> Enum.map_join("", fn {:text, t} -> t end)
