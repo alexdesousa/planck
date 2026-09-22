@@ -8,7 +8,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.2.1
+    image: ghcr.io/alexdesousa/planck:0.2.2
     entrypoint: ["/setup.sh"]
     volumes:
       - ${PLANCK_HOME}/workspace:/workspace
@@ -28,7 +28,7 @@ services:
     build:
       context: ..
       dockerfile: planck_docker/planck/Dockerfile
-    image: ghcr.io/alexdesousa/planck:0.2.1
+    image: ghcr.io/alexdesousa/planck:0.2.2
     hostname: planck
     ports:
       - "${PLANCK_BIND_ADDRESS:-127.0.0.1}:4000:4000"
@@ -110,8 +110,7 @@ services:
   # and nothing in the 2.3.2–2.3.5 release notes indicates a fix.
   dolt:
     build:
-      context: ..
-      dockerfile: planck_docker/dolt/Dockerfile
+      context: ./dolt
     volumes:
       - ${PLANCK_HOME}/dolt-data:/var/lib/dolt
     healthcheck:
@@ -132,8 +131,7 @@ services:
   # ── Beads — shared task board API, fronting the dolt server above ──────────
   beads:
     build:
-      context: ..
-      dockerfile: planck_docker/beads/Dockerfile
+      context: ./beads
     volumes:
       - ${PLANCK_HOME}/beads-data:/data/.beads
     environment:

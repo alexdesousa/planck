@@ -2,7 +2,7 @@
 set -e
 
 REPO="alexdesousa/planck"
-VERSION="0.2.1"
+VERSION="0.2.2"
 PLANCK_HOME="$HOME/planck"
 COMPOSE_URL="https://raw.githubusercontent.com/$REPO/v${VERSION}/planck_docker/compose.yml"
 
@@ -68,7 +68,7 @@ mkdir -p \
 ENV_FILE="$PLANCK_HOME/.env"
 
 add_if_missing() {
-  grep -q "^$1=" "$ENV_FILE" || echo "$1=$2" >> "$ENV_FILE"
+  grep -q "^$1=" "$ENV_FILE" || echo "$1=$2" >>"$ENV_FILE"
 }
 
 rand32() { LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32; }
@@ -115,21 +115,36 @@ else
   wget -qO "$COMPOSE_FILE" "$COMPOSE_URL"
 fi
 
-# ── Install planck_setup skill ────────────────────────────────────────────────
-SKILL_BASE="$PLANCK_HOME/workspace/.planck/skills"
+# ── Download release tarball (skill + dolt/beads build contexts) ─────────────
+# dolt and beads are built locally, not published as per-version images (see
+# specs/planck-docker.md) — compose.yml's build context for both is relative
+# to compose.yml's own directory, so their Dockerfile + entrypoint.sh have to
+# be sitting right next to it here, not just present in the monorepo checkout
+# this script doesn't have.
 TARBALL_URL="https://github.com/$REPO/archive/refs/tags/v${VERSION}.tar.gz"
+TARBALL_FILE="$(mktemp)"
+trap 'rm -f "$TARBALL_FILE"' EXIT
 
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL -o "$TARBALL_FILE" "$TARBALL_URL"
+else
+  wget -qO "$TARBALL_FILE" "$TARBALL_URL"
+fi
+
+SKILL_BASE="$PLANCK_HOME/workspace/.planck/skills"
 echo "Installing planck_setup skill..."
 mkdir -p "$SKILL_BASE"
-if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$TARBALL_URL" | tar -xz --strip-components=2 \
-    -C "$SKILL_BASE" "planck-${VERSION}/skills/planck_setup" \
-    || echo "Warning: could not install planck_setup skill"
-else
-  wget -qO- "$TARBALL_URL" | tar -xz --strip-components=2 \
-    -C "$SKILL_BASE" "planck-${VERSION}/skills/planck_setup" \
-    || echo "Warning: could not install planck_setup skill"
-fi
+tar -xzf "$TARBALL_FILE" --strip-components=2 \
+  -C "$SKILL_BASE" "planck-${VERSION}/skills/planck_setup" ||
+  echo "Warning: could not install planck_setup skill"
+
+echo "Installing dolt/beads build contexts..."
+for svc in dolt beads; do
+  mkdir -p "$PLANCK_HOME/$svc"
+  tar -xzf "$TARBALL_FILE" --strip-components=3 \
+    -C "$PLANCK_HOME/$svc" "planck-${VERSION}/planck_docker/$svc" ||
+    echo "Warning: could not install $svc build context"
+done
 
 # ── Pull images ───────────────────────────────────────────────────────────────
 echo "Pulling Docker images..."

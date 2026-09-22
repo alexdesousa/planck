@@ -2,7 +2,7 @@
 # first boot — see entrypoint.sh for why that's needed at all.
 FROM dolthub/dolt:2.2.0
 
-COPY planck_docker/dolt/entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # tini (already the base image's own PID 1) still reaps zombies and forwards

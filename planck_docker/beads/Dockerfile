@@ -32,7 +32,7 @@ RUN set -eu; \
     chmod +x /usr/local/bin/bd; \
     rm /tmp/beads.tar.gz
 
-COPY planck_docker/beads/entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 8377

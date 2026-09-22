@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.2.2
+
+### Fresh installs via `curl | sh` were completely broken
+
+Two separate bugs, both hit for real installing `v0.2.1`:
+
+- `docker compose run --rm setup` requested a pseudo-TTY by default. When the
+  install script itself runs via `curl | sh` (or `irm | iex` on Windows),
+  stdin is the pipe feeding the script, not a real terminal, so TTY allocation
+  failed outright ("the input device is not a TTY") and `set -e` aborted the
+  whole install before any service ever started. `setup`'s entrypoint is a
+  plain, non-interactive script — it never needed a TTY. Fixed by adding `-T`
+  to that one `run` call, in `install_docker.sh`, `install_docker.ps1`, and
+  `dev_docker.sh`.
+- `dolt` and `beads` are built locally rather than published as per-version
+  images (see `specs/planck-docker.md`), and their `compose.yml` build
+  contexts were `context: .. / dockerfile: planck_docker/dolt/Dockerfile` —
+  paths that only resolve when `compose.yml` sits inside a full monorepo
+  checkout. A standalone install has no `planck_docker/` directory above
+  `compose.yml` at all, so `docker compose up` failed immediately trying to
+  build `dolt` from a path that doesn't exist. Fixed structurally: both
+  Dockerfiles now `COPY` from their own directory instead of a
+  monorepo-root-relative path, `compose.yml`'s build contexts are now
+  `context: ./dolt` / `context: ./beads` (resolved relative to `compose.yml`'s
+  own directory either way, so `dev_docker.sh` is unaffected), and
+  `install_docker.sh`/`install_docker.ps1` now download `planck_docker/dolt`
+  and `planck_docker/beads` from the tagged release archive alongside
+  `compose.yml`, landing them right next to it.
+
 ## v0.2.1
 
 ### Release CI fixes

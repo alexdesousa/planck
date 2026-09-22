@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Repo        = "alexdesousa/planck"
-$Version     = "0.2.1"
+$Version     = "0.2.2"
 $PlanckHome  = Join-Path $HOME "planck"
 $ComposeUrl  = "https://raw.githubusercontent.com/$Repo/v$Version/planck_docker/compose.yml"
 $ComposeFile = Join-Path $PlanckHome "compose.yml"
@@ -123,7 +123,12 @@ Invoke-WebRequest -Uri $ComposeUrl -OutFile $ComposeFile -UseBasicParsing
 # ── Export PLANCK_HOME so compose.yml volume paths resolve correctly ──────────
 $env:PLANCK_HOME = $PlanckHome
 
-# ── Install planck_setup skill ────────────────────────────────────────────────
+# ── Download release archive (skill + dolt/beads build contexts) ─────────────
+# dolt and beads are built locally, not published as per-version images (see
+# specs/planck-docker.md) — compose.yml's build context for both is relative
+# to compose.yml's own directory, so their Dockerfile + entrypoint.sh have to
+# be sitting right next to it here, not just present in the monorepo checkout
+# this script doesn't have.
 $SkillBase   = Join-Path $PlanckHome "workspace\.planck\skills"
 $ZipUrl      = "https://github.com/$Repo/archive/refs/tags/v$Version.zip"
 $ZipTemp     = [System.IO.Path]::GetTempFileName() + ".zip"
@@ -141,6 +146,20 @@ try {
     Copy-Item -Path $SkillSrc -Destination $SkillBase -Recurse -Force
 } catch {
     Write-Host "Warning: could not install planck_setup skill"
+}
+
+Write-Host "Installing dolt/beads build contexts..."
+try {
+    foreach ($svc in "dolt", "beads") {
+        $SvcSrc  = Join-Path $ExtractTemp "planck-$Version\planck_docker\$svc"
+        $SvcDest = Join-Path $PlanckHome $svc
+        if (Test-Path $SvcDest) {
+            Remove-Item $SvcDest -Recurse -Force
+        }
+        Copy-Item -Path $SvcSrc -Destination $SvcDest -Recurse -Force
+    }
+} catch {
+    Write-Host "Warning: could not install dolt/beads build contexts"
 } finally {
     Remove-Item $ZipTemp -ErrorAction SilentlyContinue
     Remove-Item $ExtractTemp -Recurse -ErrorAction SilentlyContinue
