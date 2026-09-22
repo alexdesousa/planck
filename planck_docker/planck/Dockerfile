@@ -22,7 +22,20 @@ COPY . .
 
 # Build the planck_docker OTP release (no Burrito wrapper).
 ENV MIX_ENV=prod
+# erlexec's C build shells out to bare `erl` to detect the system architecture
+# and erl_interface include/lib paths. That `erl` invocation crashes on boot
+# on this image (prim_tty's NIF-based terminal handling fails with `undef`,
+# independent of arch or QEMU — a real, reproducible failure, not emulation
+# noise). CROSS_COMPILE routes architecture detection through `$(CXX)
+# -dumpmachine` instead; ERL_CXXFLAGS/ERL_LDFLAGS are computed from the
+# filesystem so the other two `erl` calls are never made either.
 RUN cd planck_cli \
+    && ERL_ROOT_DIR=/usr/local/lib/erlang \
+    && ERTS_VSN=$(basename $(ls -d ${ERL_ROOT_DIR}/erts-*) | sed 's/erts-//') \
+    && EI_DIR=$(ls -d ${ERL_ROOT_DIR}/lib/erl_interface-* | sort -V | tail -1) \
+    && export CROSS_COMPILE=1 \
+    && export ERL_CXXFLAGS="-I${ERL_ROOT_DIR}/erts-${ERTS_VSN}/include -I${EI_DIR}/include" \
+    && export ERL_LDFLAGS="-L${EI_DIR}/lib" \
     && mix deps.get \
     && MIX_ENV=dev mix deps.compile \
     && MIX_ENV=dev mix do assets.setup + assets.deploy \
@@ -32,7 +45,15 @@ RUN cd planck_cli \
 # planck_agent is resolved as a local path dep via File.dir? auto-detection in
 # mix.exs — no env var needed. The path ../../planck_agent exists here (COPY . .)
 # so mix.lock does not lock it to Hex, and SidecarManager picks it up at runtime.
+# See the erlexec/CROSS_COMPILE comment above — same fix needed here since
+# erlexec is also a transitive dep of the sidecar.
 RUN cd planck_docker/sidecar \
+    && ERL_ROOT_DIR=/usr/local/lib/erlang \
+    && ERTS_VSN=$(basename $(ls -d ${ERL_ROOT_DIR}/erts-*) | sed 's/erts-//') \
+    && EI_DIR=$(ls -d ${ERL_ROOT_DIR}/lib/erl_interface-* | sort -V | tail -1) \
+    && export CROSS_COMPILE=1 \
+    && export ERL_CXXFLAGS="-I${ERL_ROOT_DIR}/erts-${ERTS_VSN}/include -I${EI_DIR}/include" \
+    && export ERL_LDFLAGS="-L${EI_DIR}/lib" \
     && mix do local.hex --force + local.rebar --force + setup + compile
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────

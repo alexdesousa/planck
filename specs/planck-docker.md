@@ -305,13 +305,21 @@ Workflow `.github/workflows/planck_docker.yml`, `docker-planck-build` +
 
 `linux/amd64` and `linux/arm64` are each built on their own native runner
 (`ubuntu-latest`, `ubuntu-24.04-arm`) and pushed by digest, then merged into
-one multi-arch manifest via `docker buildx imagetools create` — deliberately
-not a single QEMU-emulated multi-platform build. `erlexec`'s C build shells
-out to bare `erl` to detect the system architecture, and `erl` reliably
-crashes on boot under QEMU cross-arch emulation (a known, still-open upstream
-issue: erlang/otp#10355 — `prim_tty`'s NIF-based terminal handling doesn't
-work under emulation, on any OTP version). Confirmed by direct reproduction
-in 2026-09; not fixable by an OTP version change.
+one multi-arch manifest via `docker buildx imagetools create`, avoiding QEMU
+for its own sake — but this did **not** fix the actual build failure hit in
+2026-09, since that turned out to be unrelated to emulation: `erlexec`'s C
+build shells out to bare `erl` to detect the system architecture and the
+`erl_interface` include/lib paths, and on the `hexpm/elixir:*-erlang-29.1-*`
+image, that `erl` invocation reliably crashes on boot — `prim_tty`'s NIF-based
+terminal handling fails with `undef` — on native `linux/amd64` just as much as
+under QEMU. Not fixable by an OTP version change either (reproduced
+identically on 29.0.6). The actual fix, in `planck_docker/planck/Dockerfile`:
+set `CROSS_COMPILE=1` so erlexec's Makefile derives the target triplet from
+`$(CXX) -dumpmachine` instead of `erl`, and pre-compute `ERL_CXXFLAGS`/
+`ERL_LDFLAGS` from the filesystem (`erts-*`/`erl_interface-*` under
+`/usr/local/lib/erlang`) so the other two `erl` calls are never made. Applied
+in both RUN steps that compile Elixir deps (the `planck_cli` release build and
+the sidecar's `compile` step), since `erlexec` is transitive to both.
 
 ## Repository structure
 
