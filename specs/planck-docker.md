@@ -299,10 +299,19 @@ registries at the versions pinned in `compose.yml`.
 
 ## CI/CD
 
-Workflow `.github/workflows/planck_docker.yml` triggered by `planck-docker/vX.Y.Z` tags:
+Workflow `.github/workflows/planck_docker.yml`, `docker-planck-build` +
+`docker-planck-merge` jobs, triggered by `vX.Y.Z` tags: build and push the
+`planck` Docker image to GHCR.
 
-1. Build and push `planck` Docker image to GHCR
-2. Publish `install_docker.sh` to `docs/`
+`linux/amd64` and `linux/arm64` are each built on their own native runner
+(`ubuntu-latest`, `ubuntu-24.04-arm`) and pushed by digest, then merged into
+one multi-arch manifest via `docker buildx imagetools create` — deliberately
+not a single QEMU-emulated multi-platform build. `erlexec`'s C build shells
+out to bare `erl` to detect the system architecture, and `erl` reliably
+crashes on boot under QEMU cross-arch emulation (a known, still-open upstream
+issue: erlang/otp#10355 — `prim_tty`'s NIF-based terminal handling doesn't
+work under emulation, on any OTP version). Confirmed by direct reproduction
+in 2026-09; not fixable by an OTP version change.
 
 ## Repository structure
 

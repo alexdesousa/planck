@@ -140,15 +140,17 @@ Add a `## vX.Y.Z` section to each of:
 
 `release.yml` has two sets of `otp-version`:
 
-- **Publish jobs** (`publish-ai`, `publish-agent`, `publish-headless`): float on `"29.1"` — no pin needed.
+- **Publish jobs** (`publish-ai`, `publish-agent`, `publish-headless`): float on `"29.1"` — no pin needed, since these jobs only compile and never fetch a portable ERTS.
 - **Build jobs** (`build-linux`, `build-macos-arm`, `build-windows`): each downloads a portable ERTS to bundle into the binary. Burrito reads the *build host's own installed* OTP_VERSION file to pick which one to fetch (`Burrito.Util.get_otp_version/0`) — it does not use the `otp-version:` string you gave `erlef/setup-beam` directly, only whatever that action actually installed.
-  - **`build-linux`** can silently fall behind the other jobs' pin at any time: on `ubuntu-latest`, a loose pin (`"29.1"`) resolves to the *newest* release in that line, but Burrito fetches Linux's portable ERTS from a separate third-party mirror (beam-machine.b-cdn.net) that lags behind official OTP releases — if the newest release isn't built there yet, the job 404s deep inside Burrito. Currently pinned to `"29.1"`, matching every other job (re-confirmed mirrored 2026-09-21, after an earlier hotfix-only window — see the exact pin's own code comment in `release.yml` for that history). `build-macos-arm` and `build-windows` haven't needed this exception: macOS's package already resolves to a clean, mirrored patch, and Windows downloads straight from GitHub's official OTP releases (which does have the newest release immediately).
-  - Before bumping the `build-linux` pin to a newer release, confirm the exact candidate version is actually mirrored:
+  - **A two-component pin (e.g. `"29.1"`) is unsafe for `build-linux` and `build-macos-arm`.** `erlef/setup-beam` resolves it to the *newest patch* in that line, not the bare GA release — and that resolution can change between one workflow run and the next as new patches are published upstream, with no change to the pin itself. Both platforms fetch their portable ERTS from a third-party mirror (beam-machine-universal.b-cdn.net) that lags behind official OTP patch releases. If the newest patch isn't built there yet, the job 404s deep inside Burrito. This isn't hypothetical: on 2026-09-22, `"29.1"` drifted to `29.1.1` on *both* `build-linux` and `build-macos-arm` overnight — even though bare `OTP-29.1` was confirmed mirrored for both platforms the day before — and broke both jobs simultaneously. `build-macos-arm` was previously assumed exempt ("macOS's package already resolves to a clean, mirrored patch"); that assumption was wrong. `build-windows` fetches straight from GitHub's official OTP releases, not this mirror, so it hasn't shown this failure mode — but treat that as unconfirmed safety, not a guarantee.
+  - The fix is to pin `build-linux` and `build-macos-arm` to a full, exact three-component patch version confirmed mirrored on **both** platforms — never a bare `"X.Y"` line — so there is no newer patch for `erlef/setup-beam` to drift to. Confirm before pinning:
     ```sh
     curl -o /dev/null -sw '%{http_code}\n' \
-      "https://beam-machine-universal.b-cdn.net/OTP-X.Y/linux/x86_64/any/otp_X.Y_linux_any_x86_64.tar.gz?please-respect-my-bandwidth-costs=thank-you&openssl=3.5.1&musl=1.2.5"
+      "https://beam-machine-universal.b-cdn.net/OTP-X.Y.Z/linux/x86_64/any/otp_X.Y.Z_linux_any_x86_64.tar.gz?please-respect-my-bandwidth-costs=thank-you&openssl=3.5.1&musl=1.2.5"
+    curl -o /dev/null -sw '%{http_code}\n' \
+      "https://beam-machine-universal.b-cdn.net/OTP-X.Y.Z/macos/universal/otp_X.Y.Z_macos_universal.tar.gz?please-respect-my-bandwidth-costs=thank-you&openssl=3.5.1&musl=1.2.5"
     ```
-    200 means it's safe to pin; 404 means try one release older, and pin `build-linux` to that exact hotfix instead of the loose line until the mirror catches up.
+    200 on both means it's safe to pin both jobs to that exact version; 404 on either means fall back to the last exact patch confirmed mirrored on both (currently `"29.0.6"`, confirmed 2026-09-22) until the newer one catches up.
 
 ### Git tag
 

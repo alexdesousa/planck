@@ -133,14 +133,16 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.20.4"
-          # beam-machine.b-cdn.net (Burrito's Linux ERTS mirror) can lag behind
-          # official OTP releases — a loose pin here would resolve to
-          # ubuntu-latest's newest package for the line, which may not be
-          # mirrored yet, 404ing deep inside Burrito. Re-confirmed via curl on
-          # 2026-09-21 that OTP-29.1 is now mirrored (200) — matches every
-          # other job's pin again. Verify before bumping further: see
+          # A two-component pin here (e.g. "29.1") is unsafe: erlef/setup-beam
+          # resolves it to the newest patch in that line, which can drift to a
+          # release beam-machine-universal.b-cdn.net (Burrito's Linux ERTS
+          # mirror) hasn't built yet — 404ing deep inside Burrito. This is
+          # exactly what happened on 2026-09-22: "29.1" resolved to 29.1.1,
+          # which wasn't mirrored, even though bare OTP-29.1 was (confirmed
+          # 2026-09-21). Pinned to the full exact patch confirmed mirrored via
+          # curl (200) on 2026-09-22. Verify before bumping: see
           # specs/releases-and-distribution.md.
-          otp-version: "29.1"
+          otp-version: "29.0.6"
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.16.0"
@@ -179,7 +181,14 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.20.4"
-          otp-version: "29.1"
+          # Same mirror-lag class of bug as build-linux (see its comment
+          # below): a two-component pin resolves to the newest patch in that
+          # line, which can outrun Burrito's macOS ERTS mirror too — macOS is
+          # NOT exempt from this, despite what this comment used to claim.
+          # "29.1" drifted to 29.1.1 (unmirrored, 404) on 2026-09-22. Pinned
+          # to the full exact patch confirmed mirrored via curl (200) that
+          # day. Verify before bumping: see specs/releases-and-distribution.md.
+          otp-version: "29.0.6"
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: "0.16.0"
