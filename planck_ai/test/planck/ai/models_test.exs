@@ -7,7 +7,7 @@ defmodule Planck.AI.ModelsTest do
 
   alias Planck.AI
   alias Planck.AI.Model
-  alias Planck.AI.Models.{Anthropic, Google, OpenAI}
+  alias Planck.AI.Models.{Anthropic, Google, OpenAI, TypeSafe}
 
   describe "Anthropic.all/1" do
     test "returns models with :anthropic provider" do
@@ -69,15 +69,16 @@ defmodule Planck.AI.ModelsTest do
     end
 
     test "passes api_key as bearer token using identifier env var" do
-      System.put_env("NVIDIA_API_KEY", "test-key")
-      on_exit(fn -> System.delete_env("NVIDIA_API_KEY") end)
+      identifier = "NVIDIA#{System.unique_integer([:positive])}"
+      System.put_env("#{identifier}_API_KEY", "test-key")
+      on_exit(fn -> System.delete_env("#{identifier}_API_KEY") end)
 
       expect(Planck.AI.MockHTTPClient, :get, fn _url, opts ->
         assert opts[:auth] == {:bearer, "test-key"}
         {:ok, %{status: 200, body: %{"data" => []}}}
       end)
 
-      OpenAI.all(base_url: "https://integrate.api.nvidia.com/v1", identifier: "NVIDIA")
+      OpenAI.all(base_url: "https://integrate.api.nvidia.com/v1", identifier: identifier)
     end
 
     test "returns [] on HTTP error" do
@@ -113,10 +114,65 @@ defmodule Planck.AI.ModelsTest do
     end
   end
 
+  describe "TypeSafe.all/1" do
+    test "queries the cloud endpoint by default" do
+      expect(Planck.AI.MockHTTPClient, :get, fn url, _opts ->
+        assert url == "https://api.typesafe.ai/v1/models"
+        {:ok, %{status: 200, body: %{"models" => [%{"name" => "jev-latest"}]}}}
+      end)
+
+      [m] = TypeSafe.all()
+      assert m.id == "jev-latest"
+      assert m.provider == :typesafe
+      assert m.type == :rlcd
+    end
+
+    test "queries a self-hosted base_url" do
+      expect(Planck.AI.MockHTTPClient, :get, fn url, _opts ->
+        assert url == "http://localhost:8377/v1/models"
+        {:ok, %{status: 200, body: %{"models" => [%{"name" => "decider-1"}]}}}
+      end)
+
+      [m] = TypeSafe.all(base_url: "http://localhost:8377")
+      assert m.base_url == "http://localhost:8377"
+      assert m.provider == :typesafe
+      assert m.type == :rlcd
+    end
+
+    test "passes api_key as bearer token using identifier env var" do
+      identifier = "JEV#{System.unique_integer([:positive])}"
+      System.put_env("#{identifier}_API_KEY", "test-key")
+      on_exit(fn -> System.delete_env("#{identifier}_API_KEY") end)
+
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, opts ->
+        assert opts[:auth] == {:bearer, "test-key"}
+        {:ok, %{status: 200, body: %{"models" => []}}}
+      end)
+
+      TypeSafe.all(identifier: identifier)
+    end
+
+    test "returns [] on non-200 status (e.g. a self-hosted server with no discovery endpoint)" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, _opts ->
+        {:ok, %{status: 404, body: "not found"}}
+      end)
+
+      assert TypeSafe.all(base_url: "http://localhost:8377") == []
+    end
+
+    test "returns [] on HTTP error" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert TypeSafe.all(base_url: "http://localhost:9999") == []
+    end
+  end
+
   describe "Planck.AI.list_providers/0" do
-    test "returns three providers" do
+    test "returns four providers" do
       providers = AI.list_providers()
-      assert providers == [:anthropic, :openai, :google]
+      assert providers == [:anthropic, :openai, :google, :typesafe]
     end
   end
 
@@ -125,6 +181,14 @@ defmodule Planck.AI.ModelsTest do
       assert is_list(AI.list_models(:anthropic))
       assert is_list(AI.list_models(:openai))
       assert is_list(AI.list_models(:google))
+    end
+
+    test "dispatches :typesafe to TypeSafe.all/1" do
+      expect(Planck.AI.MockHTTPClient, :get, fn _url, _opts ->
+        {:ok, %{status: 200, body: %{"models" => [%{"name" => "jev-latest"}]}}}
+      end)
+
+      assert [%Model{provider: :typesafe}] = AI.list_models(:typesafe)
     end
 
     test "returns empty list for unknown provider" do

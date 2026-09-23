@@ -109,7 +109,8 @@ defmodule Planck.AI.Config do
          max_tokens: entry["max_tokens"] || 2_048,
          supports_thinking: entry["supports_thinking"] || false,
          input_types: parse_input_types(entry["input_types"]),
-         default_opts: parse_default_opts(entry["params"] || entry["default_opts"])
+         default_opts: parse_default_opts(entry["params"] || entry["default_opts"]),
+         type: model_type(provider)
        }}
     end
   end
@@ -166,6 +167,10 @@ defmodule Planck.AI.Config do
 
     if cleaned == "", do: :error, else: {:ok, cleaned}
   end
+
+  @spec model_type(Model.provider()) :: Model.model_type()
+  defp model_type(:typesafe), do: :rlcd
+  defp model_type(_), do: :llm
 
   @spec parse_provider(String.t()) :: {:ok, atom()} | {:error, String.t()}
   defp parse_provider(provider)

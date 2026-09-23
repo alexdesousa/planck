@@ -20,7 +20,14 @@ defmodule Planck.AI.Model do
   """
 
   @typedoc "Supported LLM provider backends."
-  @type provider :: :anthropic | :openai | :google
+  @type provider :: :anthropic | :openai | :google | :typesafe
+
+  @typedoc """
+  Whether a model is a chat/agent model (`:llm`) or an RLCD decision model
+  (`:rlcd`) — see `Planck.AI.evaluate/4`. RLCD models don't support chat,
+  streaming, or tool calling.
+  """
+  @type model_type :: :llm | :rlcd
 
   @typedoc "Per-token cost in USD per million tokens."
   @type cost :: %{
@@ -41,8 +48,19 @@ defmodule Planck.AI.Model do
   - `has_api_key` — when `false`, the adapter skips env-var lookup and sends
     `"not-needed"` as the API key (for local servers like llama.cpp).
   - `api_key` — not used at runtime; reserved for future in-memory overrides.
+  - `type` — `:llm` (chat/agent model) or `:rlcd` (decision model, see
+    `model_type/0`). Defaults to `:llm`.
+
+  `t/1` is parameterized on `type` — e.g. `Model.t(:llm)` narrows to a model
+  known (by whatever produced it, not by anything Dialyzer infers from
+  nothing) to be a chat/agent model; `t/0` is the unnarrowed `t(model_type())`.
+  Use `t(:llm)`/`t(:rlcd)` as a return type on a function whose own logic
+  guarantees the narrower type — e.g. one that inspects `model.type` at
+  runtime and only returns on one branch — so Dialyzer's inferred success
+  typing matches the declared `@spec` instead of flagging it as an
+  `invalid_contract`.
   """
-  @type t :: %__MODULE__{
+  @type t(type) :: %__MODULE__{
           id: String.t(),
           model: String.t() | nil,
           name: String.t(),
@@ -56,14 +74,22 @@ defmodule Planck.AI.Model do
           identifier: String.t() | nil,
           has_api_key: boolean(),
           cost: cost(),
-          default_opts: keyword()
+          default_opts: keyword(),
+          type: type
         }
 
-  @providers [:anthropic, :openai, :google]
+  @type t :: t(model_type())
+
+  @providers [:anthropic, :openai, :google, :typesafe]
+  @types [:llm, :rlcd]
 
   @doc "Returns the list of supported provider atoms."
   @spec providers() :: [provider()]
   def providers, do: @providers
+
+  @doc "Returns the list of supported model type atoms."
+  @spec types() :: [model_type()]
+  def types, do: @types
 
   defstruct [
     :id,
@@ -79,6 +105,7 @@ defmodule Planck.AI.Model do
     has_api_key: true,
     input_types: [:text],
     cost: %{input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0},
-    default_opts: []
+    default_opts: [],
+    type: :llm
   ]
 end

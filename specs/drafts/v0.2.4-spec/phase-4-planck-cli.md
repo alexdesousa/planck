@@ -30,13 +30,37 @@ config `type` string, differing only by `base_url`.
   `all_providers/0` (715-719), `cloud_provider?/1` (698): add the two new
   atoms alongside their `:openai`/`:openai_compat` counterparts throughout.
 
-**Open question, model sub-step.** The model sub-step for `:openai_compat`
-queries the server's live `/models` endpoint (mirroring
-`Models.OpenAI.query_endpoint/2`). Whether `:typesafe_compat` gets the same
-live query depends on Phase 1's open question (does a listing endpoint
-exist at all) — if not, the model sub-step needs to fall back to manual
-model-id entry. Check whether that fallback path already exists in
-`provider_model_step.ex` for providers without discovery, or needs adding.
+**Model sub-step — resolved.** The manual-entry fallback already exists and
+is fully generic (`provider_model_step.ex:919-946`): the model field renders
+a `<.dropdown>` when `@models != []` and a plain free-text `<input
+name="model_api_id">` (placeholder `"llama3.2"`, helper text "Exact model
+identifier as it appears in the provider API.") otherwise — driven purely
+by whether the list came back empty, not by which provider it is. A
+`decider` instance returning `[]` from a missing `/v1/models` lands in the
+exact same already-working branch Ollama/llama.cpp hit today when their own
+`/models` query fails. Nothing new needed in the template.
+
+Two things upstream of the template **do** need wiring, though — the spec
+draft here previously left this as an open question, but the fallback
+existing doesn't mean the wiring is automatic:
+
+- `load_models/1` (line 460) hardcodes `provider in [:anthropic, :openai,
+  :google]` for the cloud-catalog branch — add `:typesafe`, or the *cloud*
+  Typesafe catalog (which does have `/v1/models`, confirmed in
+  [Phase 1](phase-1-planck-ai.md)) incorrectly falls to the
+  empty-list/manual-entry branch instead of listing real models.
+- `fetch_local_models/1` (line 469) is hardcoded to
+  `Planck.AI.list_models(:openai, base_url: base_url)` — it takes no
+  provider argument at all. Generalize to `fetch_local_models(provider,
+  base_url)`, dispatching `Planck.AI.list_models(provider, base_url:
+  base_url)`, so `:typesafe_compat` actually queries `:typesafe`'s endpoint
+  instead of silently querying OpenAI's. Both call sites need the extra
+  argument threaded through: `advance_to_model_step/1` (already has
+  `a.provider` in scope) and `load_models_for_provider_key/1` (line 490,
+  already resolves `provider` from the persisted config's `type` string via
+  `String.to_existing_atom(type)` — that's already `"typesafe"` for both
+  `:typesafe` and `:typesafe_compat` per `provider_type_for/1`, so this call
+  site just needs the argument added, no new resolution logic).
 
 ## Use Cases
 
@@ -48,6 +72,17 @@ model-id entry. Check whether that fallback path already exists in
 
 ## Test Cases
 
+- New test(s) for `fetch_local_models/2`'s provider dispatch (whatever
+  `describe` block ends up covering `provider_model_step.ex` — see the gap
+  noted below): selecting `:typesafe_compat` with a `base_url` queries
+  `Planck.AI.list_models(:typesafe, base_url: ...)`, not `:openai` — this
+  is exactly the bug the hardcoded `:openai` call would otherwise produce
+  silently (a `decider` server would get queried with an OpenAI-shaped
+  request and simply return `[]`, masking the real defect as "no discovery
+  endpoint" instead of "wrong provider called"). Also: selecting `:typesafe`
+  (cloud, no `base_url`) goes through `load_models/1`'s cloud-catalog
+  branch, not the empty-list fallback — catches the case where `:typesafe`
+  is missed from that guard clause.
 - `model_controller_test.exs` — mirror the existing "returns configured
   local models" test (`Application.put_env(:planck, :providers, ...)` with
   `"type" => "openai"`, then reload + assert via `GET /api/models`): add

@@ -50,6 +50,10 @@ was cross-checked too, since it claims wire compatibility):
 - Add `@type model_type :: :llm | :rlcd` and a `type: model_type()` field on
   `t()`, defaulting to `:llm` in `defstruct` (`type: :llm` alongside the
   existing `supports_thinking: false` etc., line 78-83).
+- Add `Model.types/0` (mirrors `providers/0`), returning `[:llm, :rlcd]`.
+  Not originally planned — added alongside `providers/0` for symmetry
+  during implementation. No caller yet beyond introspection, same role
+  `providers/0` played before anything consumed it.
 - Add `:typesafe` to `@providers` (line 62). Note this list is a *second*
   copy of the provider atoms already declared in `Planck.AI.@providers`
   (`planck_ai.ex:44`) — both need the addition; pre-existing duplication,
@@ -132,6 +136,10 @@ add `:typesafe` to `@providers` (line 44) and a
 (line 127-130), alias `Models.TypeSafe` alongside `Anthropic, Google, OpenAI`
 (line 42).
 
+**`Planck.AI.list_types/0`** — not originally planned, added alongside
+`list_providers/0` for the same reason as `Model.types/0` above: returns
+`[:llm, :rlcd]`, no consumer yet.
+
 **`Planck.AI.Adapter`** (`adapter.ex`) — evaluation doesn't go through
 `to_req_llm/3` (that's chat-only: builds a `ReqLLM.Context`, adds tools,
 etc.), but it needs the same model-spec-string construction. Extract nothing
@@ -182,6 +190,45 @@ Returns the raw `ReqLLM.Response.t()` — `response.object` already carries the
 answers map keyed by string per `ReqLLM.Evaluation`'s own moduledoc, no
 reshaping needed at this layer.
 
+**Type-guard invariant — not in the original plan, added during
+implementation.** `stream/3`, `complete/3`, and `evaluate/4` each reject a
+model of the wrong `type` outright, rather than letting a chat call reach
+an RLCD model (or vice versa) and fail three layers down inside `req_llm`
+with an opaque provider error. `stream/3`:
+
+```elixir
+def stream(model, context, opts \\ [])
+
+def stream(%Model{} = model, %Context{} = context, opts) do
+  case model.type do
+    :llm ->
+      # ...unchanged body...
+
+    other ->
+      raise ArgumentError,
+            "model #{model.provider}:#{model.id} is type #{inspect(other)} — " <>
+              "only :llm models support this call"
+  end
+end
+```
+
+`evaluate/4` mirrors this in the other direction (rejects everything but
+`:rlcd`). `complete/3` needs no guard of its own — it calls `stream/3`
+internally, which already raises.
+
+This landed as a runtime `case` inside a single clause, not as two separate
+`%Model{type: :llm}`/`%Model{type: :rlcd}`-guarded function clauses (the
+first attempt at this). Elixir's compiler type checker can statically prove
+a multi-clause, struct-pattern-guarded function's *total* domain from the
+union of its clause patterns — with no catch-all clause, a call site
+passing a provably-wrong-typed model (a literal struct built in a test, for
+instance) fails to *compile* under this repo's `mix test --warnings-as-errors`,
+not just to fail at runtime. That broke the tests written specifically to
+verify the rejection. A `case` inside one clause is invisible to that
+particular analysis, since it's runtime logic, not a set of clause
+patterns — same reason `AgentSpec.resolve_model!/4`'s equivalent check
+(see below) never had this problem.
+
 ## Use Cases
 
 - A self-hosted setup (no cloud LLM budget for classification-shaped work)
@@ -192,10 +239,65 @@ reshaping needed at this layer.
   same shape `stream/3`/`complete/3` already give chat callers. `classify`
   is the first consumer, not the only one this API is designed for.
 
+## Ripple fix — `planck_agent`'s `AgentSpec`
+
+Not part of this phase's package, and not originally planned — a direct
+consequence of this phase's own change, found during review and fixed
+alongside it. Recorded here rather than in a phase file it doesn't belong
+to (it isn't about the `classify` tool, so it's orthogonal to Phase 2).
+
+Adding `:typesafe` to `Model.providers/0` silently made `"typesafe"` a
+valid `provider` string in a `TEAM.json` member entry or a `spawn_agent`
+call too, since `planck_agent/lib/planck/agent/agent_spec.ex`'s
+`@provider_atoms` derives straight from `Planck.AI.Model.providers()`
+(line 112). Nothing stopped an RLCD model from being configured as an
+agent's *chat* model — it would only fail on that agent's first turn, as
+the opaque `stream/3` rejection described above, three layers away from
+the actual misconfiguration.
+
+Fixed in `resolve_model!/4`, checked once after either resolution path
+(declared in `available_models`, or looked up dynamically) produces a
+model:
+
+```elixir
+defp resolve_model!(provider, model_id, base_url, available_models) do
+  available_models
+  |> Enum.find(&(&1.provider == provider && &1.id == model_id))
+  |> case do
+    nil ->
+      resolve_model_dynamic!(provider, model_id, base_url)
+
+    %Model{type: :llm} = declared ->
+      declared
+
+    %Model{type: other} ->
+      raise ArgumentError,
+            "model #{provider}:#{model_id} is type #{inspect(other)} — " <>
+              "only :llm models are allowed"
+  end
+end
+```
+
+`resolve_model_dynamic!/3` carries the identical check for the live-lookup
+branch, so both ways a model can reach an agent are covered.
+
+**Considered and rejected**: hardcoding `provider in [:typesafe]` at this
+layer. Fragile against any future provider that isn't uniformly one type,
+and duplicates a fact (`:typesafe` → `:rlcd`) that already lives in exactly
+one place, `Planck.AI.Config`'s `model_type/1`. Checking the *resolved
+model's own* `type` field generically avoids a second provider list to
+keep in sync anywhere else.
+
+Test coverage: `agent_spec_test.exs` — raises when a model declared in
+`available_models` is `type: :rlcd`; raises when a dynamically-resolved
+model is `type: :rlcd`; both paths are tested since either can bypass the
+other.
+
 ## Test Cases
 
 - `model_test.exs` — `type` defaults to `:llm` when not set; a struct built
-  with `type: :rlcd` round-trips; `:typesafe` is in `Model.providers/0`.
+  with `type: :rlcd` round-trips; `:typesafe` is in `Model.providers/0`;
+  `Model.types/0` returns `[:llm, :rlcd]`.
 - `models_test.exs` — new `describe "TypeSafe.all/1"`. Cases: queries
   `"#{base_url}/v1/models"` (default `https://api.typesafe.ai` when no
   `base_url:` given) via `Planck.AI.MockHTTPClient`, same
@@ -229,3 +331,24 @@ reshaping needed at this layer.
   are forwarded unchanged; asserts `{:ok, response}` passes the raw
   `ReqLLM.Response.t()` through untouched (no reshaping at this layer, per
   this phase's design); asserts `{:error, reason}` propagates from the mock.
+  Also new (for the type-guard invariant above): `stream/3`/`complete/3`
+  raise `ArgumentError` for a non-`:llm` model; `evaluate/4` raises for a
+  non-`:rlcd` model; `list_types/0` returns `[:llm, :rlcd]`. These
+  "wrong-type" tests can't build the mismatched model as a literal
+  struct-update (`%{@model | type: :rlcd}`) — the compiler's type checker
+  proves it statically invalid and fails the build, the same class of
+  problem the invariant itself is written around. They go through a
+  `model_with/1` helper built on `struct!/2` instead, which the checker
+  can't trace back to a literal field value.
+- Test-hygiene fixes made to `adapter_test.exs`/`models_test.exs` along the
+  way, not part of the original plan: `adapter_test.exs` was `async: false`
+  and is now `async: true` (nothing in it touches global state that isn't
+  already isolated); a `stash_env/1` helper was added and applied to every
+  env-var mutation in `adapter_test.exs`, restoring each var's actual
+  pre-test value in `on_exit` rather than assuming it started unset (so the
+  suite doesn't clobber a real key a developer might have exported, e.g.
+  a real `OPENAI_API_KEY`); the identifier-based tests
+  (`NVIDIA_API_KEY`/`JEV_API_KEY`) in both files use a
+  `System.unique_integer/1`-suffixed identifier, since those two var names
+  were each mutated by both files under `async: true` — a real,
+  reproducible cross-file race, not a hypothetical one.

@@ -28,6 +28,21 @@ defmodule Planck.AI.AdapterTest do
     Adapter.to_req_llm(model, context || empty_context(), opts)
   end
 
+  # Restores `key` to whatever it was before the test (unset, or its actual
+  # pre-existing value) rather than assuming it started unset — protects
+  # against clobbering a real env var a developer happens to have exported
+  # (e.g. a real OPENAI_API_KEY) for the rest of the test run.
+  defp stash_env(key) do
+    original = System.get_env(key)
+
+    on_exit(fn ->
+      case original do
+        nil -> System.delete_env(key)
+        value -> System.put_env(key, value)
+      end
+    end)
+  end
+
   # --- model spec ---
 
   describe "build_model_spec" do
@@ -56,6 +71,18 @@ defmodule Planck.AI.AdapterTest do
         )
 
       assert spec == %{provider: :openai, id: "meta/llama-3.3-70b-instruct"}
+    end
+
+    test "typesafe produces a provider:id string" do
+      {spec, _, _} = to_req_llm(model(:typesafe, id: "jev-latest"))
+      assert spec == "typesafe:jev-latest"
+    end
+
+    test "typesafe with base_url produces a typesafe-provider map to bypass catalog lookup" do
+      {spec, _, _} =
+        to_req_llm(model(:typesafe, id: "decider-1", base_url: "http://localhost:8377"))
+
+      assert spec == %{provider: :typesafe, id: "decider-1"}
     end
 
     test "uses model.model field as the API identifier when set" do
@@ -91,14 +118,15 @@ defmodule Planck.AI.AdapterTest do
     end
 
     test "openai with base_url resolves api_key from env via identifier" do
-      System.put_env("NVIDIA_API_KEY", "test-nvidia-key")
-      on_exit(fn -> System.delete_env("NVIDIA_API_KEY") end)
+      identifier = "NVIDIA#{System.unique_integer([:positive])}"
+      stash_env("#{identifier}_API_KEY")
+      System.put_env("#{identifier}_API_KEY", "test-nvidia-key")
 
       {_, _, opts} =
         to_req_llm(
           model(:openai,
             base_url: "https://integrate.api.nvidia.com/v1",
-            identifier: "NVIDIA"
+            identifier: identifier
           )
         )
 
@@ -106,28 +134,74 @@ defmodule Planck.AI.AdapterTest do
     end
 
     test "openai with base_url defaults to OPENAI_API_KEY when no identifier" do
+      stash_env("OPENAI_API_KEY")
       System.put_env("OPENAI_API_KEY", "openai-compat-key")
-      on_exit(fn -> System.delete_env("OPENAI_API_KEY") end)
 
       {_, _, opts} = to_req_llm(model(:openai, base_url: "http://localhost:11434"))
       assert opts[:api_key] == "openai-compat-key"
     end
 
     test "openai with base_url falls back to not-needed when no key is available" do
+      stash_env("OPENAI_API_KEY")
       System.delete_env("OPENAI_API_KEY")
+
       {_, _, opts} = to_req_llm(model(:openai, base_url: "http://localhost:11434"))
       assert opts[:api_key] == "not-needed"
     end
 
     test "openai with base_url and has_api_key: false always uses not-needed" do
+      stash_env("OPENAI_API_KEY")
       System.put_env("OPENAI_API_KEY", "should-not-be-used")
-      on_exit(fn -> System.delete_env("OPENAI_API_KEY") end)
 
       {_, _, opts} =
         to_req_llm(%Model{
           id: "local",
           provider: :openai,
           base_url: "http://localhost:11434",
+          has_api_key: false,
+          context_window: 4_096,
+          max_tokens: 2_048
+        })
+
+      assert opts[:api_key] == "not-needed"
+    end
+
+    test "typesafe with base_url resolves api_key from env via identifier" do
+      identifier = "JEV#{System.unique_integer([:positive])}"
+      stash_env("#{identifier}_API_KEY")
+      System.put_env("#{identifier}_API_KEY", "test-jev-key")
+
+      {_, _, opts} =
+        to_req_llm(model(:typesafe, base_url: "http://localhost:8377", identifier: identifier))
+
+      assert opts[:api_key] == "test-jev-key"
+    end
+
+    test "typesafe with base_url defaults to TYPESAFE_API_KEY when no identifier" do
+      stash_env("TYPESAFE_API_KEY")
+      System.put_env("TYPESAFE_API_KEY", "typesafe-compat-key")
+
+      {_, _, opts} = to_req_llm(model(:typesafe, base_url: "http://localhost:8377"))
+      assert opts[:api_key] == "typesafe-compat-key"
+    end
+
+    test "typesafe with base_url falls back to not-needed when no key is available" do
+      stash_env("TYPESAFE_API_KEY")
+      System.delete_env("TYPESAFE_API_KEY")
+
+      {_, _, opts} = to_req_llm(model(:typesafe, base_url: "http://localhost:8377"))
+      assert opts[:api_key] == "not-needed"
+    end
+
+    test "typesafe with base_url and has_api_key: false always uses not-needed" do
+      stash_env("TYPESAFE_API_KEY")
+      System.put_env("TYPESAFE_API_KEY", "should-not-be-used")
+
+      {_, _, opts} =
+        to_req_llm(%Model{
+          id: "decider-1",
+          provider: :typesafe,
+          base_url: "http://localhost:8377",
           has_api_key: false,
           context_window: 4_096,
           max_tokens: 2_048

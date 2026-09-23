@@ -10,6 +10,13 @@ defmodule Planck.AI.ReqLLMBehaviour do
 
   @callback stream_text(model_spec :: term(), messages :: term(), opts :: keyword()) ::
               {:ok, term()} | {:error, term()}
+
+  @callback evaluate(
+              model_spec :: term(),
+              state :: term(),
+              questions :: term(),
+              opts :: keyword()
+            ) :: {:ok, term()} | {:error, term()}
 end
 
 defmodule Planck.AI.ReqLLM do
@@ -20,5 +27,10 @@ defmodule Planck.AI.ReqLLM do
   @impl true
   def stream_text(model_spec, messages, opts) do
     ReqLLM.stream_text(model_spec, messages, opts)
+  end
+
+  @impl true
+  def evaluate(model_spec, state, questions, opts) do
+    ReqLLM.evaluate(model_spec, state, questions, opts)
   end
 end

@@ -166,21 +166,42 @@ defmodule Planck.AI.ConfigTest do
              }
     end
 
-    test "accepts all three provider types" do
+    test "accepts all four provider types" do
       providers = %{
         "a" => %{"type" => "anthropic"},
         "o" => %{"type" => "openai"},
-        "g" => %{"type" => "google"}
+        "g" => %{"type" => "google"},
+        "t" => %{"type" => "typesafe"}
       }
 
       models = [
         %{"id" => "m1", "model" => "m", "provider" => "a"},
         %{"id" => "m2", "model" => "m", "provider" => "o"},
-        %{"id" => "m3", "model" => "m", "provider" => "g"}
+        %{"id" => "m3", "model" => "m", "provider" => "g"},
+        %{"id" => "m4", "model" => "m", "provider" => "t"}
       ]
 
       result = Config.from_config(providers, models)
-      assert Enum.map(result, & &1.provider) == [:anthropic, :openai, :google]
+      assert Enum.map(result, & &1.provider) == [:anthropic, :openai, :google, :typesafe]
+    end
+
+    test "typesafe provider entries get type: :rlcd" do
+      providers = %{"jev" => %{"type" => "typesafe"}}
+      models = [%{"id" => "jev-latest", "model" => "jev-latest", "provider" => "jev"}]
+
+      [m] = Config.from_config(providers, models)
+      assert m.type == :rlcd
+    end
+
+    test "every non-typesafe provider entry gets type: :llm" do
+      models = [
+        %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"},
+        %{"id" => "llama70b", "model" => "meta/llama-3.3-70b-instruct", "provider" => "nvidia"},
+        %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}
+      ]
+
+      result = Config.from_config(@providers, models)
+      assert Enum.all?(result, &(&1.type == :llm))
     end
 
     test "identifier is upcased from provider entry" do
