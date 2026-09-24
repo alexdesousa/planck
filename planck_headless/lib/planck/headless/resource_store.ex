@@ -120,7 +120,6 @@ defmodule Planck.Headless.ResourceStore do
     Config.EnvBinding.invalidate()
     # Clear Skogsra's per-key persistent_term caches so the next access
     # re-resolves from disk via the (now-cleared) JsonBinding/EnvBinding.
-    Config.reload_default_provider()
     Config.reload_default_model()
     Config.reload_providers()
     Config.reload_models()

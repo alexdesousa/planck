@@ -101,6 +101,36 @@ slightly wrong or left unspecified:
   phase's original plan anticipated; found because Phase 4 was the first
   thing to actually exercise a `:typesafe` provider through
   `configure_provider/1`.
+- **An RLCD model must never become `default_model`.** Found live, not in
+  any test suite: adding `decider-2b` through the modal left "Set as
+  default model" checked (its own default state, same as every other
+  model), which silently wrote it as `default_model` — every session
+  start afterward broke, since an RLCD model can't serve chat at all, and
+  had to be fixed by hand in `config.json`. `Headless.configure_model/1`
+  now computes `set_default = requested_default and not rlcd_provider_key?(provider)`,
+  looking up the provider's persisted `"type"` — this holds regardless of
+  caller (UI, a future API, a hand-written script), not just the modal.
+  `provider_model_step.ex` also hides the checkbox entirely for an RLCD
+  add (`rlcd_add?/1`, checked both in `:add_provider` mode via the
+  just-picked provider atom, and `:add_model` mode via the persisted
+  provider's `type`) rather than showing a control that would silently do
+  nothing — the backend guard alone would leave a checked checkbox lying
+  to the user about what it does.
+- **`fetch_local_models/2`'s timeout fallback silently swallowed failures
+  into `nil` instead of `[]`.** Also found live, against a real self-hosted
+  `decider` instance still loading its model weights: `Task.yield(task,
+  2_000)`'s timeout branch was `Task.shutdown(task, :brutal_kill) && []` —
+  `Task.shutdown/2` with `:brutal_kill` always returns `nil` (it kills
+  unconditionally, never waiting to see if a reply arrives), so `nil &&
+  []` always evaluated to `nil`, not `[]`, whenever a local endpoint took
+  longer than 2 seconds to respond. That `nil` then crashed
+  `advance_to_model_step/1`'s `List.first(nil, {nil, nil})`. Fixed by
+  making the fallback branch unconditionally return `[]`. This was a
+  latent bug present before this phase too — Ollama/llama.cpp during dev
+  testing always either respond fast or fail instantly (connection
+  refused, hitting the `rescue` clause, which already correctly returns
+  `[]`), so nothing had exercised the slow-timeout path before a real
+  `decider` cold start did.
 
 ## Use Cases
 
@@ -121,40 +151,53 @@ slightly wrong or left unspecified:
   `config.json`/`.env` writes, since this component has no path-override
   seam for tests the way `Headless.configure_provider/1` itself does
   (`:local`/`:global` scope resolve to `.planck/config.json` and
-  `~/.planck/config.json` with no override hook). Covers: the provider
-  picker rendering `Typesafe`/`Typesafe-compatible` via `all_providers/0`;
-  `provider_type_for/1`'s persistence mapping (made `def`, not `defp` — a
-  minimal public accessor matching the module's existing pattern for
-  `cloud_providers/0`/`local_providers/0`/`*_presets_data/0` — the safest
-  way to test it without exercising the file-writing save path); that
-  `:openai_compat` still requires a preset before advancing while
-  `:typesafe_compat` does not; and that advancing with an empty `base_url`
-  does not attempt a network fetch (`advance_to_model_step/1` takes the
-  empty-list branch, not `fetch_local_models/2`). This last case also
-  caught a real bug during writing: the template's preset-or-typesafe_compat
-  guard used `and`/`or` on `@preset` (which is `nil`, not a boolean, before
-  one is picked) — `Phoenix.LiveView.Diff` raised `BadBooleanError`
-  immediately on render. Fixed by switching to `&&`/`||`.
+  `~/.planck/config.json` with no override hook). A second helper,
+  `render_html/1`, calls `render/1` directly on an already-advanced
+  socket's assigns (same flattening technique `sidecar_widget_test.exs`'s
+  `render_widget/1` uses) — needed once assertions had to inspect HTML
+  *after* driving state through `handle_event/3`, since `render_component/2`
+  only supports a single fresh mount+render, not further interaction.
+  Covers:
+  - The provider picker rendering `Typesafe`/`Typesafe-compatible` via
+    `all_providers/0`.
+  - `provider_type_for/1`'s persistence mapping (made `def`, not `defp` —
+    a minimal public accessor matching the module's existing pattern for
+    `cloud_providers/0`/`local_providers/0`/`*_presets_data/0` — the
+    safest way to test it without exercising the file-writing save path).
+  - That `:openai_compat` still requires a preset before advancing while
+    `:typesafe_compat` does not, and that advancing with an empty
+    `base_url` does not attempt a network fetch (`advance_to_model_step/1`
+    takes the empty-list branch, not `fetch_local_models/2`). This last
+    case also caught a real bug during writing: the template's
+    preset-or-typesafe_compat guard used `and`/`or` on `@preset` (which is
+    `nil`, not a boolean, before one is picked) — `Phoenix.LiveView.Diff`
+    raised `BadBooleanError` immediately on render. Fixed by switching to
+    `&&`/`||`.
+  - `fetch_local_models/2`'s timeout-swallowing regression: a fake
+    `Planck.AI.HTTPClient` (`SlowHTTPClient`) that sleeps 2.1s simulates a
+    slow local endpoint deterministically, without a real slow server or
+    the flakiness of depending on one. Verified two ways — passes with
+    the fix, and reproduces the exact `FunctionClauseError`/stacktrace the
+    user hit when the fix is temporarily reverted.
+  - The default-model checkbox hidden for an RLCD add, in both
+    `:add_provider` mode (`@provider` fresh from the picker) and
+    `:add_model` mode (provider type resolved from
+    `Headless.config().providers[provider_key]`, stubbing
+    `Planck.AI.HTTPClient` again since `:add_model` mode auto-selects the
+    first configured provider and fetches its models for real). Verified
+    to fail without `rlcd_add?/1`'s template guard and pass with it.
 - `model_controller_test.exs` — added "returns configured typesafe models"
-  mirroring "returns configured local models". Decided during
-  implementation: yes, `type` needed adding to the `ModelList` OpenAPI
-  schema and `ModelController.index/2`'s response map — it was missing
-  entirely (only `provider`/`id`/`context_window`/`base_url`), an
-  inconsistency with `list_models`/`available_models` already surfacing
-  `type` everywhere else in this release.
-- New tests for `fetch_local_models/2`'s provider dispatch, folded into
-  `provider_model_step_test.exs` above rather than a separate describe
-  block.
-
-### Bug found during implementation (not in the original plan)
-
-`Planck.Headless.provider_api_key_env_var/2` (in `planck_headless`, not
-`planck_cli`) had no clause for `"typesafe"` — it fell through to the
-catch-all `nil`, so `configure_provider/1` would silently accept a
-`:typesafe`/`:typesafe_compat` API key through the setup modal, write the
-provider's `config.json` entry correctly, and then just drop the key
-without persisting it to `.env` or the vault. Fixed by adding
-`"typesafe"`/`<IDENTIFIER>`-based clauses mirroring `"openai"`'s, matching
-`adapter.ex`'s `resolve_api_key(id || "TYPESAFE")` convention. Covered by
-two new tests in `planck_headless/test/planck/headless/session_lifecycle_test.exs`
-mirroring the existing `"openai"`/`"anthropic"` `.env`-writing tests.
+  mirroring "returns configured local models", plus a `type` assertion on
+  the existing local-models test. Decided during implementation: yes,
+  `type` needed adding to the `ModelList` OpenAPI schema and
+  `ModelController.index/2`'s response map — it was missing entirely (only
+  `provider`/`id`/`context_window`/`base_url`), an inconsistency with
+  `list_models`/`available_models` already surfacing `type` everywhere
+  else in this release.
+- `session_lifecycle_test.exs`'s `configure_model/1` describe block —
+  added "an rlcd (typesafe) provider's model is never set as default,
+  even when requested" and "a regular (llm) provider's model can still be
+  set as default", proving `configure_model/1`'s guard without touching
+  the UI at all. The same describe block already had two new
+  `provider_api_key_env_var/2` tests from the fix above (`"writes
+  TYPESAFE_API_KEY to .env for typesafe type"` / `"...with identifier"`).

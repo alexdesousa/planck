@@ -24,7 +24,6 @@ defmodule Planck.Headless.Config do
 
   | Env var                   | Config key           | Default                           |
   |---------------------------|----------------------|-----------------------------------|
-  | `PLANCK_DEFAULT_PROVIDER` | `:default_provider`  | `nil`                             |
   | `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                             |
   | `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                |
   | `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
@@ -123,7 +122,6 @@ defmodule Planck.Headless.Config do
   The resolved configuration struct returned by `get/0`.
   """
   @type t :: %__MODULE__{
-          default_provider: String.t() | nil,
           default_model: String.t() | nil,
           sessions_dir: Path.t(),
           skills_dirs: [Path.t()],
@@ -136,8 +134,7 @@ defmodule Planck.Headless.Config do
           secrets_hook: String.t() | nil
         }
 
-  defstruct default_provider: nil,
-            default_model: nil,
+  defstruct default_model: nil,
             sessions_dir: ".planck/sessions",
             skills_dirs: [".planck/skills", "~/.planck/skills"],
             teams_dirs: [".planck/teams", "~/.planck/teams"],
@@ -173,11 +170,6 @@ defmodule Planck.Headless.Config do
 
   # API key binding order: system env → project .env → global .env → Elixir config.
   @dotenv [:system, Planck.Headless.Config.EnvBinding, :config]
-
-  @envdoc "Default provider key — references an entry in the `providers` map (e.g. \"anthropic\")."
-  app_env :default_provider, :planck, :default_provider,
-    default: nil,
-    binding_order: @json
 
   @envdoc "Default model id within the default provider (e.g. claude-sonnet-4-6)."
   app_env :default_model, :planck, :default_model,
@@ -324,7 +316,6 @@ defmodule Planck.Headless.Config do
   @spec get() :: t()
   def get do
     %__MODULE__{
-      default_provider: default_provider!(),
       default_model: default_model!(),
       sessions_dir: sessions_dir!(),
       skills_dirs: skills_dirs!(),

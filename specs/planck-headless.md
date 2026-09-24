@@ -188,8 +188,8 @@ per-session filesystem scanning.
    - `template: alias_string` → `ResourceStore.teams[alias]`
    - `template: path` → `Team.load(path)` on the fly
    - `template: nil` → build a dynamic team of one from config
-     (`default_provider`, `default_model`, default system prompt; full
-     `tool_pool` and a `%SkillIndex{}` attached to the lone orchestrator)
+     (`default_model`, default system prompt; full `tool_pool` and a
+     `%SkillIndex{}` attached to the lone orchestrator)
 2. Generate a `session_id` (random hex) and resolve the session name:
    - Use `opts[:name]` if provided, sanitized to `[a-z0-9-]+`.
    - Otherwise auto-generate via `Planck.Headless.SessionName.generate/1`,
@@ -470,7 +470,6 @@ project-local ones. Neither key has a `PLANCK_*` env var equivalent.
 
 ```elixir
 %Planck.Headless.Config{
-  default_provider:  String.t() | nil,   # kept for UI display; not used by build_dynamic_team
   default_model:     String.t() | nil,   # user alias — looked up in available_models at session start
   sessions_dir:      Path.t(),
   skills_dirs:       [Path.t()],
@@ -488,7 +487,6 @@ project-local ones. Neither key has a `PLANCK_*` env var equivalent.
 
 | Env var                   | Config key           | Default                           |
 |---------------------------|----------------------|-----------------------------------|
-| `PLANCK_DEFAULT_PROVIDER` | `:default_provider`  | `nil`                             |
 | `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                             |
 | `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                |
 | `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
