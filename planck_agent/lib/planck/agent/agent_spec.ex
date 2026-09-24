@@ -37,8 +37,9 @@ defmodule Planck.Agent.AgentSpec do
 
       iex> AgentSpec.from_map(%{
       ...>   "type" => "builder",
-      ...>   "provider" => "ollama",
+      ...>   "provider" => "openai",
       ...>   "model_id" => "llama3.2",
+      ...>   "base_url" => "http://localhost:11434",
       ...>   "system_prompt" => "Build things."
       ...> })
       {:ok, %AgentSpec{...}}
@@ -57,7 +58,9 @@ defmodule Planck.Agent.AgentSpec do
     - `:name` — human-readable label shown to other agents via `list_team`; defaults
       to `type` when not provided or empty
     - `:description` — one-line purpose shown to other agents via `list_team`
-    - `:provider` — LLM provider atom (e.g. `:anthropic`, `:ollama`)
+    - `:provider` — LLM provider atom (e.g. `:anthropic`, `:openai`); a self-hosted
+      or compatible endpoint reuses the same atom with `:base_url` set (e.g.
+      `:openai` + a local llama.cpp/Ollama server), not a separate atom
     - `:model_id` — model identifier within the provider (e.g. `"claude-sonnet-4-6"`)
     - `:system_prompt` — system prompt text sent to the model at the start of every turn
     - `:opts` — provider-specific options forwarded to the LLM call (e.g. `temperature:`)

@@ -409,7 +409,7 @@ and are never read from JSON files.
 
 At boot, `Application.start/2`:
 
-1. Calls `Planck.AI.Model.providers()` to ensure provider atoms (`:llama_cpp`
+1. Calls `Planck.AI.Model.providers()` to ensure provider atoms (`:typesafe`
    etc.) exist before Skogsra preloads the `:models` key.
 2. `Config.preload/0` — Skogsra resolves and caches all values; JSON files are
    read here via `JsonBinding`.

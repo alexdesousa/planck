@@ -31,10 +31,12 @@ defmodule Planck.Agent.Tools do
   | `destroy_agent` | orchestrator only | no |
   | `interrupt_agent` | orchestrator only | no |
   | `list_models` | orchestrator only | no |
+  | `classify` | orchestrator only when there's a :rlcd model configured | no |
   """
 
   alias Planck.Agent
   alias Planck.Agent.{AIBehaviour, Skill, Tool}
+  alias Planck.AI.Model
 
   @doc """
   Returns the inter-agent tools available to all agents in a team:
@@ -57,8 +59,9 @@ defmodule Planck.Agent.Tools do
   end
 
   @doc """
-  Returns the four orchestrator-only tools:
-  `spawn_agent`, `destroy_agent`, `interrupt_agent`, `list_models`.
+  Returns the orchestrator-only tools: `spawn_agent`, `destroy_agent`,
+  `interrupt_agent`, `list_models`, plus `classify` when at least one
+  configured model has `type: :rlcd`.
 
   These tools, combined with `worker_tools/2`, make up the full orchestrator set.
   The presence of `spawn_agent` in the tool list is what marks an agent as an
@@ -71,7 +74,7 @@ defmodule Planck.Agent.Tools do
   @spec orchestrator_tools(
           String.t(),
           String.t(),
-          [Planck.AI.Model.t()],
+          [Model.t()],
           [Tool.t()],
           [Skill.t()],
           String.t()
@@ -84,12 +87,18 @@ defmodule Planck.Agent.Tools do
         grantable_skills \\ [],
         cwd \\ ""
       ) do
-    [
+    base = [
       spawn_agent(session_id, team_id, available_models, grantable_tools, grantable_skills, cwd),
       destroy_agent(team_id),
       interrupt_agent(team_id),
       list_models(available_models)
     ]
+
+    if Enum.any?(available_models, &(&1.type == :rlcd)) do
+      base ++ [classify(available_models)]
+    else
+      base
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -258,7 +267,7 @@ defmodule Planck.Agent.Tools do
   @spec spawn_agent(
           String.t(),
           String.t(),
-          [Planck.AI.Model.t()],
+          [Model.t()],
           [Tool.t()],
           [Skill.t()],
           String.t()
@@ -307,16 +316,23 @@ defmodule Planck.Agent.Tools do
           "provider" => %{
             "type" => "string",
             "description" => "LLM provider",
-            "enum" => ["anthropic", "openai", "google", "ollama", "llama_cpp", "custom_openai"]
+            "enum" => ["anthropic", "openai", "google"]
           },
           "model_id" => %{
             "type" => "string",
-            "description" => "Model id (e.g. claude-sonnet-4-6)"
+            "description" =>
+              "The id of an LLM model to use, from list_models — only a model " <>
+                "with type \"llm\" is valid. Call list_models first if you don't " <>
+                "already have one."
           },
           "base_url" => %{
             "type" => "string",
             "description" =>
-              "Server URL for the model. Required for local providers: ollama (e.g. \"http://localhost:11434\"), llama_cpp (e.g. \"http://localhost:8080\"), and custom_openai. For cloud providers (anthropic, openai, google) this field is ignored — pass any placeholder value."
+              "Server URL for a self-hosted or compatible endpoint (e.g. " <>
+                "\"http://localhost:11434\"), passed alongside \"provider\" — the same " <>
+                "provider atom is reused for its compatible endpoints, distinguished only " <>
+                "by base_url (e.g. an OpenAI-compatible llama.cpp/Ollama server is still " <>
+                "\"openai\"). Ignored for a real cloud account — pass any placeholder value."
           },
           "tools" => %{
             "type" => "array",
@@ -354,8 +370,7 @@ defmodule Planck.Agent.Tools do
           cwd: cwd
         }
 
-        with :ok <- validate_local_base_url(provider, base_url),
-             {:ok, model} <-
+        with {:ok, model} <-
                resolve_spawn_model(provider, args["model_id"], base_url, available_models) do
           agent_id = generate_id()
 
@@ -447,7 +462,7 @@ defmodule Planck.Agent.Tools do
   end
 
   @doc "Build the `list_models` tool from a pre-filtered list of available models."
-  @spec list_models([Planck.AI.Model.t()]) :: Tool.t()
+  @spec list_models([Model.t()]) :: Tool.t()
   def list_models(available_models) do
     Tool.new(
       name: "list_models",
@@ -469,6 +484,7 @@ defmodule Planck.Agent.Tools do
               id: m.id,
               model: m.model,
               name: m.name,
+              type: m.type,
               context_window: m.context_window,
               base_url: m.base_url,
               current: m.id == current_model_id
@@ -476,6 +492,142 @@ defmodule Planck.Agent.Tools do
           end)
 
         {:ok, Jason.encode!(models)}
+      end
+    )
+  end
+
+  @doc """
+  Build the `classify` tool from a pre-filtered list of available models.
+
+  Automatic for the orchestrator when at least one available model has
+  `type: :rlcd` — see `orchestrator_tools/6`. Not automatic for workers:
+  a worker only gets it if granted like any other tool, via `TEAM.json`'s
+  `tools` list or `spawn_agent`'s `tools:` param.
+  """
+  @spec classify([Model.t()]) :: Tool.t()
+  def classify(available_models) do
+    Tool.new(
+      name: "classify",
+      description:
+        "Use to get a fast, calibrated decision (routing, extraction, " <>
+          "yes/no confidence) from an RLCD model instead of asking a general " <>
+          "model to reason it out in text. Call list_models first and pass " <>
+          "the id of a model with type \"rlcd\".",
+      parameters: %{
+        "type" => "object",
+        "properties" => %{
+          "provider" => %{
+            "type" => "string",
+            "description" => "RLCD provider",
+            "enum" => ["typesafe"]
+          },
+          "model_id" => %{
+            "type" => "string",
+            "description" =>
+              "The id of an RLCD model to use, from list_models — only a model " <>
+                "with type \"rlcd\" is valid. Call list_models first if you don't " <>
+                "already have one."
+          },
+          "base_url" => %{
+            "type" => "string",
+            "description" =>
+              "Server URL for a self-hosted or Typesafe-compatible endpoint (e.g. " <>
+                "\"http://localhost:8000\"), passed alongside \"provider\" — still " <>
+                "\"typesafe\", distinguished only by base_url. Ignored for a real " <>
+                "cloud account — pass any placeholder value."
+          },
+          "state" => %{
+            "description" =>
+              "The content to evaluate — plain text, or a JSON object/array for " <>
+                "structured data such as a chat log or a record."
+          },
+          "questions" => %{
+            "type" => "object",
+            "description" =>
+              "Named typed questions to ask about state. Choose your own key " <>
+                "for each question — its answer comes back under the same key.",
+            "additionalProperties" => %{
+              "oneOf" => [
+                %{
+                  "properties" => %{
+                    "type" => %{
+                      "enum" => ["choice"],
+                      "description" => "Pick exactly one option from criteria."
+                    },
+                    "instructions" => %{
+                      "type" => "string",
+                      "description" =>
+                        "What the model should decide between the given criteria options."
+                    },
+                    "criteria" => %{
+                      "type" => "object",
+                      "description" => "Option key -> description. Up to 255 options."
+                    }
+                  },
+                  "required" => ["type", "instructions", "criteria"]
+                },
+                %{
+                  "properties" => %{
+                    "type" => %{
+                      "enum" => ["score"],
+                      "description" => "Rate state against the ordered levels in criteria."
+                    },
+                    "instructions" => %{
+                      "type" => "string",
+                      "description" => "What the model should rate, in natural language."
+                    },
+                    "criteria" => %{
+                      "type" => "array",
+                      "items" => %{"type" => "string"},
+                      "minItems" => 2,
+                      "maxItems" => 10,
+                      "description" => "Ordered level descriptions, low to high."
+                    }
+                  },
+                  "required" => ["type", "instructions", "criteria"]
+                },
+                %{
+                  "properties" => %{
+                    "type" => %{
+                      "enum" => ["boolean"],
+                      "description" =>
+                        "A yes/no question — returns the probability the answer is yes."
+                    },
+                    "instructions" => %{
+                      "type" => "string",
+                      "description" => "The yes/no question to evaluate, in natural language."
+                    },
+                    "criteria" => %{
+                      "type" => "object",
+                      "properties" => %{
+                        "true" => %{"type" => "string"},
+                        "false" => %{"type" => "string"}
+                      },
+                      "description" => "Optional — clarifies what counts as yes/no."
+                    }
+                  },
+                  "required" => ["type", "instructions"]
+                }
+              ]
+            }
+          }
+        },
+        "required" => ["provider", "model_id", "base_url", "state", "questions"]
+      },
+      execute_fn: fn _agent_id, _id, args ->
+        provider = String.to_existing_atom(args["provider"])
+        model_id = Map.get(args, "model_id")
+        base_url = Map.get(args, "base_url")
+
+        state = Map.get(args, "state")
+        questions = Map.get(args, "questions")
+
+        with {:ok, model} <-
+               resolve_classify_model(provider, model_id, base_url, available_models),
+             {:ok, response} <-
+               AIBehaviour.client().evaluate(model, state, questions, []) do
+          {:ok, Jason.encode!(response.object)}
+        end
       end
     )
   end
@@ -571,62 +723,101 @@ defmodule Planck.Agent.Tools do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
   end
 
-  @local_providers [:ollama, :llama_cpp, :custom_openai]
+  @spec resolve_classify_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::
+          {:ok, Model.t(:rlcd)}
+          | {:error, String.t()}
+  defp resolve_classify_model(provider, model_id, base_url, available_models)
 
-  @spec validate_local_base_url(atom(), String.t() | nil) :: :ok | {:error, String.t()}
-  defp validate_local_base_url(provider, base_url) when provider in @local_providers do
-    if is_binary(base_url) and base_url != "" do
-      :ok
-    else
-      {:error,
-       "base_url is required for #{provider} — " <>
-         "it is the address of the local model server " <>
-         "(e.g. \"http://localhost:11434\" for ollama, \"http://localhost:8080\" for llama_cpp). " <>
-         "Call list_models to see available #{provider} models and their base_url."}
+  defp resolve_classify_model(provider, model_id, base_url, available_models)
+       when is_atom(provider) and is_binary(model_id) do
+    with {:error, _} <- find_model(provider, model_id, available_models, :rlcd) do
+      find_model_live(provider, model_id, base_url, :rlcd)
     end
   end
 
-  defp validate_local_base_url(_provider, _base_url), do: :ok
+  @spec resolve_spawn_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::
+          {:ok, Model.t(:llm)}
+          | {:error, String.t()}
+  defp resolve_spawn_model(provider, model_id, base_url, available_models)
 
-  # Checked first, against the exact list `list_models/1` shows the LLM —
-  # matching by provider + id, not the literal provider-facing `model`
-  # string. This is what makes spawn_agent work for models configured with a
-  # custom base_url under a "cloud" provider atom (e.g. an OpenAI-compatible
-  # self-hosted endpoint declared as `provider: "openai"` in config, per
-  # Planck.AI.Config's own documented format) — previously any such model
-  # fell straight through to resolve_spawn_model_live/3, which only forwards
-  # base_url for the @local_providers allowlist and otherwise queries the
-  # real OpenAI/Anthropic/Google catalog, guaranteed to never contain it.
-  @spec resolve_spawn_model(atom(), String.t(), String.t() | nil, [Planck.AI.Model.t()]) ::
-          {:ok, Planck.AI.Model.t()} | {:error, String.t()}
-  defp resolve_spawn_model(provider, model_id, base_url, available_models) do
-    case Enum.find(available_models, &(&1.provider == provider and &1.id == model_id)) do
-      %Planck.AI.Model{} = model -> {:ok, model}
-      nil -> resolve_spawn_model_live(provider, model_id, base_url)
+  defp resolve_spawn_model(provider, model_id, base_url, available_models)
+       when is_atom(provider) and is_binary(model_id) do
+    with {:error, _} <- find_model(provider, model_id, available_models, :llm) do
+      find_model_live(provider, model_id, base_url, :llm)
     end
   end
 
-  @spec resolve_spawn_model_live(atom(), String.t(), String.t() | nil) ::
-          {:ok, Planck.AI.Model.t()} | {:error, String.t()}
-  defp resolve_spawn_model_live(provider, model_id, base_url) do
-    result =
-      if provider in @local_providers and is_binary(base_url) and base_url != "" do
-        AIBehaviour.client().get_model(provider, model_id, base_url: base_url)
-      else
-        AIBehaviour.client().get_model(provider, model_id)
-      end
+  @spec find_model(atom(), String.t(), [Planck.AI.Model.t()], Model.model_type()) ::
+          {:ok, Model.t()}
+          | {:error, String.t()}
+  defp find_model(provider, model_id, available_models, type)
 
-    case result do
-      {:ok, model} ->
+  defp find_model(provider, model_id, available_models, type)
+       when is_atom(provider) and is_binary(model_id) and type in [:llm, :rlcd] do
+    condition =
+      &(&1.provider == provider and
+          &1.id == model_id and
+          &1.type == type)
+
+    case Enum.find(available_models, condition) do
+      %Model{type: ^type} = model ->
         {:ok, model}
 
-      {:error, :not_found} when provider in @local_providers ->
-        {:error,
-         "Model \"#{model_id}\" not found at #{base_url}. " <>
-           "Call list_models to see available #{provider} models and verify the base_url."}
+      _ ->
+        {:error, "No #{type} model configured with id #{model_id} from #{provider}."}
+    end
+  end
+
+  @spec find_model_live(atom(), String.t(), nil | String.t(), Model.model_type()) ::
+          {:ok, Model.t()}
+          | {:error, String.t()}
+  defp find_model_live(provider, model_id, base_url, type)
+
+  defp find_model_live(provider, model_id, base_url, type)
+       when is_binary(model_id) and
+              is_binary(base_url) and
+              base_url != "" and
+              type in [:llm, :rlcd] do
+    provider
+    |> AIBehaviour.client().get_model(model_id, base_url: base_url)
+    |> case do
+      {:ok, %Model{type: ^type}} = found ->
+        found
+
+      {:ok, %Model{type: _}} ->
+        reason = "Model \"#{model_id}\" from #{provider} is not of type #{inspect(type)}."
+        {:error, reason}
 
       {:error, :not_found} ->
-        {:error, "Model not found. Call list_models to see available models and their IDs."}
+        reason =
+          "Model #{model_id} not found at #{base_url}. " <>
+            "Call list_models to see available #{provider} models and verify the base_url."
+
+        {:error, reason}
+
+      {:error, reason} when is_binary(reason) ->
+        {:error, reason}
+    end
+  end
+
+  defp find_model_live(provider, model_id, _base_url, type)
+       when is_binary(model_id) and type in [:llm, :rlcd] do
+    provider
+    |> AIBehaviour.client().get_model(model_id)
+    |> case do
+      {:ok, %Model{type: ^type}} = found ->
+        found
+
+      {:ok, %Model{type: _}} ->
+        reason = "Model \"#{model_id}\" from #{provider} is not of type #{inspect(type)}."
+        {:error, reason}
+
+      {:error, :not_found} ->
+        reason =
+          "Model #{model_id} not found. " <>
+            "Call list_models to see available #{provider} models and verify the base_url."
+
+        {:error, reason}
 
       {:error, reason} when is_binary(reason) ->
         {:error, reason}

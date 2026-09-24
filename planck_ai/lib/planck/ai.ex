@@ -29,7 +29,7 @@ defmodule Planck.AI do
   ## Model catalog
 
       Planck.AI.list_providers()
-      #=> [:anthropic, :openai, :ollama, :llama_cpp]
+      #=> [:anthropic, :openai, :google, :typesafe]
 
       Planck.AI.list_models(:anthropic)
       #=> [%Planck.AI.Model{id: "claude-opus-4-5", ...}, ...]
@@ -38,7 +38,7 @@ defmodule Planck.AI do
 
   """
 
-  alias Planck.AI.{Adapter, Context, Message, Model, Stream}
+  alias Planck.AI.{Adapter, Context, Evaluation, Message, Model, Stream}
   alias Planck.AI.Models.{Anthropic, Google, OpenAI, TypeSafe}
 
   @providers [:anthropic, :openai, :google, :typesafe]
@@ -111,7 +111,8 @@ defmodule Planck.AI do
   support chat, streaming, or tool calling, so evaluation goes directly to
   `req_llm`'s `ReqLLM.evaluate/4` instead of `to_req_llm/3`.
 
-  Returns the raw `ReqLLM.Response.t()` — `response.object` carries the
+  Returns the raw `ReqLLM.Response.t()` (as `Planck.AI.Evaluation.t()`, a
+  name-only alias — see that module) — `response.object` carries the
   answers map keyed by string, no reshaping done at this layer.
 
   ## Examples
@@ -122,9 +123,9 @@ defmodule Planck.AI do
 
   """
   @spec evaluate(Model.t(), String.t() | map(), map()) ::
-          {:ok, term()} | {:error, term()}
+          {:ok, Evaluation.t()} | {:error, term()}
   @spec evaluate(Model.t(), String.t() | map(), map(), keyword()) ::
-          {:ok, term()} | {:error, term()}
+          {:ok, Evaluation.t()} | {:error, term()}
   def evaluate(model, state, questions, opts \\ [])
 
   def evaluate(%Model{type: :rlcd} = model, state, questions, opts) do
@@ -203,7 +204,7 @@ defmodule Planck.AI do
       iex> Planck.AI.get_model(:anthropic, "does-not-exist")
       {:error, :not_found}
 
-      iex> Planck.AI.get_model(:llama_cpp, "mistral-7b", base_url: "http://10.0.0.5:8080")
+      iex> Planck.AI.get_model(:openai, "mistral-7b", base_url: "http://10.0.0.5:8080")
       {:ok, %Planck.AI.Model{id: "mistral-7b", ...}}
 
   """

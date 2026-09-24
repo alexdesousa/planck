@@ -40,7 +40,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       Config.reload_sessions_dir()
     end)
 
-    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
     {:ok, sessions_dir: sessions_dir}
   end
@@ -1397,7 +1397,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
     test "agent usage and cost are restored after resume", %{tmp_dir: dir} do
       model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
-      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, model_with_cost} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, model_with_cost} end)
 
       team_dir = write_team(dir, "usage-restore-team")
       {:ok, session_id} = Headless.start_session(template: team_dir)
@@ -1426,7 +1426,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
     test "accumulated usage and cost survive multiple resumes", %{tmp_dir: dir} do
       model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
-      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, model_with_cost} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, model_with_cost} end)
 
       team_dir = write_team(dir, "multi-resume-team")
       {:ok, session_id} = Headless.start_session(template: team_dir)

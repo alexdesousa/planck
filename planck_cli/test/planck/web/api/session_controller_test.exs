@@ -37,7 +37,7 @@ defmodule Planck.Web.API.SessionControllerTest do
       Config.reload_sessions_dir()
     end)
 
-    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
     team_dir = write_team(dir, "test-team")
 
