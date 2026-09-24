@@ -6,7 +6,10 @@ directory containing a `TEAM.json` and optional prompt files.
 ## 1. Choose available models
 
 Use the `list_models` tool to see which models are configured and available.
-Note the `provider`, `id`, and `base_url` for each model you plan to use.
+Note the `provider`, `id`, and `base_url` for each model you plan to use —
+and check `type`: only a `"llm"` model can run an agent. A `"rlcd"` model
+(Typesafe/`decider`) can't chat or hold a `TEAM.json` slot at all; it's used
+through the `classify` tool instead, never as an agent's own `provider`/`model_id`.
 
 If no models are available yet, ask the user to open the setup modal (⚙ in
 the status bar) to configure a provider and model first.

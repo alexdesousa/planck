@@ -128,7 +128,16 @@ response/communication subset.
 | `spawn_agent` | Spawn a new worker agent in the team |
 | `destroy_agent` | Permanently terminate a worker |
 | `interrupt_agent` | Abort a worker's current turn without terminating it |
-| `list_models` | List available models (provider, id, base_url, context_window) |
+| `list_models` | List available models (provider, id, `type`, base_url, context_window) |
+| `classify` | Ask a Typesafe/RLCD model a set of typed questions (Choice/Score/Noul) and get calibrated probabilities back — see below |
+
+`classify` isn't declared in `TEAM.json` like a normal tool — it's granted
+to the orchestrator automatically, the same way `spawn_agent`/`list_models`
+are, whenever at least one `"typesafe"`-provider model is configured (see
+[configuration.md](configuration.md#typesafe--rlcd-models)). It's absent
+entirely when no RLCD model is configured. A worker never gets it
+automatically — grant it explicitly via `TEAM.json`'s `"tools"` array or
+`spawn_agent`'s `"tools"` parameter, exactly like any other built-in tool.
 
 ### All-agent tools
 
@@ -161,6 +170,26 @@ a clean slate for a new task.
 
 Use `list_models` before calling `spawn_agent` to get the correct `model_id`
 and `base_url` for the target provider.
+
+### `classify` parameters
+
+| Parameter | Required | Description |
+|---|---|---|
+| `provider` | ✅ | Always `"typesafe"` |
+| `model_id` | ✅ | Model id from `list_models` — must have `type: "rlcd"` |
+| `base_url` | ✅ | Server URL for a self-hosted/compatible endpoint. Ignored (any placeholder works) for a real Typesafe cloud account |
+| `state` | ✅ | The content to evaluate — plain text, or a JSON object/array for structured data |
+| `questions` | ✅ | Named typed questions to ask about `state` — own key per question, answer comes back under the same key |
+
+Each entry in `questions` is one of:
+
+- **Choice** — `{"type": "choice", "instructions": "...", "criteria": {"key": "description", ...}}` — pick exactly one option (up to 255)
+- **Score** — `{"type": "score", "instructions": "...", "criteria": ["low description", "...", "high description"]}` — rate against 2-10 ordered levels
+- **Boolean/Noul** — `{"type": "boolean", "instructions": "..."}` (optionally `"criteria": {"true": "...", "false": "..."}`) — probability the answer is yes
+
+Unlike `spawn_agent`, `classify` never starts an agent — it's a single
+stateless call. It can't chat, stream, or use tools, so it's the wrong tool
+for anything needing multi-step reasoning.
 
 ### `list_team` verbose mode
 
