@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.2.4
+
+### Setup modal — Typesafe / Typesafe-compatible providers
+
+`:typesafe` (cloud) and `:typesafe_compat` (self-hosted, e.g. `decider`)
+now appear in the provider picker alongside `:openai`/`:openai_compat`.
+Unlike OpenAI-compatible, `:typesafe_compat` has no preset list at all —
+`decider` is too young/unstable a project to bake in as a named preset —
+so it skips the preset step entirely and shows the Base URL/Identifier/API
+key form directly; the Base URL field's placeholder and help text are
+provider-conditional, since Typesafe's wire convention has no `/v1` suffix
+(unlike OpenAI-compat, where `base_url` must already include it). The
+"Set as default model" checkbox is now hidden entirely for an RLCD add,
+in both add-provider and add-model modes, rather than showing a control
+that silently does nothing (`Headless.configure_model/1` already refuses
+it structurally — see `planck_headless`'s v0.2.4 entry).
+
+`GET /api/models` and its `ModelList` OpenAPI schema now surface `type`,
+matching what `list_models`/`available_models` already expose everywhere
+else in this release.
+
+### `fetch_local_models/2` could crash the setup modal on a slow local server
+
+Its timeout fallback was `Task.shutdown(task, :brutal_kill) && []` —
+`Task.shutdown/2` with `:brutal_kill` always returns `nil`, so this always
+evaluated to `nil`, not `[]`, whenever a local endpoint took longer than
+the 2-second fetch timeout to respond (e.g. a `decider` instance still
+loading its model weights). That `nil` crashed
+`advance_to_model_step/1`'s `List.first(nil, {nil, nil})`. Fixed by making
+the fallback branch unconditionally return `[]`.
+
 ## v0.2.3
 
 ### Messages sent while the agent is busy now show up immediately

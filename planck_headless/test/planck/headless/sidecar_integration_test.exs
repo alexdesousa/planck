@@ -184,7 +184,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
   describe "remote compaction" do
     @model %Model{
       id: "test",
-      provider: :ollama,
+      provider: :openai,
       context_window: 1_000,
       max_tokens: 512
     }

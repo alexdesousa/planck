@@ -31,7 +31,7 @@ defmodule Planck.Agent.AgentSpecTest do
 
   describe "to_start_opts/2" do
     test "returns keyword list with required fields" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       opts = AgentSpec.to_start_opts(@base_spec)
 
@@ -43,7 +43,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "generates a unique id each call" do
-      expect(MockAI, :get_model, 2, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, 2, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       id1 = AgentSpec.to_start_opts(@base_spec)[:id]
       id2 = AgentSpec.to_start_opts(@base_spec)[:id]
@@ -51,20 +51,20 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "includes name when set" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       spec = %{@base_spec | name: "Builder Joe"}
       opts = AgentSpec.to_start_opts(spec)
       assert opts[:name] == "Builder Joe"
     end
 
     test "passes spec name through" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
       assert opts[:name] == "builder"
     end
 
     test "applies tools override" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       fake_tool = %Planck.Agent.Tool{
         name: "t",
@@ -78,19 +78,19 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "defaults tools to empty list" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
       assert opts[:tools] == []
     end
 
     test "applies team_id override" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec, team_id: "team-abc")
       assert opts[:team_id] == "team-abc"
     end
 
     test "team_id defaults to nil" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
       assert opts[:team_id] == nil
     end
@@ -103,7 +103,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "does not include hook fields (set by headless, not AgentSpec)" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
       refute Keyword.has_key?(opts, :compactor)
       refute Keyword.has_key?(opts, :prompt_hook)
@@ -112,7 +112,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "resolves tools by name from tool_pool when spec.tools is set" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       read = %Planck.Agent.Tool{
         name: "read",
@@ -134,14 +134,14 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "ignores unknown tool names in spec.tools" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       spec = %{@base_spec | tools: ["unknown"]}
       opts = AgentSpec.to_start_opts(spec, tool_pool: [])
       assert opts[:tools] == []
     end
 
     test "appends explicit tools: after resolved ones when spec.tools is set" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       read = %Planck.Agent.Tool{
         name: "read",
@@ -163,7 +163,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "falls back to tools: override when spec.tools is empty" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       read = %Planck.Agent.Tool{
         name: "read",
@@ -177,28 +177,47 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "raises when model not found" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:error, :not_found} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:error, :not_found} end)
 
       assert_raise ArgumentError, ~r/model not found/, fn ->
         AgentSpec.to_start_opts(@base_spec)
       end
     end
 
+    test "raises when the declared model is type :rlcd, not :llm" do
+      rlcd_model = %{@model | provider: :typesafe, id: "jev-latest", type: :rlcd}
+      spec = %{@base_spec | provider: :typesafe, model_id: "jev-latest"}
+
+      assert_raise ArgumentError, ~r/is type :rlcd/, fn ->
+        AgentSpec.to_start_opts(spec, available_models: [rlcd_model])
+      end
+    end
+
+    test "raises when a dynamically-resolved model is type :rlcd, not :llm" do
+      rlcd_model = %{@model | provider: :typesafe, id: "jev-latest", type: :rlcd}
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, rlcd_model} end)
+      spec = %{@base_spec | provider: :typesafe, model_id: "jev-latest"}
+
+      assert_raise ArgumentError, ~r/is type :rlcd/, fn ->
+        AgentSpec.to_start_opts(spec)
+      end
+    end
+
     test "passes spec opts through" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       spec = %{@base_spec | opts: [temperature: 0.5]}
       opts = AgentSpec.to_start_opts(spec)
       assert opts[:opts] == [temperature: 0.5]
     end
 
     test "system_prompt passes through unchanged (identity line is injected at runtime by the agent)" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
       assert opts[:system_prompt] == "You are a builder."
     end
 
     test "skill names are passed as skill_names opt (not baked into system_prompt)" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "code_review",
@@ -219,7 +238,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "ignores unknown skill names" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       spec = %{@base_spec | skills: ["unknown"]}
       opts = AgentSpec.to_start_opts(spec, skill_pool: [])
@@ -228,7 +247,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "load_skill tool is auto-injected when skill_pool is non-empty" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "elixir-dev",
@@ -243,7 +262,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "load_skill tool is not added when skill_pool is empty" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       opts = AgentSpec.to_start_opts(@base_spec, skill_pool: [])
       tool_names = Enum.map(opts[:tools], & &1.name)
@@ -251,7 +270,7 @@ defmodule Planck.Agent.AgentSpecTest do
     end
 
     test "load_skill is added regardless of declared spec.skills" do
-      expect(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
       skill = %Planck.Agent.Skill{
         name: "elixir-dev",
@@ -405,16 +424,14 @@ defmodule Planck.Agent.AgentSpecTest do
   end
 
   describe "from_map/2 with file path system_prompt" do
-    test "reads .md file relative to base_dir" do
-      dir = System.tmp_dir!()
+    @tag :tmp_dir
+    test "reads .md file relative to base_dir", %{tmp_dir: dir} do
       path = Path.join(dir, "builder.md")
       File.write!(path, "  You are a builder.  ")
 
       entry = valid_entry(%{"system_prompt" => "builder.md"})
       assert {:ok, spec} = AgentSpec.from_map(entry, dir)
       assert spec.system_prompt == "You are a builder."
-
-      File.rm!(path)
     end
 
     test "returns {:error, _} when file does not exist" do

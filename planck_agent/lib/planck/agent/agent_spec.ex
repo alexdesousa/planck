@@ -37,8 +37,9 @@ defmodule Planck.Agent.AgentSpec do
 
       iex> AgentSpec.from_map(%{
       ...>   "type" => "builder",
-      ...>   "provider" => "ollama",
+      ...>   "provider" => "openai",
       ...>   "model_id" => "llama3.2",
+      ...>   "base_url" => "http://localhost:11434",
       ...>   "system_prompt" => "Build things."
       ...> })
       {:ok, %AgentSpec{...}}
@@ -48,6 +49,7 @@ defmodule Planck.Agent.AgentSpec do
   """
 
   alias Planck.Agent.{AIBehaviour, Skill, Tool}
+  alias Planck.AI.Model
 
   require Logger
 
@@ -56,7 +58,9 @@ defmodule Planck.Agent.AgentSpec do
     - `:name` — human-readable label shown to other agents via `list_team`; defaults
       to `type` when not provided or empty
     - `:description` — one-line purpose shown to other agents via `list_team`
-    - `:provider` — LLM provider atom (e.g. `:anthropic`, `:ollama`)
+    - `:provider` — LLM provider atom (e.g. `:anthropic`, `:openai`); a self-hosted
+      or compatible endpoint reuses the same atom with `:base_url` set (e.g.
+      `:openai` + a local llama.cpp/Ollama server), not a separate atom
     - `:model_id` — model identifier within the provider (e.g. `"claude-sonnet-4-6"`)
     - `:system_prompt` — system prompt text sent to the model at the start of every turn
     - `:opts` — provider-specific options forwarded to the LLM call (e.g. `temperature:`)
@@ -355,35 +359,43 @@ defmodule Planck.Agent.AgentSpec do
   defp parse_string_list(_), do: []
 
   @spec resolve_model!(atom(), String.t(), String.t() | nil, [Planck.AI.Model.t()]) ::
-          Planck.AI.Model.t()
+          Planck.AI.Model.t(:llm)
+  defp resolve_model!(provider, model_id, base_url, available_models)
+
   defp resolve_model!(provider, model_id, base_url, available_models) do
-    declared =
-      Enum.find(available_models, fn m ->
-        m.provider == provider && m.id == model_id
-      end)
+    available_models
+    |> Enum.find(&(&1.provider == provider && &1.id == model_id))
+    |> case do
+      nil ->
+        resolve_model_dynamic!(provider, model_id, base_url)
 
-    if declared do
-      declared
-    else
-      resolve_model_dynamic!(provider, model_id, base_url)
+      %Model{type: :llm} = declared ->
+        declared
+
+      %Model{type: other} ->
+        model_info = "#{provider}:#{model_id}"
+        reason = "model #{model_info} is type #{inspect(other)} — only :llm models are allowed"
+        raise ArgumentError, reason
     end
   end
 
-  @spec resolve_model_dynamic!(atom(), String.t(), String.t() | nil) :: Planck.AI.Model.t()
-  defp resolve_model_dynamic!(provider, model_id, nil) do
-    case AIBehaviour.client().get_model(provider, model_id) do
-      {:ok, model} -> model
-      {:error, :not_found} -> raise ArgumentError, "model not found: #{provider}:#{model_id}"
-    end
-  end
+  @spec resolve_model_dynamic!(atom(), String.t(), String.t() | nil) :: Planck.AI.Model.t(:llm)
+  defp resolve_model_dynamic!(provider, model_id, base_url)
 
   defp resolve_model_dynamic!(provider, model_id, base_url) do
-    case Planck.AI.get_model(provider, model_id, base_url: base_url) do
-      {:ok, model} ->
+    opts = Enum.reject([base_url: base_url], fn {_, value} -> is_nil(value) end)
+    model_info = "#{provider}:#{model_id}"
+
+    case AIBehaviour.client().get_model(provider, model_id, opts) do
+      {:ok, %Model{type: :llm} = model} ->
         model
 
+      {:ok, %Model{type: other}} ->
+        reason = "model #{model_info} is type #{inspect(other)} — only :llm models are allowed"
+        raise ArgumentError, reason
+
       {:error, :not_found} ->
-        raise ArgumentError, "model not found: #{provider}:#{model_id} at #{base_url}"
+        raise ArgumentError, "model not found: #{model_info}"
     end
   end
 

@@ -18,6 +18,15 @@ defmodule Planck.Agent.TeamIntegrationTest do
     max_tokens: 2_048
   }
 
+  @rlcd_model %Model{
+    id: "jev-latest",
+    name: "Jev",
+    provider: :typesafe,
+    type: :rlcd,
+    context_window: 32_768,
+    max_tokens: 2_048
+  }
+
   defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
 
   # Starts an agent under AgentSupervisor (not ExUnit's supervisor) so it
@@ -575,6 +584,103 @@ defmodule Planck.Agent.TeamIntegrationTest do
       refute Map.has_key?(tools, "read")
       refute Map.has_key?(tools, "bash")
       assert Map.has_key?(tools, "call_agent")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # spawn_agent resolves a model already in available_models
+  # ---------------------------------------------------------------------------
+
+  describe "spawn_agent resolves a pre-configured model" do
+    test "succeeds without any live lookup when the model is already in available_models" do
+      team_id = unique_id()
+      orch_id = unique_id()
+
+      # No MockAI.get_model stub set up at all — if resolution incorrectly
+      # fell through to a live lookup instead of finding @model directly,
+      # Mox would raise for the unexpected call and this test would fail.
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [@model], [])
+      tools = call_spawn(spawn_tool, orch_id)
+
+      assert Map.has_key?(tools, "call_agent")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # spawn_agent rejects RLCD models
+  # ---------------------------------------------------------------------------
+
+  describe "spawn_agent rejects an :rlcd model as a worker's chat model" do
+    test "returns an error instead of starting the agent" do
+      team_id = unique_id()
+      orch_id = unique_id()
+
+      # Excluded from available_models by the :llm filter -> falls to the
+      # live lookup, which (realistically) confirms the same model is real
+      # but still not :llm.
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @rlcd_model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [@rlcd_model], [])
+
+      result =
+        spawn_tool.execute_fn.(orch_id, "tc-spawn", %{
+          "type" => "reviewer",
+          "name" => "Reviewer",
+          "description" => "Reviews code",
+          "system_prompt" => "You are a reviewer.",
+          "provider" => "typesafe",
+          "model_id" => "jev-latest",
+          "base_url" => ""
+        })
+
+      assert {:error, message} = result
+      assert message =~ "not of type :llm"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # classify gating (orchestrator-automatic, worker opt-in)
+  # ---------------------------------------------------------------------------
+
+  describe "classify gating" do
+    test "orchestrator_tools/6 includes classify when an :rlcd model is available" do
+      tools = Tools.orchestrator_tools(unique_id(), unique_id(), [@model, @rlcd_model])
+      assert Enum.any?(tools, &(&1.name == "classify"))
+    end
+
+    test "orchestrator_tools/6 omits classify when no :rlcd model is available" do
+      tools = Tools.orchestrator_tools(unique_id(), unique_id(), [@model])
+      refute Enum.any?(tools, &(&1.name == "classify"))
+    end
+
+    test "worker_tools/3 never includes classify, regardless of available models" do
+      tools = Tools.worker_tools(unique_id(), unique_id())
+      refute Enum.any?(tools, &(&1.name == "classify"))
+    end
+
+    test "a spawned worker does not receive classify automatically, even with an :rlcd model configured" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [@rlcd_model], [])
+      tools = call_spawn(spawn_tool, orch_id)
+
+      refute Map.has_key?(tools, "classify")
+    end
+
+    test "a spawned worker receives classify when it's granted, like any other tool" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      classify_tool = Tools.classify([@rlcd_model])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [classify_tool])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["classify"]})
+
+      assert Map.has_key?(tools, "classify")
     end
   end
 

@@ -143,6 +143,15 @@ defmodule Planck.Agent.Tool do
     end
   end
 
+  defp format_schema_error(
+         "Expected exactly one of the schemata to match, but none of them did.",
+         "#/" <> key,
+         _properties
+       ) do
+    "#{key}: does not match any of the allowed shapes for this field — check that all " <>
+      "required fields for its type are present."
+  end
+
   defp format_schema_error(message, "#/" <> key, _properties) do
     "#{key}: #{message}"
   end

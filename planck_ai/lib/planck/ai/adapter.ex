@@ -48,6 +48,23 @@ defmodule Planck.AI.Adapter do
     {model_spec, req_context, req_opts}
   end
 
+  @doc """
+  Builds the req_llm model spec (string or map) for a model, for use with
+  `ReqLLM.evaluate/4`. Evaluation doesn't go through `to_req_llm/3` — no
+  chat context, tools, or extra_body to build — but needs the same
+  model-spec-string construction `to_req_llm/3` uses internally.
+  """
+  @spec model_spec(Model.t()) :: String.t() | map()
+  def model_spec(%Model{} = model), do: build_model_spec(model)
+
+  @doc """
+  Builds req_llm opts for an `evaluate/4` call — same base_url/api_key
+  resolution `to_req_llm/3` uses, without the chat-only additions
+  (`add_tools/2`, `add_extra_body/2`).
+  """
+  @spec evaluate_opts(Model.t(), keyword()) :: keyword()
+  def evaluate_opts(%Model{} = model, opts), do: add_base_url(opts, model)
+
   # --- Private ---
 
   @spec build_model_spec(Model.t()) :: String.t() | map()
@@ -67,6 +84,14 @@ defmodule Planck.AI.Adapter do
 
   defp build_model_spec(%Model{provider: :openai} = m) do
     %{provider: :openai, id: m.model || m.id}
+  end
+
+  defp build_model_spec(%Model{provider: :typesafe, base_url: nil} = m) do
+    "typesafe:#{m.model || m.id}"
+  end
+
+  defp build_model_spec(%Model{provider: :typesafe} = m) do
+    %{provider: :typesafe, id: m.model || m.id}
   end
 
   @spec build_context(Context.t()) :: ReqLLM.Context.t()
@@ -93,6 +118,21 @@ defmodule Planck.AI.Adapter do
 
   defp add_base_url(opts, %Model{provider: :openai, base_url: url, identifier: id}) do
     effective_id = id || "OPENAI"
+    resolved = resolve_api_key(effective_id) || "not-needed"
+
+    opts
+    |> Keyword.put_new(:base_url, url)
+    |> Keyword.put_new(:api_key, resolved)
+  end
+
+  defp add_base_url(opts, %Model{provider: :typesafe, base_url: url, has_api_key: false}) do
+    opts
+    |> Keyword.put_new(:base_url, url)
+    |> Keyword.put_new(:api_key, "not-needed")
+  end
+
+  defp add_base_url(opts, %Model{provider: :typesafe, base_url: url, identifier: id}) do
+    effective_id = id || "TYPESAFE"
     resolved = resolve_api_key(effective_id) || "not-needed"
 
     opts

@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.4
+
+### RLCD models — a `:typesafe` provider alongside `:anthropic`/`:openai`/`:google`
+
+Typesafe AI's System One models (e.g. Jev) and wire-compatible self-hosted
+servers (e.g. `decider`) don't chat or call tools — they take a **state**
+and a set of typed questions (Choice / Score / Noul) and return calibrated
+probabilities from a single forward pass. `Planck.AI.Model` gains a `type`
+field (`:llm | :rlcd`, default `:llm`) derived from the provider — every
+`:typesafe` model is `:rlcd`, everything else stays `:llm` — surfaced by
+`list_models/2` and `Planck.AI.Config.from_config/2` without any special
+casing at the call site. `Planck.AI.evaluate/4` is the new public entry
+point (mirrors `stream/3`/`complete/3`'s existing shape), backed by a new
+`Planck.AI.Models.TypeSafe` catalog module and a thin `Planck.AI.Evaluation`
+type alias over `ReqLLM.Response.t()`. `:typesafe` supports the same
+cloud/self-hosted `base_url` split `:openai` already has; a self-hosted
+server without a `/v1/models` discovery endpoint (e.g. `decider`) degrades
+to an empty catalog rather than erroring.
+
 ## v0.2.3
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

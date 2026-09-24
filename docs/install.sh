@@ -2,7 +2,7 @@
 set -e
 
 REPO="alexdesousa/planck"
-VERSION="0.2.3"
+VERSION="0.2.4"
 RELEASES="https://github.com/$REPO/releases/latest/download"
 BIN_NAME="planck"
 

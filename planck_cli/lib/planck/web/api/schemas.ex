@@ -210,13 +210,15 @@ defmodule Planck.Web.API.Schemas do
       properties: %{
         provider: %Schema{type: :string},
         id: %Schema{type: :string},
+        type: %Schema{type: :string, enum: ["llm", "rlcd"]},
         context_window: %Schema{type: :integer},
         base_url: %Schema{type: :string, nullable: true}
       },
-      required: [:provider, :id, :context_window],
+      required: [:provider, :id, :type, :context_window],
       example: %{
-        provider: "anthropic",
-        id: "claude-sonnet-4-6",
+        provider: "openai",
+        id: "qwen-3.8-flash-next",
+        type: "llm",
         context_window: 200_000,
         base_url: nil
       }
@@ -231,7 +233,20 @@ defmodule Planck.Web.API.Schemas do
       type: :array,
       items: ModelInfo,
       example: [
-        %{provider: "anthropic", id: "claude-sonnet-4-6", context_window: 200_000, base_url: nil}
+        %{
+          provider: "openai",
+          id: "qwen-3.8-flash-next",
+          type: "llm",
+          context_window: 200_000,
+          base_url: nil
+        },
+        %{
+          provider: "typesafe",
+          id: "jev-1.13",
+          type: "rlcd",
+          context_window: 200_000,
+          base_url: nil
+        }
       ]
     })
   end

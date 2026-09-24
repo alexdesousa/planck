@@ -110,12 +110,18 @@ defmodule Planck.Headless.ResourceStoreTest do
           "type" => "openai",
           "base_url" => "http://localhost:11434",
           "has_api_key" => false
+        },
+        "jev" => %{
+          "type" => "typesafe",
+          "base_url" => "http://localhost:8000",
+          "has_api_key" => false
         }
       })
 
       Application.put_env(:planck, :models, [
         %{"id" => "sonnet", "model" => "claude-sonnet-4-6", "provider" => "anthropic"},
-        %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"}
+        %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "local"},
+        %{"id" => "jev-latest", "model" => "jev-latest", "provider" => "jev"}
       ])
 
       Config.reload_providers()
@@ -123,10 +129,15 @@ defmodule Planck.Headless.ResourceStoreTest do
       :ok = ResourceStore.reload()
 
       models = ResourceStore.get().available_models
-      assert length(models) == 2
+      assert length(models) == 3
       ids = Enum.map(models, & &1.id)
       assert "sonnet" in ids
       assert "llama3.2" in ids
+      assert "jev-latest" in ids
+
+      rlcd_model = Enum.find(models, &(&1.id == "jev-latest"))
+      assert rlcd_model.provider == :typesafe
+      assert rlcd_model.type == :rlcd
     end
 
     test "models with unknown provider key are skipped", %{tmp_dir: _dir} do

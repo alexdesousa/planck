@@ -99,10 +99,14 @@ Models are declared in two parts: a `providers` map that defines backends, and a
 
 | Field | Required | Description |
 |---|---|---|
-| `type` | yes | `"anthropic"`, `"openai"`, or `"google"` |
-| `base_url` | no | Override the default endpoint — required for OpenAI-compatible local servers |
-| `identifier` | no | Uppercase tag for env var derivation (`"NVIDIA"` → `NVIDIA_API_KEY`). Defaults to `"OPENAI"` when omitted on openai-type providers |
-| `has_api_key` | no | Set to `false` for local servers that need no authentication (Ollama, llama.cpp). Default: `true` |
+| `type` | yes | `"anthropic"`, `"openai"`, `"google"`, or `"typesafe"` |
+| `base_url` | no | Override the default endpoint — required for OpenAI-compatible local servers, and for a self-hosted Typesafe-wire-compatible server (e.g. `decider`) |
+| `identifier` | no | Uppercase tag for env var derivation (`"NVIDIA"` → `NVIDIA_API_KEY`). Defaults to `"OPENAI"` on openai-type providers, `"TYPESAFE"` on typesafe-type providers, when omitted |
+| `has_api_key` | no | Set to `false` for local servers that need no authentication (Ollama, llama.cpp, decider). Default: `true` |
+
+A `"typesafe"` provider is a different model family, not another chat/agent
+provider — see [Typesafe / RLCD models](#typesafe--rlcd-models) below before
+adding one.
 
 ### Model entry fields
 
@@ -180,6 +184,46 @@ Useful for:
 }
 ```
 
+### Typesafe / RLCD models
+
+`"typesafe"` is a different model *family*, not another chat/agent model —
+Typesafe AI's System One models (e.g. Jev) and wire-compatible self-hosted
+servers (e.g. `decider`) take a **state** and a set of typed questions
+(Choice / Score / Noul) and return calibrated probabilities in a single
+forward pass. They can't chat, stream, or call tools, so they're never used
+as an agent's own model — instead, an agent calls one through the
+[`classify`](teams.md#orchestrator-only-tools) tool.
+
+A model declared under a `"typesafe"` provider automatically gets
+`type: "rlcd"` (surfaced by `list_models`/`GET /api/models`); every other
+provider type gets `type: "llm"`. This is derived from the provider's `type`
+field, not something you set on the model entry — the same `providers` +
+`models` split above applies unchanged.
+
+```json
+{
+  "providers": {
+    "typesafe": { "type": "typesafe" },
+    "decider": {
+      "type":        "typesafe",
+      "base_url":    "http://localhost:8000",
+      "has_api_key": false
+    }
+  },
+  "models": [
+    { "id": "jev-latest", "model": "jev-latest", "provider": "typesafe" },
+    { "id": "decider-2b", "model": "decider-2b", "provider": "decider" }
+  ]
+}
+```
+
+`decider-2b`'s `type` resolves to `"rlcd"`; `sonnet`/`gpt-4o`/etc. in the
+example below resolve to `"llm"`.
+
+A `typesafe` model can never be `default_model` — `configure_model`
+silently refuses it, since there's no chat model behind it to start a
+session with. Configure at least one real chat/agent model too.
+
 ### Example
 
 ```json
@@ -203,6 +247,11 @@ Useful for:
       "type":        "openai",
       "base_url":    "http://localhost:11434",
       "has_api_key": false
+    },
+    "decider": {
+      "type":        "typesafe",
+      "base_url":    "http://localhost:8000",
+      "has_api_key": false
     }
   },
   "models": [
@@ -212,7 +261,8 @@ Useful for:
     { "id": "deepseek", "model": "deepseek-ai/deepseek-v4-pro", "provider": "nvidia",
       "params": { "temperature": 1.0, "top_p": 0.95, "receive_timeout": 600000,
                   "extra_body": { "chat_template_kwargs": { "thinking": false } } } },
-    { "id": "llama3.2", "model": "llama3.2",                    "provider": "local-ollama" }
+    { "id": "llama3.2", "model": "llama3.2",                    "provider": "local-ollama" },
+    { "id": "decider-2b", "model": "decider-2b",                "provider": "decider" }
   ]
 }
 ```
@@ -250,6 +300,7 @@ API keys can be set in three ways (higher entries win):
    export OPENAI_API_KEY="sk-..."
    export GOOGLE_API_KEY="..."
    export NVIDIA_API_KEY="nvapi-..."
+   export TYPESAFE_API_KEY="..."
    ```
 
 2. **`.planck/.env`** — project-local, applies only in this directory:
@@ -268,9 +319,9 @@ Standard dotenv format: `KEY=value`, one per line, `#` for comments.
 These files are loaded at startup — add them to `.gitignore` to avoid
 accidentally committing credentials.
 
-The env var name for a custom OpenAI-compatible provider is derived from its
-`identifier` field: `"NVIDIA"` → `NVIDIA_API_KEY`, `"GROQ"` → `GROQ_API_KEY`.
-Providers with `has_api_key: false` need no key at all.
+The env var name for a custom OpenAI- or Typesafe-compatible provider is
+derived from its `identifier` field: `"NVIDIA"` → `NVIDIA_API_KEY`, `"GROQ"` →
+`GROQ_API_KEY`. Providers with `has_api_key: false` need no key at all.
 
 The Web UI's setup modal (⚙ in the status bar) writes the API key to the
 appropriate `.env` file automatically when you configure a new provider.

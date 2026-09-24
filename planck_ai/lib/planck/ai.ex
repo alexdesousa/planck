@@ -29,7 +29,7 @@ defmodule Planck.AI do
   ## Model catalog
 
       Planck.AI.list_providers()
-      #=> [:anthropic, :openai, :ollama, :llama_cpp]
+      #=> [:anthropic, :openai, :google, :typesafe]
 
       Planck.AI.list_models(:anthropic)
       #=> [%Planck.AI.Model{id: "claude-opus-4-5", ...}, ...]
@@ -38,10 +38,11 @@ defmodule Planck.AI do
 
   """
 
-  alias Planck.AI.{Adapter, Context, Message, Model, Stream}
-  alias Planck.AI.Models.{Anthropic, Google, OpenAI}
+  alias Planck.AI.{Adapter, Context, Evaluation, Message, Model, Stream}
+  alias Planck.AI.Models.{Anthropic, Google, OpenAI, TypeSafe}
 
-  @providers [:anthropic, :openai, :google]
+  @providers [:anthropic, :openai, :google, :typesafe]
+  @types [:llm, :rlcd]
 
   @doc """
   Streams a request to the LLM, returning a lazy stream of `StreamEvent` tuples.
@@ -60,7 +61,9 @@ defmodule Planck.AI do
   """
   @spec stream(Model.t(), Context.t()) :: Enumerable.t(Stream.t())
   @spec stream(Model.t(), Context.t(), keyword()) :: Enumerable.t(Stream.t())
-  def stream(%Model{} = model, %Context{} = context, opts \\ []) do
+  def stream(model, context, opts \\ [])
+
+  def stream(%Model{type: :llm} = model, %Context{} = context, opts) do
     merged = Keyword.merge(model.default_opts, opts)
     {model_spec, messages, req_opts} = Adapter.to_req_llm(model, context, merged)
 
@@ -71,6 +74,12 @@ defmodule Planck.AI do
       {:error, reason} ->
         [{:error, reason}]
     end
+  end
+
+  def stream(%Model{type: type} = model, _context, _opts) do
+    model_info = "#{model.provider}:#{model.id}"
+    reason = "model #{model_info} is type #{inspect(type)} — only :llm models support this call"
+    raise ArgumentError, reason
   end
 
   @doc """
@@ -87,8 +96,48 @@ defmodule Planck.AI do
   @spec complete(Model.t(), Context.t()) :: {:ok, Message.t()} | {:error, term()}
   @spec complete(Model.t(), Context.t(), keyword()) ::
           {:ok, Message.t()} | {:error, term()}
-  def complete(%Model{} = model, %Context{} = context, opts \\ []) do
-    model |> stream(context, opts) |> collect_stream()
+  def complete(model, context, opts \\ [])
+
+  def complete(%Model{} = model, %Context{} = context, opts) do
+    model
+    |> stream(context, opts)
+    |> collect_stream()
+  end
+
+  @doc """
+  Evaluates a state against a map of named questions using an RLCD model
+  (`model.type == :rlcd`) — e.g. a `:typesafe` model. Unlike `stream/3`/
+  `complete/3`, this doesn't build a chat `Context`: an RLCD model doesn't
+  support chat, streaming, or tool calling, so evaluation goes directly to
+  `req_llm`'s `ReqLLM.evaluate/4` instead of `to_req_llm/3`.
+
+  Returns the raw `ReqLLM.Response.t()` (as `Planck.AI.Evaluation.t()`, a
+  name-only alias — see that module) — `response.object` carries the
+  answers map keyed by string, no reshaping done at this layer.
+
+  ## Examples
+
+      iex> questions = %{urgent: %{type: :boolean, instructions: "Is this urgent?"}}
+      iex> Planck.AI.evaluate(model, "Please help ASAP", questions)
+      {:ok, %ReqLLM.Response{}}
+
+  """
+  @spec evaluate(Model.t(), String.t() | map(), map()) ::
+          {:ok, Evaluation.t()} | {:error, term()}
+  @spec evaluate(Model.t(), String.t() | map(), map(), keyword()) ::
+          {:ok, Evaluation.t()} | {:error, term()}
+  def evaluate(model, state, questions, opts \\ [])
+
+  def evaluate(%Model{type: :rlcd} = model, state, questions, opts) do
+    model_spec = Adapter.model_spec(model)
+    req_opts = Adapter.evaluate_opts(model, opts)
+    req_llm_client().evaluate(model_spec, state, questions, req_opts)
+  end
+
+  def evaluate(%Model{type: type} = model, _state, _questions, _opts) do
+    model_info = "#{model.provider}:#{model.id}"
+    reason = "model #{model_info} is type #{inspect(type)} — only :rlcd models support this call"
+    raise ArgumentError, reason
   end
 
   @doc """
@@ -97,11 +146,23 @@ defmodule Planck.AI do
   ## Examples
 
       iex> Planck.AI.list_providers()
-      [:anthropic, :openai, :google]
+      [:anthropic, :openai, :google, :typesafe]
 
   """
   @spec list_providers() :: [atom()]
   def list_providers, do: @providers
+
+  @doc """
+  Returns all supported model type atoms.
+
+  ## Examples
+
+      iex> Planck.AI.list_types()
+      [:llm, :rlcd]
+
+  """
+  @spec list_types() :: [atom()]
+  def list_types, do: @types
 
   @doc """
   Returns all known models for a given provider.
@@ -127,6 +188,7 @@ defmodule Planck.AI do
   def list_models(:anthropic, opts), do: Anthropic.all(opts)
   def list_models(:openai, opts), do: OpenAI.all(opts)
   def list_models(:google, opts), do: Google.all(opts)
+  def list_models(:typesafe, opts), do: TypeSafe.all(opts)
   def list_models(_, _), do: []
 
   @doc """
@@ -142,14 +204,17 @@ defmodule Planck.AI do
       iex> Planck.AI.get_model(:anthropic, "does-not-exist")
       {:error, :not_found}
 
-      iex> Planck.AI.get_model(:llama_cpp, "mistral-7b", base_url: "http://10.0.0.5:8080")
+      iex> Planck.AI.get_model(:openai, "mistral-7b", base_url: "http://10.0.0.5:8080")
       {:ok, %Planck.AI.Model{id: "mistral-7b", ...}}
 
   """
   @spec get_model(atom(), String.t()) :: {:ok, Model.t()} | {:error, :not_found}
   @spec get_model(atom(), String.t(), keyword()) :: {:ok, Model.t()} | {:error, :not_found}
   def get_model(provider, id, opts \\ []) do
-    case Enum.find(list_models(provider, opts), &(&1.id == id)) do
+    provider
+    |> list_models(opts)
+    |> Enum.find(&(&1.id == id))
+    |> case do
       nil -> {:error, :not_found}
       model -> {:ok, model}
     end

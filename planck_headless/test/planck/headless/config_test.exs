@@ -34,7 +34,6 @@ defmodule Planck.Headless.ConfigTest do
       config = Config.get()
 
       assert %Config{} = config
-      assert config.default_provider == nil
       assert config.default_model == nil
       assert config.sessions_dir == ".planck/sessions"
       assert config.skills_dirs == [".planck/skills", "~/.planck/skills"]

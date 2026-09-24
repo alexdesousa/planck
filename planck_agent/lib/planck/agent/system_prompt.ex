@@ -32,12 +32,13 @@ defmodule Planck.Agent.SystemPrompt do
         }
 
   # Inter-agent tools in the order their sections should appear.
-  # Grouped: discovery → spawn → interaction → management.
+  # Grouped: discovery → decide → spawn → interaction → management.
   @ordered_tools ~w(
     list_team
     list_skills
     load_skill
     list_models
+    classify
     spawn_agent
     call_agent
     send_agent
@@ -208,7 +209,47 @@ defmodule Planck.Agent.SystemPrompt do
 
     Use before spawning a new agent to see which models are available, their IDs,
     and the base_url required for local providers. Your current model is marked
-    `current: true`.
+    `current: true`. Each model's `type` is `"llm"` (spawn_agent) or `"rlcd"`
+    (classify) — check `type` before picking a model for either tool.
+    """
+    |> String.trim_trailing()
+  end
+
+  defp tool_section("classify") do
+    """
+    ### classify
+
+    Use when you need a fast, calibrated decision — routing, extraction, a
+    yes/no confidence check — instead of reasoning it out yourself in text.
+
+    Call `list_models` first — only models with `type: \"rlcd\"` are valid.
+
+    The result is a probability or chosen value per question, not prose — do
+    not ask it to explain itself, and do not use it for anything that needs
+    multi-step reasoning or tool use.
+
+    Each entry in `questions` is one of three types — see the tool schema for
+    exact fields:
+
+    #### Choice
+
+    Use when state fits into exactly one of a fixed set of named categories
+    — routing to the right specialist, classifying an inbound message by
+    intent. `criteria` names the options; the answer is the winning option's
+    key and its probability.
+
+    #### Score
+
+    Use when state falls somewhere on an ordered scale rather than a
+    discrete category — severity, quality, how well a draft matches a spec.
+    `criteria` orders the scale low to high; the answer is a value across it.
+
+    #### Boolean
+
+    Use as a yes/no confidence gate before a destructive or irreversible
+    action — "does this message clearly authorize a refund?" `criteria` is
+    optional, clarifying what counts as yes/no; the answer is the
+    probability the answer is yes.
     """
     |> String.trim_trailing()
   end

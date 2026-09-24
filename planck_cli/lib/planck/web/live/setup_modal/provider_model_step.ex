@@ -17,8 +17,8 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
   alias Planck.Headless
   alias Phoenix.LiveView.Socket
 
-  @cloud_providers [:anthropic, :openai, :google]
-  @local_providers [:openai_compat]
+  @cloud_providers [:anthropic, :openai, :google, :typesafe]
+  @local_providers [:openai_compat, :typesafe_compat]
 
   # {id, label, base_url, identifier, has_api_key}
   @openai_compat_presets [
@@ -360,9 +360,13 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
     }
 
     models =
-      if a.provider in @local_providers and a.base_url != "",
-        do: fetch_local_models(a.base_url),
-        else: load_models(a.provider)
+      if a.provider in @local_providers and a.base_url != "" do
+        a.provider
+        |> resolved_provider()
+        |> fetch_local_models(a.base_url)
+      else
+        load_models(a.provider)
+      end
 
     preset_params = Map.get(preset_default_params, a.preset || "")
     preset_model = Map.get(preset_default_models, a.preset || "")
@@ -457,7 +461,7 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
   # ---------------------------------------------------------------------------
 
   @spec load_models(atom()) :: [{String.t(), String.t()}]
-  defp load_models(provider) when provider in [:anthropic, :openai, :google] do
+  defp load_models(provider) when provider in [:anthropic, :openai, :google, :typesafe] do
     provider
     |> Planck.AI.list_models()
     |> Enum.map(&{&1.id, &1.id})
@@ -465,34 +469,55 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
 
   defp load_models(_local), do: []
 
-  @spec fetch_local_models(String.t()) :: [{String.t(), String.t()}]
-  defp fetch_local_models(base_url) do
+  @spec fetch_local_models(:openai | :typesafe, String.t()) :: [{String.t(), String.t()}]
+  defp fetch_local_models(provider, base_url)
+
+  defp fetch_local_models(provider, base_url)
+       when provider in [:openai, :typesafe] and
+              is_binary(base_url) and
+              base_url != "" do
     task =
       Task.async(fn ->
-        Planck.AI.list_models(:openai, base_url: base_url)
+        provider
+        |> Planck.AI.list_models(base_url: base_url)
         |> Enum.map(&{&1.id, &1.id})
       end)
 
     case Task.yield(task, 2_000) do
-      {:ok, models} -> models
-      _ -> Task.shutdown(task, :brutal_kill) && []
+      {:ok, models} ->
+        models
+
+      _ ->
+        Task.shutdown(task, :brutal_kill)
+        []
     end
   rescue
     _ -> []
   end
 
   @spec load_models_for_provider_key(String.t()) :: [{String.t(), String.t()}]
-  defp load_models_for_provider_key(provider_key) do
+  defp load_models_for_provider_key(provider_key)
+
+  defp load_models_for_provider_key(provider_key)
+       when is_binary(provider_key) do
     case Headless.config().providers do
       %{^provider_key => %{"type" => type} = entry} ->
         provider = String.to_existing_atom(type)
         base_url = Map.get(entry, "base_url")
-        if base_url, do: fetch_local_models(base_url), else: load_models(provider)
+
+        if is_binary(base_url) and base_url != "",
+          do: fetch_local_models(provider, base_url),
+          else: load_models(provider)
 
       _ ->
         []
     end
   end
+
+  @spec resolved_provider(atom()) :: :openai | :typesafe
+  defp resolved_provider(provider)
+  defp resolved_provider(:openai_compat), do: :openai
+  defp resolved_provider(:typesafe_compat), do: :typesafe
 
   @spec clear_param_assigns(Socket.t()) :: Socket.t()
   defp clear_param_assigns(socket) do
@@ -588,6 +613,7 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
   defp compute_provider_key(:anthropic, _, _), do: "anthropic"
   defp compute_provider_key(:openai, _, _), do: "openai"
   defp compute_provider_key(:google, _, _), do: "google"
+  defp compute_provider_key(:typesafe, _, _), do: "typesafe"
 
   defp compute_provider_key(:openai_compat, id, _)
        when is_binary(id) and id != "",
@@ -598,6 +624,12 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
        do: preset
 
   defp compute_provider_key(:openai_compat, _, _), do: "openai-compat"
+
+  defp compute_provider_key(:typesafe_compat, id, _)
+       when is_binary(id) and id != "",
+       do: String.downcase(id)
+
+  defp compute_provider_key(:typesafe_compat, _, _), do: "typesafe-compat"
 
   @spec build_provider_opts(map()) :: keyword()
   defp build_provider_opts(a) do
@@ -657,11 +689,14 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
     |> put_if_parsed(:max_tokens, a.param_max_tokens, &parse_integer/1)
   end
 
+  @doc "Maps a UI provider atom to the config `type` string it persists as."
   @spec provider_type_for(atom()) :: String.t()
-  defp provider_type_for(:anthropic), do: "anthropic"
-  defp provider_type_for(:openai), do: "openai"
-  defp provider_type_for(:google), do: "google"
-  defp provider_type_for(:openai_compat), do: "openai"
+  def provider_type_for(:anthropic), do: "anthropic"
+  def provider_type_for(:openai), do: "openai"
+  def provider_type_for(:google), do: "google"
+  def provider_type_for(:typesafe), do: "typesafe"
+  def provider_type_for(:openai_compat), do: "openai"
+  def provider_type_for(:typesafe_compat), do: "typesafe"
 
   @spec parse_advanced_opts(String.t()) :: {:ok, map() | nil} | {:error, String.t()}
   defp parse_advanced_opts(""), do: {:ok, nil}
@@ -700,6 +735,7 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
   defp credential_label(:anthropic), do: pgettext("setup label", "Anthropic API Key")
   defp credential_label(:openai), do: pgettext("setup label", "OpenAI API Key")
   defp credential_label(:google), do: pgettext("setup label", "Google API Key")
+  defp credential_label(:typesafe), do: pgettext("setup label", "Typesafe API Key")
   defp credential_label(_), do: pgettext("setup label", "API Key")
 
   defp credential_placeholder(p) when p in @cloud_providers, do: "sk-..."
@@ -708,12 +744,14 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
   defp provider_label(:anthropic), do: "Anthropic"
   defp provider_label(:openai), do: "OpenAI"
   defp provider_label(:google), do: "Google"
+  defp provider_label(:typesafe), do: "Typesafe"
   defp provider_label(:openai_compat), do: pgettext("setup label", "OpenAI-compatible")
+  defp provider_label(:typesafe_compat), do: pgettext("setup label", "Typesafe-compatible")
   defp provider_label(p) when is_atom(p), do: Atom.to_string(p)
   defp provider_label(_), do: ""
 
   defp all_providers do
-    [:anthropic, :openai, :google, :openai_compat]
+    [:anthropic, :openai, :google, :typesafe, :openai_compat, :typesafe_compat]
     |> Enum.map(&{to_string(&1), provider_label(&1)})
     |> Enum.sort_by(&elem(&1, 1))
   end
@@ -723,6 +761,32 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
     presets = Enum.map(@openai_compat_presets, fn {id, label, _, _, _} -> {id, label} end)
     [placeholder | presets]
   end
+
+  defp base_url_placeholder(:typesafe_compat), do: "http://localhost:8000"
+  defp base_url_placeholder(_), do: "http://localhost:11434/v1"
+
+  defp base_url_help(:typesafe_compat) do
+    pgettext("setup help", "Server root, no path — e.g. http://localhost:8000")
+  end
+
+  defp base_url_help(_) do
+    pgettext("setup help", "Must include /v1 — e.g. http://localhost:11434/v1")
+  end
+
+  # An RLCD (typesafe) model can never serve chat, so it can never be the
+  # default an agent starts with — Headless.configure_model/1 already
+  # enforces this unconditionally, but the checkbox would otherwise mislead
+  # the user into thinking their choice here does something for this model.
+  # :add_model resolves the provider's type from the already-persisted
+  # config (via provider_key); :add_provider hasn't persisted one yet, so
+  # the just-picked :typesafe/:typesafe_compat provider atom is the only
+  # signal available.
+  @spec rlcd_add?(map()) :: boolean()
+  defp rlcd_add?(%{mode: :add_model, provider_key: provider_key}) do
+    match?(%{"type" => "typesafe"}, Headless.config().providers[provider_key])
+  end
+
+  defp rlcd_add?(%{provider: provider}), do: provider in [:typesafe, :typesafe_compat]
 
   defp scope_label(:local), do: pgettext("setup label", "This project (.planck/)")
   defp scope_label(:global), do: pgettext("setup label", "All projects (~/.planck/)")
@@ -796,77 +860,81 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
                 target={@myself}
               />
             </div>
+          <% end %>
 
-            <%= if @preset do %>
-              <form phx-change="update_provider_fields" phx-target={@myself} class="space-y-3">
+          <%!-- Base URL / Identifier / API key: shown once an OpenAI-compatible
+               preset is chosen, or unconditionally for Typesafe-compatible
+               (which has no preset list — decider is too young a project to
+               bake in as a named preset). --%>
+          <%= if (@provider == :openai_compat && @preset) || @provider == :typesafe_compat do %>
+            <form phx-change="update_provider_fields" phx-target={@myself} class="space-y-3">
 
-                <%!-- Base URL --%>
+              <%!-- Base URL --%>
+              <div>
+                <label class="font-mono text-xs text-muted-foreground block mb-1">
+                  <%= pgettext("setup label", "Base URL") %>
+                </label>
+                <input
+                  type="text"
+                  name="base_url"
+                  value={@base_url}
+                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                         placeholder:text-muted-foreground"
+                  placeholder={base_url_placeholder(@provider)}
+                />
+                <p class="font-mono text-xs text-muted-foreground mt-1">
+                  <%= base_url_help(@provider) %>
+                </p>
+              </div>
+
+              <%!-- Identifier — always shown, used as provider key --%>
+              <div>
+                <label class="font-mono text-xs text-muted-foreground block mb-1">
+                  <%= pgettext("setup label", "Identifier") %>
+                  <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
+                </label>
+                <input
+                  type="text"
+                  name="identifier"
+                  value={@identifier}
+                  class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                         bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                         placeholder:text-muted-foreground"
+                  placeholder={if @has_api_key, do: "NVIDIA", else: "my-ollama"}
+                />
+                <p class="font-mono text-xs text-muted-foreground mt-1">
+                  <%= if @has_api_key do %>
+                    <%= pgettext("setup help", "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY). Also used as the provider key.") %>
+                  <% else %>
+                    <%= pgettext("setup help", "Used as the provider key. Set one if you plan to add multiple instances of this backend.") %>
+                  <% end %>
+                </p>
+              </div>
+
+              <%!-- API key (only when has_api_key is set) --%>
+              <%= if @has_api_key do %>
                 <div>
                   <label class="font-mono text-xs text-muted-foreground block mb-1">
-                    <%= pgettext("setup label", "Base URL") %>
-                  </label>
-                  <input
-                    type="text"
-                    name="base_url"
-                    value={@base_url}
-                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                           placeholder:text-muted-foreground"
-                    placeholder="http://localhost:11434/v1"
-                  />
-                  <p class="font-mono text-xs text-muted-foreground mt-1">
-                    <%= pgettext("setup help", "Must include /v1 — e.g. http://localhost:11434/v1") %>
-                  </p>
-                </div>
-
-                <%!-- Identifier — always shown, used as provider key --%>
-                <div>
-                  <label class="font-mono text-xs text-muted-foreground block mb-1">
-                    <%= pgettext("setup label", "Identifier") %>
-                    <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
-                  </label>
-                  <input
-                    type="text"
-                    name="identifier"
-                    value={@identifier}
-                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                           placeholder:text-muted-foreground"
-                    placeholder={if @has_api_key, do: "NVIDIA", else: "my-ollama"}
-                  />
-                  <p class="font-mono text-xs text-muted-foreground mt-1">
-                    <%= if @has_api_key do %>
-                      <%= pgettext("setup help", "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY). Also used as the provider key.") %>
+                    <%= if @identifier != "" do %>
+                      <%= String.upcase(@identifier) %>_API_KEY
                     <% else %>
-                      <%= pgettext("setup help", "Used as the provider key. Set one if you plan to add multiple instances of this backend.") %>
+                      <%= pgettext("setup label", "API Key") %>
+                      <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
                     <% end %>
-                  </p>
+                  </label>
+                  <input
+                    type="password"
+                    name="api_key"
+                    value={@api_key}
+                    class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
+                           bg-background focus:outline-none shadow-[2px_2px_0px_#000]
+                           placeholder:text-muted-foreground"
+                    placeholder="..."
+                  />
                 </div>
-
-                <%!-- API key (only for presets that require one) --%>
-                <%= if @has_api_key do %>
-                  <div>
-                    <label class="font-mono text-xs text-muted-foreground block mb-1">
-                      <%= if @identifier != "" do %>
-                        <%= String.upcase(@identifier) %>_API_KEY
-                      <% else %>
-                        <%= pgettext("setup label", "API Key") %>
-                        <span class="opacity-50 ml-1"><%= pgettext("setup label", "(optional)") %></span>
-                      <% end %>
-                    </label>
-                    <input
-                      type="password"
-                      name="api_key"
-                      value={@api_key}
-                      class="w-full border-2 border-black px-2 py-1.5 font-mono text-sm
-                             bg-background focus:outline-none shadow-[2px_2px_0px_#000]
-                             placeholder:text-muted-foreground"
-                      placeholder="..."
-                    />
-                  </div>
-                <% end %>
-              </form>
-            <% end %>
+              <% end %>
+            </form>
           <% end %>
 
           <%!-- Free-tier links --%>
@@ -965,17 +1033,23 @@ defmodule Planck.Web.Live.SetupModal.ProviderModelStep do
 
           <%!-- Set as default + scope --%>
           <div class="flex items-center justify-between gap-4">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={@set_default}
-                phx-click={JS.push("toggle_default", target: @myself)}
-                class="accent-black w-4 h-4"
-              />
-              <span class="font-mono text-sm">
-                <%= pgettext("setup label", "Set as default model") %>
+            <%= if rlcd_add?(assigns) do %>
+              <span class="font-mono text-xs text-muted-foreground">
+                <%= pgettext("setup help", "RLCD models can't be set as default — they can't serve chat.") %>
               </span>
-            </label>
+            <% else %>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={@set_default}
+                  phx-click={JS.push("toggle_default", target: @myself)}
+                  class="accent-black w-4 h-4"
+                />
+                <span class="font-mono text-sm">
+                  <%= pgettext("setup label", "Set as default model") %>
+                </span>
+              </label>
+            <% end %>
 
             <div class="flex-shrink-0">
               <.dropdown

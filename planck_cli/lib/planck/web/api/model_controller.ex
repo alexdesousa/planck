@@ -18,7 +18,13 @@ defmodule Planck.Web.API.ModelController do
     models =
       Headless.available_models()
       |> Enum.map(fn m ->
-        %{provider: m.provider, id: m.id, context_window: m.context_window, base_url: m.base_url}
+        %{
+          provider: m.provider,
+          id: m.id,
+          type: m.type,
+          context_window: m.context_window,
+          base_url: m.base_url
+        }
       end)
 
     json(conn, models)

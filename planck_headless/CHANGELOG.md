@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.2.4
+
+### An RLCD model can never become `default_model`
+
+`Headless.configure_model/1` now silently refuses `default: true` for a
+`:typesafe`-provider model, regardless of caller — an RLCD model can't
+serve chat at all, so it can never be the model a session starts with.
+Found live: adding a self-hosted `decider` model through the setup modal
+left "Set as default model" checked (its own default state, same as every
+other model), which silently wrote it as `default_model` and broke every
+session start afterward until fixed by hand in `config.json`.
+
+### `provider_api_key_env_var/2` had no `"typesafe"` clause
+
+A Typesafe API key entered through `configure_provider/1` was silently
+dropped — the provider's `config.json` entry was written correctly, but
+the key never reached `.env` or the vault, since the function fell through
+to its `nil` catch-all. Added `"typesafe"`/`<IDENTIFIER>`-based clauses
+mirroring `"openai"`'s.
+
+### Removed the dead `default_provider` config key
+
+Declared, loaded, and reloaded (`PLANCK_DEFAULT_PROVIDER`, a `%Config{}`
+field, its own Skogsra reload function) but never written by
+`configure_provider/1`/`configure_model/1`, and never read anywhere —
+`specs/planck-headless.md` already documented it as "kept for UI display;
+not used by `build_dynamic_team`", but nothing ever displayed it either.
+
 ## v0.2.3
 
 ### `prompt/2` → `prompt/3`

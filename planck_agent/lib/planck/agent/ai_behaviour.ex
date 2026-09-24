@@ -6,9 +6,13 @@ defmodule Planck.Agent.AIBehaviour do
   @callback stream(Planck.AI.Model.t(), Planck.AI.Context.t(), keyword()) ::
               Enumerable.t(Planck.AI.Stream.t())
 
-  @callback get_model(atom(), String.t()) :: {:ok, Planck.AI.Model.t()} | {:error, :not_found}
+  @callback get_model(atom(), String.t()) ::
+              {:ok, Planck.AI.Model.t()} | {:error, :not_found}
   @callback get_model(atom(), String.t(), keyword()) ::
               {:ok, Planck.AI.Model.t()} | {:error, :not_found}
+
+  @callback evaluate(Planck.AI.Model.t(), String.t() | map(), map(), keyword()) ::
+              {:ok, Planck.AI.Evaluation.t()} | {:error, term()}
 
   @doc false
   @spec client() :: module()

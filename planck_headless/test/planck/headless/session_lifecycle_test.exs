@@ -40,7 +40,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       Config.reload_sessions_dir()
     end)
 
-    stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+    stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
     {:ok, sessions_dir: sessions_dir}
   end
@@ -69,6 +69,37 @@ defmodule Planck.Headless.SessionLifecycleTest do
     Config.reload_providers()
     Config.reload_models()
     Config.reload_default_model()
+    ResourceStore.reload()
+  end
+
+  # Configures an rlcd model (alongside the "openai"/"llama3.2" model every
+  # `write_team` orchestrator declares) so ResourceStore.get().available_models
+  # includes a :typesafe/:rlcd entry — the precondition for classify gating.
+  defp configure_rlcd_model do
+    Application.put_env(:planck, :providers, %{
+      "openai" => %{"type" => "openai", "has_api_key" => false},
+      "jev" => %{
+        "type" => "typesafe",
+        "base_url" => "http://localhost:8000",
+        "has_api_key" => false
+      }
+    })
+
+    Application.put_env(:planck, :models, [
+      %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "openai"},
+      %{"id" => "jev-latest", "model" => "jev-latest", "provider" => "jev"}
+    ])
+
+    Config.reload_providers()
+    Config.reload_models()
+    ResourceStore.reload()
+  end
+
+  defp clear_rlcd_model do
+    Application.delete_env(:planck, :providers)
+    Application.delete_env(:planck, :models)
+    Config.reload_providers()
+    Config.reload_models()
     ResourceStore.reload()
   end
 
@@ -337,6 +368,31 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta2} = Session.get_metadata(sid2)
       {:ok, pid2} = find_orchestrator(meta2["team_id"])
       assert "list_skills" in (Agent.get_state(pid2).tools |> Map.keys())
+    end
+
+    test "orchestrator has the classify tool when an rlcd model is configured", %{tmp_dir: dir} do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_team(dir, "rlcd-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      assert "classify" in tool_names
+    end
+
+    test "classify is absent from the orchestrator when no rlcd model is configured", %{
+      tmp_dir: dir
+    } do
+      team_dir = write_team(dir, "no-rlcd-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      refute "classify" in tool_names
     end
 
     test "returns error when no default model configured and template is nil" do
@@ -674,6 +730,40 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert content =~ "NVIDIA_API_KEY=nvapi-secret"
     end
 
+    test "writes TYPESAFE_API_KEY to .env for typesafe type", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "jev",
+        type: "typesafe",
+        api_key: "ts-secret",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "TYPESAFE_API_KEY=ts-secret"
+    end
+
+    test "writes <IDENTIFIER>_API_KEY to .env for typesafe type with identifier", %{
+      tmp_dir: dir
+    } do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "decider",
+        type: "typesafe",
+        identifier: "DECIDER",
+        base_url: "http://localhost:8000",
+        api_key: "decider-secret",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "DECIDER_API_KEY=decider-secret"
+    end
+
     test "sanitizes a messy identifier before writing config.json and .env", %{tmp_dir: dir} do
       config_path = Path.join(dir, "config.json")
       env_path = Path.join(dir, ".env")
@@ -884,6 +974,55 @@ defmodule Planck.Headless.SessionLifecycleTest do
                  provider: "local",
                  config_file: Path.join(dir, "config.json")
                )
+    end
+
+    test "an rlcd (typesafe) provider's model is never set as default, even when requested",
+         %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      Application.put_env(:planck, :providers, %{
+        "decider" => %{"type" => "typesafe", "base_url" => "http://localhost:8000"}
+      })
+
+      Config.reload_providers()
+
+      assert :ok =
+               Headless.configure_model(
+                 id: "decider-2b",
+                 model: "decider-2b",
+                 provider: "decider",
+                 default: true,
+                 config_file: config_path
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      refute Map.has_key?(map, "default_model")
+      [entry] = map["models"]
+      assert entry["id"] == "decider-2b"
+    end
+
+    test "a regular (llm) provider's model can still be set as default", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      Application.put_env(:planck, :providers, %{
+        "marvin" => %{"type" => "openai", "base_url" => "https://example.local/v1"}
+      })
+
+      Config.reload_providers()
+
+      assert :ok =
+               Headless.configure_model(
+                 id: "qwen",
+                 model: "qwen",
+                 provider: "marvin",
+                 default: true,
+                 config_file: config_path
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["default_model"] == "qwen"
     end
 
     test "returns error for empty provider", %{tmp_dir: dir} do
@@ -1397,7 +1536,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
     test "agent usage and cost are restored after resume", %{tmp_dir: dir} do
       model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
-      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, model_with_cost} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, model_with_cost} end)
 
       team_dir = write_team(dir, "usage-restore-team")
       {:ok, session_id} = Headless.start_session(template: team_dir)
@@ -1426,7 +1565,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
     test "accumulated usage and cost survive multiple resumes", %{tmp_dir: dir} do
       model_with_cost = %{@model | cost: %{input: 2.5, output: 10.0}}
-      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, model_with_cost} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, model_with_cost} end)
 
       team_dir = write_team(dir, "multi-resume-team")
       {:ok, session_id} = Headless.start_session(template: team_dir)
