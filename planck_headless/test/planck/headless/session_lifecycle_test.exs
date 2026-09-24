@@ -730,6 +730,40 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert content =~ "NVIDIA_API_KEY=nvapi-secret"
     end
 
+    test "writes TYPESAFE_API_KEY to .env for typesafe type", %{tmp_dir: dir} do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "jev",
+        type: "typesafe",
+        api_key: "ts-secret",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "TYPESAFE_API_KEY=ts-secret"
+    end
+
+    test "writes <IDENTIFIER>_API_KEY to .env for typesafe type with identifier", %{
+      tmp_dir: dir
+    } do
+      env_path = Path.join(dir, ".env")
+
+      Headless.configure_provider(
+        id: "decider",
+        type: "typesafe",
+        identifier: "DECIDER",
+        base_url: "http://localhost:8000",
+        api_key: "decider-secret",
+        config_file: Path.join(dir, "config.json"),
+        env_file: env_path
+      )
+
+      content = File.read!(env_path)
+      assert content =~ "DECIDER_API_KEY=decider-secret"
+    end
+
     test "sanitizes a messy identifier before writing config.json and .env", %{tmp_dir: dir} do
       config_path = Path.join(dir, "config.json")
       env_path = Path.join(dir, ".env")
@@ -940,6 +974,55 @@ defmodule Planck.Headless.SessionLifecycleTest do
                  provider: "local",
                  config_file: Path.join(dir, "config.json")
                )
+    end
+
+    test "an rlcd (typesafe) provider's model is never set as default, even when requested",
+         %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      Application.put_env(:planck, :providers, %{
+        "decider" => %{"type" => "typesafe", "base_url" => "http://localhost:8000"}
+      })
+
+      Config.reload_providers()
+
+      assert :ok =
+               Headless.configure_model(
+                 id: "decider-2b",
+                 model: "decider-2b",
+                 provider: "decider",
+                 default: true,
+                 config_file: config_path
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      refute Map.has_key?(map, "default_model")
+      [entry] = map["models"]
+      assert entry["id"] == "decider-2b"
+    end
+
+    test "a regular (llm) provider's model can still be set as default", %{tmp_dir: dir} do
+      config_path = Path.join(dir, "config.json")
+
+      Application.put_env(:planck, :providers, %{
+        "marvin" => %{"type" => "openai", "base_url" => "https://example.local/v1"}
+      })
+
+      Config.reload_providers()
+
+      assert :ok =
+               Headless.configure_model(
+                 id: "qwen",
+                 model: "qwen",
+                 provider: "marvin",
+                 default: true,
+                 config_file: config_path
+               )
+
+      {:ok, content} = File.read(config_path)
+      {:ok, map} = Jason.decode(content)
+      assert map["default_model"] == "qwen"
     end
 
     test "returns error for empty provider", %{tmp_dir: dir} do

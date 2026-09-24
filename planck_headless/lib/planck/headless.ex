@@ -342,7 +342,10 @@ defmodule Planck.Headless do
   - `:model` (required) — provider model identifier (e.g. `"claude-sonnet-4-6"`)
   - `:provider` (required) — key referencing an entry in the `providers` map
   - `:scope` — `:local` (default, `.planck/`) or `:global` (`~/.planck/`)
-  - `:default` — set as `default_model` (default: `true`)
+  - `:default` — set as `default_model` (default: `true`). Silently ignored
+    for an `:rlcd`-typed (`:typesafe`) provider — an RLCD model cannot serve
+    chat, so it can never be the default an agent is started with. Callers
+    don't need to know this; it's enforced here, not left to the UI to check.
   - `:params` — inference parameters map (e.g. `%{"temperature" => 0.7}`)
   """
   @spec configure_model(keyword()) :: :ok | {:error, term()}
@@ -351,7 +354,7 @@ defmodule Planck.Headless do
     model_id = Keyword.fetch!(opts, :model)
     provider = Keyword.fetch!(opts, :provider)
     scope = Keyword.get(opts, :scope, :local)
-    set_default = Keyword.get(opts, :default, true)
+    set_default = Keyword.get(opts, :default, true) and not rlcd_provider_key?(provider)
     params = Keyword.get(opts, :params)
     context_window = Keyword.get(opts, :context_window)
     max_tokens = Keyword.get(opts, :max_tokens)
@@ -1172,6 +1175,15 @@ defmodule Planck.Headless do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  # Checks the currently loaded config (not the file being written — that
+  # provider entry must already be persisted by the time a model referencing
+  # it is configured) so this holds regardless of caller: the setup modal,
+  # a future API, or a hand-written script calling configure_model/1 directly.
+  @spec rlcd_provider_key?(String.t()) :: boolean()
+  defp rlcd_provider_key?(provider_key) do
+    match?(%{"type" => "typesafe"}, Map.get(Config.get().providers, provider_key))
+  end
+
   @spec ensure_config_dir(Path.t()) :: :ok | {:error, File.posix()}
   defp ensure_config_dir(path) do
     case path |> Path.expand() |> Path.dirname() |> File.mkdir_p() do
@@ -1242,5 +1254,10 @@ defmodule Planck.Headless do
   defp provider_api_key_env_var("google", _), do: "GOOGLE_API_KEY"
   defp provider_api_key_env_var("openai", id) when is_binary(id) and id != "", do: "#{id}_API_KEY"
   defp provider_api_key_env_var("openai", _), do: "OPENAI_API_KEY"
+
+  defp provider_api_key_env_var("typesafe", id) when is_binary(id) and id != "",
+    do: "#{id}_API_KEY"
+
+  defp provider_api_key_env_var("typesafe", _), do: "TYPESAFE_API_KEY"
   defp provider_api_key_env_var(_, _), do: nil
 end

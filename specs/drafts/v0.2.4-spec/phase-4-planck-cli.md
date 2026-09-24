@@ -19,10 +19,11 @@ config `type` string, differing only by `base_url`.
 
 - `@cloud_providers` (line 20): add `:typesafe`.
 - `@local_providers` (line 21): add `:typesafe_compat`.
-- New `@typesafe_compat_presets` (mirrors `@openai_compat_presets`, lines
-  24-30) — likely just `{"decider", "decider (self-hosted)", "", nil, true}`
-  and `{"other", "Other", "", nil, true}`; there's no known multi-vendor
-  ecosystem here yet the way NVIDIA/Groq/Ollama exist for OpenAI-compat.
+- **No `@typesafe_compat_presets`** — decided against during implementation
+  (see "Resolved during implementation" below): `decider` is too young a
+  project to bake in as a named preset the way Ollama/llama.cpp are for
+  OpenAI-compat, so `:typesafe_compat` gets no preset step at all, unlike
+  `:openai_compat`.
 - `provider_type_for/1` (line 660-664): add
   `defp provider_type_for(:typesafe_compat), do: "typesafe"`.
 - `provider_label/1` (line 708+), `credential_label/1` (line 700-703),
@@ -62,46 +63,98 @@ existing doesn't mean the wiring is automatic:
   `:typesafe` and `:typesafe_compat` per `provider_type_for/1`, so this call
   site just needs the argument added, no new resolution logic).
 
+**Resolved during implementation** — a few things the draft above got
+slightly wrong or left unspecified:
+
+- The argument `fetch_local_models/2` actually needs is the *real* provider
+  atom (`:openai`/`:typesafe`), not `provider_type_for/1`'s return value
+  (a string, used only for config persistence). Added a small
+  `resolved_provider/1` helper (`:openai_compat -> :openai`,
+  `:typesafe_compat -> :typesafe`) instead of reusing `provider_type_for/1`
+  for this — a string-to-atom round trip through the wrong helper would
+  work by accident today (both map to a real provider's own type string)
+  but conflates two different concerns.
+- **Base URL convention differs between the two local-provider families.**
+  `req_llm`'s `TypeSafe` provider appends `/v1/systemone`/`/v1/models`
+  itself (`default_base_url: "https://api.typesafe.ai"`, no `/v1` in it) —
+  unlike OpenAI-compat, where `base_url` must already include `/v1`. The
+  Base URL field's placeholder and help text are now provider-conditional
+  (`base_url_placeholder/1`/`base_url_help/1`): OpenAI-compat keeps "Must
+  include /v1 — e.g. http://localhost:11434/v1"; Typesafe-compat instead
+  says "Server root, no path — e.g. http://localhost:8000". Getting this
+  wrong would silently double up `/v1` in every self-hosted `decider` request.
+- **No preset step for `:typesafe_compat` at all** (this draft originally
+  guessed a `decider` preset with `has_api_key: true` — both wrong: decider
+  is too young/unstable a project to bake in as a named preset, and a
+  self-hosted default should lean toward `has_api_key: false` like
+  `ollama`/`llama_cpp`, not `nvidia`/`groq`, if it existed). Instead,
+  `:typesafe_compat` skips the preset picker and shows the Base
+  URL/Identifier/API key form unconditionally — `:openai_compat` still
+  requires picking a preset first, since that step exists specifically to
+  prefill a known vendor's `base_url`/`identifier` defaults, and there are
+  no known vendors yet for Typesafe-compatible servers. Revisit adding a
+  preset list once a real self-hosted ecosystem exists here (decider or
+  otherwise).
+- `provider_api_key_env_var/2` (`planck_headless`) had no `"typesafe"`
+  clause and silently dropped any Typesafe API key entered through the
+  modal — see the Test Cases section below for the fix. Not something this
+  phase's original plan anticipated; found because Phase 4 was the first
+  thing to actually exercise a `:typesafe` provider through
+  `configure_provider/1`.
+
 ## Use Cases
 
-- A user configures a self-hosted `decider` instance through the setup
-  modal the same way they'd add a local llama.cpp endpoint today — no
-  hand-editing `config.json`.
+- A user configures a self-hosted `decider` (or any other Typesafe-wire-
+  compatible) instance through the setup modal by picking
+  Typesafe-compatible and typing in its URL directly — no preset to pick,
+  no hand-editing `config.json`.
 - A user adds Typesafe's cloud API the same way they'd add
   Anthropic/OpenAI/Google — pick the provider, paste an API key.
 
 ## Test Cases
 
-- New test(s) for `fetch_local_models/2`'s provider dispatch (whatever
-  `describe` block ends up covering `provider_model_step.ex` — see the gap
-  noted below): selecting `:typesafe_compat` with a `base_url` queries
-  `Planck.AI.list_models(:typesafe, base_url: ...)`, not `:openai` — this
-  is exactly the bug the hardcoded `:openai` call would otherwise produce
-  silently (a `decider` server would get queried with an OpenAI-shaped
-  request and simply return `[]`, masking the real defect as "no discovery
-  endpoint" instead of "wrong provider called"). Also: selecting `:typesafe`
-  (cloud, no `base_url`) goes through `load_models/1`'s cloud-catalog
-  branch, not the empty-list fallback — catches the case where `:typesafe`
-  is missed from that guard clause.
-- `model_controller_test.exs` — mirror the existing "returns configured
-  local models" test (`Application.put_env(:planck, :providers, ...)` with
-  `"type" => "openai"`, then reload + assert via `GET /api/models`): add
-  "returns configured typesafe models" with `"type" => "typesafe"`. Check
-  whether the `ModelList` OpenAPI schema (asserted via `assert_schema(body,
-  "ModelList", api_spec())`) needs a `type` field added if `type` is meant
-  to surface over this HTTP API too, not just the `list_models` tool —
-  confirm during implementation, since the schema is a separate contract
-  from the tool's own JSON shape.
-- `provider_model_step.ex` has **no existing test file** — unlike
-  `model_controller_test.exs`, this module has zero direct test coverage
-  today (confirmed by listing `planck_cli/test`; no `setup_modal` path
-  exists there). This is a real gap to name rather than paper over:
-  implementing this phase means either (a) writing the first
-  `Phoenix.LiveViewTest`-based test file for this module — covering the
-  provider picker rendering `:typesafe`/`:typesafe_compat` as options via
-  `all_providers/0`, `provider_type_for/1`'s persistence mapping producing
-  `"typesafe"` for both, and the preset-selection flow for
-  `:typesafe_compat` — or (b) leaving it manually-QA'd the way it
-  apparently is today, and not raising the testing bar unilaterally within
-  this one change. Flag this as a decision to make explicitly rather than
-  assume either way.
+- `provider_model_step_test.exs` (new file, `planck_cli` — the module had
+  zero direct test coverage before this phase). Built as manually-constructed
+  `%Phoenix.LiveView.Socket{}` + direct `handle_event/3`/`update/2` calls,
+  the same technique `sidecar_widget_test.exs` already uses, rather than
+  `live_isolated/3` — deliberately avoids ever reaching `do_save/1`'s real
+  `config.json`/`.env` writes, since this component has no path-override
+  seam for tests the way `Headless.configure_provider/1` itself does
+  (`:local`/`:global` scope resolve to `.planck/config.json` and
+  `~/.planck/config.json` with no override hook). Covers: the provider
+  picker rendering `Typesafe`/`Typesafe-compatible` via `all_providers/0`;
+  `provider_type_for/1`'s persistence mapping (made `def`, not `defp` — a
+  minimal public accessor matching the module's existing pattern for
+  `cloud_providers/0`/`local_providers/0`/`*_presets_data/0` — the safest
+  way to test it without exercising the file-writing save path); that
+  `:openai_compat` still requires a preset before advancing while
+  `:typesafe_compat` does not; and that advancing with an empty `base_url`
+  does not attempt a network fetch (`advance_to_model_step/1` takes the
+  empty-list branch, not `fetch_local_models/2`). This last case also
+  caught a real bug during writing: the template's preset-or-typesafe_compat
+  guard used `and`/`or` on `@preset` (which is `nil`, not a boolean, before
+  one is picked) — `Phoenix.LiveView.Diff` raised `BadBooleanError`
+  immediately on render. Fixed by switching to `&&`/`||`.
+- `model_controller_test.exs` — added "returns configured typesafe models"
+  mirroring "returns configured local models". Decided during
+  implementation: yes, `type` needed adding to the `ModelList` OpenAPI
+  schema and `ModelController.index/2`'s response map — it was missing
+  entirely (only `provider`/`id`/`context_window`/`base_url`), an
+  inconsistency with `list_models`/`available_models` already surfacing
+  `type` everywhere else in this release.
+- New tests for `fetch_local_models/2`'s provider dispatch, folded into
+  `provider_model_step_test.exs` above rather than a separate describe
+  block.
+
+### Bug found during implementation (not in the original plan)
+
+`Planck.Headless.provider_api_key_env_var/2` (in `planck_headless`, not
+`planck_cli`) had no clause for `"typesafe"` — it fell through to the
+catch-all `nil`, so `configure_provider/1` would silently accept a
+`:typesafe`/`:typesafe_compat` API key through the setup modal, write the
+provider's `config.json` entry correctly, and then just drop the key
+without persisting it to `.env` or the vault. Fixed by adding
+`"typesafe"`/`<IDENTIFIER>`-based clauses mirroring `"openai"`'s, matching
+`adapter.ex`'s `resolve_api_key(id || "TYPESAFE")` convention. Covered by
+two new tests in `planck_headless/test/planck/headless/session_lifecycle_test.exs`
+mirroring the existing `"openai"`/`"anthropic"` `.env`-writing tests.
