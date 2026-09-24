@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $Repo    = "alexdesousa/planck"
-$Version = "0.2.3"
+$Version = "0.2.4"
 $Asset   = "planck_windows.exe"
 $Url     = "https://github.com/$Repo/releases/latest/download/$Asset"
 $BinDir  = "$Home\.planck\bin"

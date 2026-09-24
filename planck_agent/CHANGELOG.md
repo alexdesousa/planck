@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.2.4
+
+### `classify` — a tool for calling RLCD models
+
+Lets an agent get a fast, calibrated decision (routing, extraction, a
+yes/no confidence gate) from an `:rlcd` model instead of reasoning it out
+in text. Automatic for the orchestrator, not opt-in, whenever at least one
+`:rlcd` model is configured (`orchestrator_tools/6`, gated the same way
+`spawn_agent`/`list_models` already are) — a worker never gets it
+automatically, only via explicit `TEAM.json`/`spawn_agent` grant like any
+other built-in tool. `Planck.Agent.SystemPrompt` teaches an agent
+Choice/Score/Boolean concretely: `classify`'s own H4 subsection per
+question type, `list_models`' section pointing out `type` before picking a
+model for either `spawn_agent` or `classify`, and explicit language
+steering the agent away from treating it like a cheaper `call_agent` — an
+RLCD model literally cannot do chat.
+
+The internal AI client behaviour gains an `evaluate/4` callback matching
+`Planck.AI.evaluate/4`'s shape.
+
+### Removed a dead local-provider pattern from `tools.ex`
+
+`:ollama`/`:llama_cpp`/`:custom_openai`/`@local_providers`/
+`validate_local_base_url/2` predated the v0.1.6 migration to
+`:anthropic|:openai|:google` + optional `base_url` but were never cleaned
+up here, and `spawn_agent`'s live-model lookup only ever handled those
+dead atoms — any real cloud provider's `base_url` override silently fell
+through with no matching clause. `find_model`/`find_model_live` are now
+provider-agnostic.
+
 ## v0.2.3
 
 ### Messages queued while busy are now visible and editable
