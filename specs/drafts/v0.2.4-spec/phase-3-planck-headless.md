@@ -1,35 +1,41 @@
-# Phase 3 — `planck_headless`: thread `available_models` through + system prompt
+# Phase 3 — `planck_headless`/`planck_agent`: system prompt for `classify`
 
 Part of [v0.2.4-spec](../v0.2.4-spec.md). Depends on
-[Phase 2](phase-2-planck-agent.md)'s `worker_tools/4` and `classify` tool.
+[Phase 2](phase-2-planck-agent.md)'s `orchestrator_tools/6` and `classify`
+tool.
 
 ## Objective
 
-Wire `available_models` through to every place `planck_headless` builds an
-agent's tool list, so Phase 2's `classify` gating and the new `type` field
-on `list_models` actually reach running agents — and give the system prompt
-the concrete language an agent needs to discover and correctly use an RLCD
-model, since nothing else in the prompt teaches Choice/Score/Noul.
+Give the system prompt the concrete language an agent needs to discover and
+correctly use an RLCD model, since nothing else in the prompt teaches
+Choice/Score/Boolean. `planck_headless` already passes
+`store.available_models` to `orchestrator_tools/6` at all three of its call
+sites, so `classify` gating and `list_models`' `type` field already reach
+running agents as of Phase 2 — see the superseded-plan note below. What's
+actually missing is `Planck.Agent.SystemPrompt` (in `planck_agent`) teaching
+an agent about `classify` at all.
 
 ## Plan
 
-Three call sites in `planck_headless.ex` call `Tools.worker_tools/3` today
-and already have `store.available_models` in scope — add it as the 4th arg
-to all three:
-
-- `start_orchestrator/6`, line 635: `Tools.worker_tools(team_id, nil)` →
-  `Tools.worker_tools(team_id, nil, nil, store.available_models)`.
-- `start_workers/6`, line 709: `Tools.worker_tools(team_id, orchestrator_id, sender)` →
-  add `, store.available_models`.
-- `start_dynamic_worker/5` (the `spawn_agent` runtime path), line 931: same.
+**Superseded during Phase 2:** this phase's original plan called for
+threading `store.available_models` into the three `Tools.worker_tools/3`
+call sites in `planck_headless.ex`, so workers could get `classify` too.
+That's no longer correct — Phase 2 settled on `classify` being
+orchestrator-automatic only (gated in `orchestrator_tools/6`), with workers
+only getting it via explicit `TEAM.json`/`spawn_agent` grant like any other
+tool. `worker_tools/3` takes no `available_models` argument and never will;
+nothing to wire here. `orchestrator_tools/6` already receives
+`store.available_models` at all three of its call sites
+(`start_orchestrator/6`, `start_workers/6`, `start_dynamic_worker/5`), so
+the gating already reaches running agents with no further wiring needed.
 
 No other changes needed here — `detect_available_models/0`
 (`resource_store.ex:236-238`) already builds every model (including future
 `:typesafe` entries) from `Config.providers!()`/`Config.models!()` via
 `Planck.AI.Config.from_config/2`, which Phase 1 already covers.
 
-**`list_models` tool output** (`tools.ex:451-481`) — add `type: m.type` to
-the per-model map (line 467-476).
+**`list_models` tool output** — Phase 2 already added `type: m.type` to the
+per-model map in `planck_agent/lib/planck/agent/tools.ex`'s `list_models/1`.
 
 **`system_prompt.ex`** — this is the one place an agent actually learns
 RLCD models and `classify` exist; spelling it out concretely rather than
@@ -76,7 +82,12 @@ end
 ```
 
 New `tool_section("classify")` clause, owning the discriminated-union
-question shape rather than assuming the model already knows it:
+question shape rather than assuming the model already knows it. Shipped
+with an H4 subsection per question type (own "when to use" guidance for
+Choice/Score/Boolean, since they're not interchangeable) and no inline JSON
+payload examples — the tool's own parameter schema already fully specifies
+the exact shape per branch, so duplicating it in prose would just be a
+second place to keep in sync:
 
 ```elixir
 defp tool_section("classify") do
@@ -85,26 +96,45 @@ defp tool_section("classify") do
 
   Use when you need a fast, calibrated decision — routing, extraction, a
   yes/no confidence check — instead of reasoning it out yourself in text.
-  Call `list_models` first and pass the `id` of a model with `type: "rlcd"`.
 
-  Each entry in `questions` is one of:
-
-  - `{"type": "choice", "instructions": "...", "criteria": {"key": "description", ...}}`
-  - `{"type": "score", "instructions": "...", "criteria": ["low description", "...", "high description"]}`
-  - `{"type": "boolean", "instructions": "..."}` (optionally `"criteria": {"true": "...", "false": "..."}`)
+  Call `list_models` first — only models with `type: "rlcd"` are valid.
 
   The result is a probability or chosen value per question, not prose — do
   not ask it to explain itself, and do not use it for anything that needs
   multi-step reasoning or tool use.
+
+  Each entry in `questions` is one of three types — see the tool schema for
+  exact fields:
+
+  #### Choice
+
+  Use when state fits into exactly one of a fixed set of named categories
+  — routing to the right specialist, classifying an inbound message by
+  intent. `criteria` names the options; the answer is the winning option's
+  key and its probability.
+
+  #### Score
+
+  Use when state falls somewhere on an ordered scale rather than a
+  discrete category — severity, quality, how well a draft matches a spec.
+  `criteria` orders the scale low to high; the answer is a value across it.
+
+  #### Boolean
+
+  Use as a yes/no confidence gate before a destructive or irreversible
+  action — "does this message clearly authorize a refund?" `criteria` is
+  optional, clarifying what counts as yes/no; the answer is the
+  probability the answer is yes.
   """
   |> String.trim_trailing()
 end
 ```
 
-This last point matters beyond phrasing: an RLCD model literally cannot do
-chat (`ReqLLM.Providers.TypeSafe.attach_stream/4` errors outright), so the
-prompt has to actively steer the agent away from treating `classify` like a
-cheaper `call_agent`, not just describe its happy path.
+The "not prose" point matters beyond phrasing: an RLCD model literally
+cannot do chat (`ReqLLM.Providers.TypeSafe.attach_stream/4` errors
+outright), so the prompt has to actively steer the agent away from
+treating `classify` like a cheaper `call_agent`, not just describe its
+happy path.
 
 ## Use Cases
 
@@ -114,32 +144,38 @@ cheaper `call_agent`, not just describe its happy path.
   change — the same "just works" story `list_models`/`spawn_agent` already
   have for a newly configured chat model.
 - An agent reads its own system prompt and learns, unprompted, that
-  Choice/Score/Noul questions exist and how to shape them — the calling
+  Choice/Score/Boolean questions exist and how to shape them — the calling
   human's task prompt doesn't need to explain `classify`'s question format
   itself.
 
 ## Test Cases
 
-- `system_prompt_test.exs` (new file — none of the four packages currently
-  has one; `tool_section/1` and `@ordered_tools` are exercised only
-  indirectly today via `session_lifecycle_test.exs`'s system-prompt
-  assertions). Test cases: `classify`'s section only appears in `build/1`'s
-  output when `"classify"` is in the agent's `tools` list; `list_models`'s
-  section text includes the `type` guidance; section ordering places
-  `classify` immediately after `list_models` and before `spawn_agent` when
-  all three are present.
-- `session_lifecycle_test.exs` — mirror "load_skill is absent when no
-  skills exist" / "present when skills exist" (lines 238, 268): new tests
-  "classify tool and system-prompt section are present on orchestrator and
-  workers when an rlcd model is configured" and "...absent when no rlcd
-  model is configured", covering `start_orchestrator`/`start_workers` (this
-  phase's other two call sites). The `start_dynamic_worker` path (runtime
-  `spawn_agent`) is exercised instead via `team_integration_test.exs`'s
-  existing "spawn_agent grantable tools" describe block (planck_agent, line
-  519), since that's where dynamic worker spawning is already tested.
-- `resource_store_test.exs` — extend "available_models is populated from
-  providers + models config" (line 98): add a `"typesafe"` provider entry
-  to the fixture config and assert the resulting `Planck.AI.Model` has
+- `system_prompt_test.exs` (new file, in `planck_agent` — `system_prompt.ex`
+  lives there, not in `planck_headless`; none of the four packages had a
+  dedicated test for it before, `tool_section/1` and `@ordered_tools` were
+  exercised only indirectly via `session_lifecycle_test.exs`'s system-prompt
+  assertions). Shipped with full coverage of `SystemPrompt.build/1`, not
+  just the classify/list_models additions: identity line (all `name`/`type`
+  combinations), every `tool_section/1` clause (including unrecognized tool
+  names being ignored), `@ordered_tools` ordering independent of tool-map
+  insertion order, the `classify`/`list_models` `type` guidance and
+  ordering, the inter-agent-tools intro's four `call_agent`/`send_agent`
+  combinations, the skills section (pinned/ranked/empty), and the
+  `prompt_hook` before/after prepend-append behavior (nil, default, string,
+  empty-string).
+- `session_lifecycle_test.exs` — "orchestrator has the classify tool when
+  an rlcd model is configured" / "classify is absent from the orchestrator
+  when no rlcd model is configured", covering `start_orchestrator/6`.
+  Deliberately orchestrator-only, not "present on orchestrator and
+  workers" — Phase 2 settled on `classify` never being automatic for
+  workers, so there's nothing to test at `start_workers/6` or
+  `start_dynamic_worker/5` beyond what `team_integration_test.exs`'s
+  "classify gating" describe block already covers at the `planck_agent`
+  unit level (`worker_tools/3` never includes `classify`; a spawned worker
+  only gets it via explicit grant).
+- `resource_store_test.exs` — extended "available_models is populated from
+  providers + models config": added a `"typesafe"` provider entry to the
+  fixture config and asserted the resulting `Planck.AI.Model` has
   `provider: :typesafe, type: :rlcd` — confirms this phase needs no
   special-casing here, since `detect_available_models/0` is already fully
   generic over `Planck.AI.Config.from_config/2`.

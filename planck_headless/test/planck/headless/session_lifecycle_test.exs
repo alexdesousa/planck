@@ -72,6 +72,37 @@ defmodule Planck.Headless.SessionLifecycleTest do
     ResourceStore.reload()
   end
 
+  # Configures an rlcd model (alongside the "openai"/"llama3.2" model every
+  # `write_team` orchestrator declares) so ResourceStore.get().available_models
+  # includes a :typesafe/:rlcd entry — the precondition for classify gating.
+  defp configure_rlcd_model do
+    Application.put_env(:planck, :providers, %{
+      "openai" => %{"type" => "openai", "has_api_key" => false},
+      "jev" => %{
+        "type" => "typesafe",
+        "base_url" => "http://localhost:8000",
+        "has_api_key" => false
+      }
+    })
+
+    Application.put_env(:planck, :models, [
+      %{"id" => "llama3.2", "model" => "llama3.2", "provider" => "openai"},
+      %{"id" => "jev-latest", "model" => "jev-latest", "provider" => "jev"}
+    ])
+
+    Config.reload_providers()
+    Config.reload_models()
+    ResourceStore.reload()
+  end
+
+  defp clear_rlcd_model do
+    Application.delete_env(:planck, :providers)
+    Application.delete_env(:planck, :models)
+    Config.reload_providers()
+    Config.reload_models()
+    ResourceStore.reload()
+  end
+
   defp write_team(dir, alias_name) do
     team_dir = Path.join(dir, alias_name)
     File.mkdir_p!(team_dir)
@@ -337,6 +368,31 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta2} = Session.get_metadata(sid2)
       {:ok, pid2} = find_orchestrator(meta2["team_id"])
       assert "list_skills" in (Agent.get_state(pid2).tools |> Map.keys())
+    end
+
+    test "orchestrator has the classify tool when an rlcd model is configured", %{tmp_dir: dir} do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_team(dir, "rlcd-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      assert "classify" in tool_names
+    end
+
+    test "classify is absent from the orchestrator when no rlcd model is configured", %{
+      tmp_dir: dir
+    } do
+      team_dir = write_team(dir, "no-rlcd-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      refute "classify" in tool_names
     end
 
     test "returns error when no default model configured and template is nil" do
