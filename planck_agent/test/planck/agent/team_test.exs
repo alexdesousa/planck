@@ -171,7 +171,40 @@ defmodule Planck.Agent.TeamTest do
       })
 
       assert {:error, reason} = Team.load(dir)
-      assert reason =~ "exactly one orchestrator, found 2"
+      assert reason =~ "exactly one orchestrator or solo member, found 2"
+    end
+
+    test "loads a solo team", %{tmp_dir: tmp} do
+      dir = Path.join(tmp, "solo-team")
+      write_team(dir, %{"members" => [orchestrator_entry(%{"type" => "solo"})]})
+
+      assert {:ok, team} = Team.load(dir)
+      assert [%AgentSpec{type: "solo"}] = team.members
+    end
+
+    test "returns error when a solo team has additional members", %{tmp_dir: tmp} do
+      dir = Path.join(tmp, "solo-plus-worker")
+
+      write_team(dir, %{
+        "members" => [orchestrator_entry(%{"type" => "solo"}), builder_entry()]
+      })
+
+      assert {:error, reason} = Team.load(dir)
+      assert reason =~ "a \"solo\" team cannot have additional members"
+    end
+
+    test "returns error when solo is combined with an orchestrator", %{tmp_dir: tmp} do
+      dir = Path.join(tmp, "solo-plus-orch")
+
+      write_team(dir, %{
+        "members" => [
+          orchestrator_entry(),
+          orchestrator_entry(%{"type" => "solo", "name" => "S"})
+        ]
+      })
+
+      assert {:error, reason} = Team.load(dir)
+      assert reason =~ "exactly one orchestrator or solo member, found 2"
     end
 
     test "allows repeated member types when names differ", %{tmp_dir: tmp} do

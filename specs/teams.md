@@ -5,6 +5,10 @@ can address each other via the inter-agent tools (`call_agent`, `send_agent`,
 `respond_agent`, `list_team`). Every team has exactly one orchestrator; other
 members are workers.
 
+A team may instead be a single `"solo"` agent — directly promptable like an
+orchestrator, but with none of the inter-agent tools, since it has no team to
+delegate to or receive from. A solo team cannot have any other members.
+
 Teams can be created two ways:
 
 - **Static** — hydrated from a directory on disk (`.planck/teams/<alias>/`) at
@@ -115,7 +119,7 @@ lives in the `Planck.Agent.AgentSpec` module docs; the summary is:
 
 | Field           | Req | Description                                                    |
 |-----------------|-----|----------------------------------------------------------------|
-| `type`          | ✓   | Role identifier (e.g. `"orchestrator"`, `"builder"`)           |
+| `type`          | ✓   | Role identifier (e.g. `"orchestrator"`, `"builder"`, `"solo"`) |
 | `provider`      | ✓   | LLM provider (`anthropic`, `openai`, `google`; use `openai` + `base_url` for Ollama or other OpenAI-compatible servers) |
 | `model_id`      | ✓   | Provider-specific model id (e.g. `"claude-sonnet-4-6"`)        |
 | `name`          |     | Human-readable label; defaults to `type` when absent. Disambiguates when `type` repeats — required in that case. |
@@ -127,6 +131,11 @@ lives in the `Planck.Agent.AgentSpec` module docs; the summary is:
 | `skills`        |     | Skill names pre-loaded for this agent; names and descriptions are appended to `system_prompt` |
 
 Exactly one member must have `"type": "orchestrator"`; the rest are workers.
+Or, the team may have exactly one member with `"type": "solo"` and no other
+members — it's promptable the same way an orchestrator is, but gets none of
+`call_agent`/`send_agent`/`respond_agent`/`list_team`/`spawn_agent`/
+`destroy_agent`/`interrupt_agent`/`list_models`, only the tools its `"tools"`
+array (or a caller's session-scoped `tools:`) actually grants.
 
 **Types may repeat** (e.g. two `"developer"` agents working on different features
 in parallel). `name` defaults to `type` when not provided, so multiple same-type

@@ -1080,6 +1080,81 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- solo agents ---
+
+  describe "solo agents" do
+    test "solo member registers under \"solo\", not \"orchestrator\"", %{tmp_dir: dir} do
+      team_dir = write_solo_team(dir, "solo-registry-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+
+      assert [{_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "solo"})
+      assert [] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+    end
+
+    test "solo agent has only its declared tools — no inter-agent tools, no coding builtins",
+         %{tmp_dir: dir} do
+      team_dir = write_solo_team(dir, "solo-tools-team", ["read"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, solo_pid} = find_solo(meta["team_id"])
+
+      tool_names = Agent.get_state(solo_pid).tools |> Map.keys()
+
+      assert "read" in tool_names
+      refute "write" in tool_names
+      refute "edit" in tool_names
+      refute "bash" in tool_names
+
+      for tool <- ~w(spawn_agent destroy_agent interrupt_agent list_models
+                     call_agent send_agent respond_agent list_team) do
+        refute tool in tool_names
+      end
+    end
+
+    test "solo agent is promptable via prompt/2", %{tmp_dir: dir} do
+      team_dir = write_solo_team(dir, "solo-prompt-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "hello"}, {:done, %{}}]
+      end)
+
+      assert :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "rejects a solo team with additional members", %{tmp_dir: dir} do
+      team_dir = Path.join(dir, "solo-plus-worker")
+      File.mkdir_p!(team_dir)
+
+      File.write!(
+        Path.join(team_dir, "TEAM.json"),
+        Jason.encode!(%{
+          "members" => [
+            %{
+              "type" => "solo",
+              "provider" => "openai",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You work alone."
+            },
+            %{
+              "type" => "builder",
+              "provider" => "openai",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You build."
+            }
+          ]
+        })
+      )
+
+      assert {:error, reason} = Headless.start_session(template: team_dir)
+      assert reason =~ "a \"solo\" team cannot have additional members"
+    end
+  end
+
   # --- list_sessions/0 ---
 
   describe "list_sessions/0" do
@@ -1660,6 +1735,29 @@ defmodule Planck.Headless.SessionLifecycleTest do
     team_dir
   end
 
+  defp write_solo_team(dir, alias_name, tools \\ []) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "solo",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You work alone.",
+            "tools" => tools
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
   defp write_team_with_worker(dir, alias_name) do
     team_dir = Path.join(dir, alias_name)
     File.mkdir_p!(team_dir)
@@ -1825,6 +1923,13 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
   defp find_worker(team_id) do
     case Registry.lookup(Agent.Registry, {team_id, "worker"}) do
+      [{pid, _} | _] -> {:ok, pid}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  defp find_solo(team_id) do
+    case Registry.lookup(Agent.Registry, {team_id, "solo"}) do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :not_found}
     end

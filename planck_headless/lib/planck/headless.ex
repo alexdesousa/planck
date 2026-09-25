@@ -576,13 +576,57 @@ defmodule Planck.Headless do
     store = ResourceStore.get()
     team_id = generate_id()
 
-    orch_spec = Enum.find(team.members, &(&1.type == "orchestrator"))
-    workers = Enum.reject(team.members, &(&1.type == "orchestrator"))
+    orch_spec = Enum.find(team.members, &(&1.type in ["orchestrator", "solo"]))
+    workers = Enum.reject(team.members, &(&1.type in ["orchestrator", "solo"]))
     orchestrator_id = Map.get(prev_ids, orch_spec.name || orch_spec.type, generate_id())
 
+    case orch_spec do
+      %AgentSpec{type: "orchestrator"} ->
+        do_materialize_team(
+          session_id,
+          team_id,
+          orchestrator_id,
+          orch_spec,
+          workers,
+          store,
+          cwd,
+          ctx
+        )
+
+      %AgentSpec{type: "solo"} ->
+        do_materialize_solo(session_id, team_id, orchestrator_id, orch_spec, store, cwd, ctx)
+    end
+  end
+
+  @spec do_materialize_team(
+          String.t(),
+          String.t(),
+          String.t(),
+          AgentSpec.t(),
+          [AgentSpec.t()],
+          ResourceStore.t(),
+          Path.t(),
+          map()
+        ) :: {:ok, String.t()} | {:error, term()}
+  defp do_materialize_team(session_id, team_id, orchestrator_id, spec, workers, store, cwd, ctx) do
     with {:ok, _} <-
-           start_orchestrator(session_id, team_id, orchestrator_id, orch_spec, store, cwd, ctx),
+           start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx),
          :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx) do
+      {:ok, team_id}
+    end
+  end
+
+  @spec do_materialize_solo(
+          String.t(),
+          String.t(),
+          String.t(),
+          AgentSpec.t(),
+          ResourceStore.t(),
+          Path.t(),
+          map()
+        ) :: {:ok, String.t()} | {:error, term()}
+  defp do_materialize_solo(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
+    with {:ok, _} <- start_solo(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
       {:ok, team_id}
     end
   end
@@ -602,6 +646,86 @@ defmodule Planck.Headless do
           }
         ) :: {:ok, pid()} | {:error, term()}
   defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
+    start_primary_agent(
+      session_id,
+      team_id,
+      orchestrator_id,
+      spec,
+      store,
+      cwd,
+      ctx,
+      fn resolved ->
+        Tools.orchestrator_tools(
+          session_id,
+          team_id,
+          store.available_models,
+          resolved,
+          store.skills,
+          cwd
+        ) ++
+          Tools.worker_tools(team_id, nil)
+      end
+    )
+  end
+
+  @spec start_solo(
+          String.t(),
+          String.t(),
+          String.t(),
+          AgentSpec.t(),
+          ResourceStore.t(),
+          Path.t(),
+          %{
+            metadata: map(),
+            session_tools: [Planck.Agent.Tool.t()],
+            prev_ids: map(),
+            team_name: String.t() | nil
+          }
+        ) :: {:ok, pid()} | {:error, term()}
+  defp start_solo(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
+    start_primary_agent(
+      session_id,
+      team_id,
+      orchestrator_id,
+      spec,
+      store,
+      cwd,
+      ctx,
+      fn _resolved ->
+        Tools.solo_tools()
+      end
+    )
+  end
+
+  # Shared setup for a team's primary agent — an "orchestrator" or a "solo"
+  # agent, the two roles `materialize_team/4` can dispatch to. They differ
+  # only in which extra delegation tools they get, supplied by
+  # `extra_tools_fn` once the tool pool has resolved `spec.tools`.
+  @spec start_primary_agent(
+          String.t(),
+          String.t(),
+          String.t(),
+          AgentSpec.t(),
+          ResourceStore.t(),
+          Path.t(),
+          %{
+            metadata: map(),
+            session_tools: [Planck.Agent.Tool.t()],
+            prev_ids: map(),
+            team_name: String.t() | nil
+          },
+          ([Planck.Agent.Tool.t()] -> [Planck.Agent.Tool.t()])
+        ) :: {:ok, pid()} | {:error, term()}
+  defp start_primary_agent(
+         session_id,
+         team_id,
+         orchestrator_id,
+         spec,
+         store,
+         cwd,
+         ctx,
+         extra_tools_fn
+       ) do
     %{metadata: metadata, session_tools: session_tools} = ctx
 
     skill_opts =
@@ -627,15 +751,7 @@ defmodule Planck.Headless do
     resolved = base_opts[:tools]
 
     full_tools =
-      Tools.orchestrator_tools(
-        session_id,
-        team_id,
-        store.available_models,
-        resolved,
-        store.skills,
-        cwd
-      ) ++
-        Tools.worker_tools(team_id, nil) ++
+      extra_tools_fn.(resolved) ++
         skill_discovery_tools(store.skills) ++
         resolved ++
         store.registered_tools ++
@@ -815,9 +931,13 @@ defmodule Planck.Headless do
     end)
   end
 
+  # A team has exactly one promptable primary agent — either an
+  # "orchestrator" or a "solo" agent (Team.validate_single_primary/2 enforces
+  # this) — so at most one of these two lookups ever returns a match.
   @spec find_orchestrator(String.t()) :: {:ok, pid()} | {:error, :orchestrator_not_found}
   defp find_orchestrator(team_id) do
-    case Registry.lookup(Planck.Agent.Registry, {team_id, "orchestrator"}) do
+    case Registry.lookup(Planck.Agent.Registry, {team_id, "orchestrator"}) ++
+           Registry.lookup(Planck.Agent.Registry, {team_id, "solo"}) do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :orchestrator_not_found}
     end
