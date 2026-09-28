@@ -35,6 +35,7 @@ agent should never delegate or be delegated to.
 | `tools` | | List of tool names available to this agent (e.g. `["read", "write", "bash"]`) |
 | `skills` | | List of skill names whose content is appended to the system prompt at session start |
 | `compactor` | | Fully-qualified sidecar compactor module name (e.g. `"MySidecar.Compactors.Summary"`) |
+| `persistence` | | Fully-qualified custom persistence module name (e.g. `"MySidecar.Persistence.Postgres"`); omit to use the built-in SQLite-backed store |
 | `opts` | | Provider-specific opts, e.g. `{"temperature": 0.7}` |
 
 ## Built-in tools

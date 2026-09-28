@@ -108,6 +108,7 @@ defmodule Planck.Agent.AgentSpecTest do
       refute Keyword.has_key?(opts, :compactor)
       refute Keyword.has_key?(opts, :prompt_hook)
       refute Keyword.has_key?(opts, :turn_end_hook)
+      refute Keyword.has_key?(opts, :persistence)
       refute Keyword.has_key?(opts, :sidecar_node)
     end
 
@@ -420,6 +421,17 @@ defmodule Planck.Agent.AgentSpecTest do
     test "compactor defaults to nil when absent" do
       assert {:ok, spec} = AgentSpec.from_map(valid_entry())
       assert spec.compactor == nil
+    end
+
+    test "parses persistence module name when present" do
+      entry = valid_entry(%{"persistence" => "MySidecar.Persistence.Postgres"})
+      assert {:ok, spec} = AgentSpec.from_map(entry)
+      assert spec.persistence == "MySidecar.Persistence.Postgres"
+    end
+
+    test "persistence defaults to nil when absent" do
+      assert {:ok, spec} = AgentSpec.from_map(valid_entry())
+      assert spec.persistence == nil
     end
   end
 

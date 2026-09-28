@@ -1155,6 +1155,89 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- session_messages/1 ---
+
+  defmodule RecordingPersistence do
+    use Planck.Agent.Hooks.Persistence
+
+    @impl true
+    def persist_message(_session_id, _agent_id, message), do: message
+    @impl true
+    def persist_usage(_session_id, _agent_id, _usage), do: :ok
+    @impl true
+    def load_messages(_session_id, _agent_id, _opts), do: {:ok, []}
+    @impl true
+    def flush_unpersisted(_session_id, _agent_id, _messages), do: :noop
+    @impl true
+    def truncate_after(_session_id, _message_id), do: :ok
+
+    @impl true
+    def load_session_messages(_session_id, _opts) do
+      {:ok,
+       [
+         %{
+           db_id: 1,
+           agent_id: "orchestrator",
+           message: Message.new(:assistant, [{:text, "from custom backend"}]),
+           inserted_at: 0
+         }
+       ]}
+    end
+  end
+
+  defp write_team_with_persistence(dir, alias_name, persistence_module) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read", "write", "edit", "bash"],
+            "persistence" => persistence_module
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
+  describe "session_messages/1" do
+    test "returns cross-agent history via the default SQLite backend", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "messages-default-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "hello"}, {:done, %{}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "hi there")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      assert {:ok, rows} = Headless.session_messages(session_id)
+      assert Enum.any?(rows, fn r -> match?([{:text, "hi there"}], r.message.content) end)
+    end
+
+    test "resolves and uses a configured persistence module", %{tmp_dir: dir} do
+      module_name = inspect(RecordingPersistence)
+      team_dir = write_team_with_persistence(dir, "messages-custom-team", module_name)
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      assert {:ok, [row]} = Headless.session_messages(session_id)
+      assert row.agent_id == "orchestrator"
+      assert row.message.content == [{:text, "from custom backend"}]
+    end
+  end
+
   # --- list_sessions/0 ---
 
   describe "list_sessions/0" do

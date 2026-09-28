@@ -21,7 +21,7 @@ defmodule Planck.Web.Live.ChatComponent do
 
   use Planck.Web, :live_component
 
-  alias Planck.Agent.Session
+  alias Planck.Headless
   alias Planck.Web.Live.ChatEntries
 
   # ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ defmodule Planck.Web.Live.ChatComponent do
 
   defp load_entries(socket, session_id) do
     entries =
-      case Session.messages(session_id) do
+      case Headless.session_messages(session_id) do
         {:ok, rows} ->
           ChatEntries.build(rows, socket.assigns.perspective_agent_id, socket.assigns.agents)
 

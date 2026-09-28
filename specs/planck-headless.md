@@ -217,7 +217,8 @@ per-session filesystem scanning.
      - `index_refresh_fn` for pool+ranked rebuild after compaction
    - `team_id:` and `session_id:` for this session
    - `available_models:` from `ResourceStore`
-   - `compactor:` and `prompt_hook:` from `AgentSpec` (resolved module atoms)
+   - `compactor:`, `prompt_hook:`, `turn_end_hook:`, and `persistence:` from
+     `AgentSpec` (resolved module atoms)
 6. Start each agent under `Planck.Agent.AgentSupervisor`.
 7. Record `session_id → team_id` in `SessionRegistry`.
 8. Return `{:ok, session_id}`.

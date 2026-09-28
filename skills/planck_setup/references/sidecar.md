@@ -119,7 +119,7 @@ end
 
 ## Hooks
 
-The sidecar can extend per-agent behaviour through three hook behaviours, each
+The sidecar can extend per-agent behaviour through four hook behaviours, each
 declared in `TEAM.json` by module name:
 
 | Field | Behaviour | When it fires |
@@ -127,19 +127,23 @@ declared in `TEAM.json` by module name:
 | `compactor` | `Planck.Agent.Hooks.Compactor` | Before every LLM turn — compact the message history when the context window is full |
 | `prompt_hook` | `Planck.Agent.Hooks.Prompt` | Before every LLM turn — inject dynamic content (e.g. memory) before or after the base system prompt |
 | `turn_end_hook` | `Planck.Agent.Hooks.TurnEnd` | After every LLM turn ends — inspect the completed turn and act (e.g. write a skill) |
+| `persistence` | `Planck.Agent.Hooks.Persistence` | On every message/usage write and history load — swap out the built-in SQLite-backed store for a custom one |
 
 ```json
 {
   "type":          "builder",
   "compactor":     "MySidecar.Compactors.Summary",
   "prompt_hook":   "MySidecar.Hooks.Memory",
-  "turn_end_hook": "MySidecar.Hooks.SkillReflector"
+  "turn_end_hook": "MySidecar.Hooks.SkillReflector",
+  "persistence":   "MySidecar.Persistence.Postgres"
 }
 ```
 
 Each field is independent — declare only the ones your sidecar implements.
-Planck calls the hook module via RPC on the sidecar node; all three fall back
-gracefully when the sidecar is unavailable.
+Planck calls the hook module via RPC on the sidecar node; all four fall back
+gracefully when the sidecar is unavailable (the persistence hook falls back to
+`Planck.Agent.Hooks.Persistence.Default`, the built-in SQLite-backed store,
+rather than a no-op).
 
 The planck_docker bundled sidecar ships two ready-to-use hook implementations:
 

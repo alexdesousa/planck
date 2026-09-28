@@ -79,6 +79,10 @@ defmodule Planck.Agent.AgentSpec do
     - `:turn_end_hook` — fully-qualified module name of a sidecar turn-end hook,
       e.g. `"MySidecar.Hooks.SkillReflector"`. The module must implement
       `Planck.Agent.Hooks.TurnEnd`. `nil` means no post-turn reflection.
+    - `:persistence` — fully-qualified module name of a custom persistence
+      backend for this agent, e.g. `"MySidecar.Persistence.Postgres"`. The
+      module must implement `Planck.Agent.Hooks.Persistence`. `nil` uses the
+      built-in SQLite-backed store.
   """
   @type t :: %__MODULE__{
           type: String.t(),
@@ -93,7 +97,8 @@ defmodule Planck.Agent.AgentSpec do
           skills: [String.t()],
           compactor: String.t() | nil,
           prompt_hook: String.t() | nil,
-          turn_end_hook: String.t() | nil
+          turn_end_hook: String.t() | nil,
+          persistence: String.t() | nil
         }
 
   @enforce_keys [:type, :provider, :model_id, :system_prompt]
@@ -110,7 +115,8 @@ defmodule Planck.Agent.AgentSpec do
     skills: [],
     compactor: nil,
     prompt_hook: nil,
-    turn_end_hook: nil
+    turn_end_hook: nil,
+    persistence: nil
   ]
 
   @provider_atoms Map.new(Planck.AI.Model.providers(), fn p -> {Atom.to_string(p), p} end)
@@ -139,7 +145,8 @@ defmodule Planck.Agent.AgentSpec do
       skills: Keyword.get(fields, :skills, []),
       compactor: Keyword.get(fields, :compactor),
       prompt_hook: Keyword.get(fields, :prompt_hook),
-      turn_end_hook: Keyword.get(fields, :turn_end_hook)
+      turn_end_hook: Keyword.get(fields, :turn_end_hook),
+      persistence: Keyword.get(fields, :persistence)
     }
   end
 
@@ -204,7 +211,8 @@ defmodule Planck.Agent.AgentSpec do
          skills: parse_string_list(entry["skills"]),
          compactor: entry["compactor"],
          prompt_hook: entry["prompt_hook"],
-         turn_end_hook: entry["turn_end_hook"]
+         turn_end_hook: entry["turn_end_hook"],
+         persistence: entry["persistence"]
        )}
     end
   end

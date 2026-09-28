@@ -54,15 +54,15 @@ defmodule Planck.Headless do
          {:ok, session_id} <- create_session(session_name, cwd),
          {:ok, team_id} <- materialize_team(session_id, team, cwd, session_tools: session_tools),
          :ok <-
-           save_metadata(
-             session_id,
-             template,
-             session_name,
-             cwd,
-             team_id,
-             agent_ids(team_id),
-             team.description
-           ) do
+           save_metadata(session_id, %{
+             template: template,
+             session_name: session_name,
+             cwd: cwd,
+             team_id: team_id,
+             agent_id_map: agent_ids(team_id),
+             description: team.description,
+             persistence: primary_persistence(team)
+           }) do
       {:ok, session_id}
     end
   end
@@ -87,15 +87,15 @@ defmodule Planck.Headless do
            ),
          :ok <- reconstruct_dynamic_workers(session_id, team_id, team),
          :ok <-
-           save_metadata(
-             session_id,
-             metadata["team_alias"],
-             session_name,
-             metadata["cwd"] || File.cwd!(),
-             team_id,
-             agent_ids(team_id),
-             metadata["team_description"]
-           ),
+           save_metadata(session_id, %{
+             template: metadata["team_alias"],
+             session_name: session_name,
+             cwd: metadata["cwd"] || File.cwd!(),
+             team_id: team_id,
+             agent_id_map: agent_ids(team_id),
+             description: metadata["team_description"],
+             persistence: primary_persistence(team)
+           }),
          :ok <- maybe_inject_recovery(session_id, team_id) do
       {:ok, session_id}
     end
@@ -205,6 +205,30 @@ defmodule Planck.Headless do
       [id, name] = path |> Path.basename(".db") |> String.split("_", parts: 2)
       %{session_id: id, name: name, active: session_active?(id)}
     end)
+  end
+
+  @doc """
+  Return every agent's messages for `session_id`, interleaved by insertion
+  order — the cross-agent history a chat UI displays, not any single agent's
+  own view of it.
+
+  Resolves the session's persistence module from its saved metadata (set at
+  `start_session/1`/`resume_session/2` time from the primary team member's
+  `persistence` field) rather than from a running agent process, so it
+  reaches the same backend a custom `persistence:` configuration used to
+  write it — the built-in SQLite store, `nil` in metadata, is the default.
+
+  Has the same reachability as `Session.get_metadata/1`: the session's own
+  `Session` GenServer must be running (active, or reopened via
+  `resume_session/2`).
+  """
+  @spec session_messages(session_id()) ::
+          {:ok, [Agent.Hooks.Persistence.session_row()]} | {:error, term()}
+  def session_messages(session_id) do
+    with {:ok, metadata} <- Session.get_metadata(session_id) do
+      module = resolve_hook_module(metadata["persistence"])
+      Agent.Hooks.Persistence.load_session_messages(module, session_id, SidecarManager.node())
+    end
   end
 
   @spec session_active?(String.t()) :: boolean()
@@ -431,30 +455,47 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec save_metadata(
-          String.t(),
-          term(),
-          String.t(),
-          Path.t(),
-          String.t(),
-          map(),
-          String.t() | nil
-        ) :: :ok
-  defp save_metadata(session_id, template, session_name, cwd, team_id, agent_id_map, description) do
+  @typedoc "Named fields for save_metadata/2 — see that function."
+  @type session_metadata_attrs :: %{
+          template: term(),
+          session_name: String.t(),
+          cwd: Path.t(),
+          team_id: String.t(),
+          agent_id_map: map(),
+          description: String.t() | nil,
+          persistence: String.t() | nil
+        }
+
+  @spec save_metadata(String.t(), session_metadata_attrs()) :: :ok
+  defp save_metadata(session_id, attrs) do
     team_alias =
-      case template do
+      case attrs.template do
         nil -> nil
         alias when is_binary(alias) -> alias
       end
 
     Session.save_metadata(session_id, %{
       "team_alias" => team_alias,
-      "team_description" => description,
-      "team_id" => team_id,
-      "session_name" => session_name,
-      "cwd" => cwd,
-      "agent_ids" => Jason.encode!(agent_id_map)
+      "team_description" => attrs.description,
+      "team_id" => attrs.team_id,
+      "session_name" => attrs.session_name,
+      "cwd" => attrs.cwd,
+      "agent_ids" => Jason.encode!(attrs.agent_id_map),
+      "persistence" => attrs.persistence
     })
+  end
+
+  # The primary member's persistence module string (or nil), stored in
+  # session metadata so a later, external reader (e.g. a chat UI, possibly
+  # for a closed session with no agent process running) can resolve the
+  # same persistence module a session's agents used, for a cross-agent
+  # read — see session_messages/1 and Hooks.Persistence.load_session_messages/3.
+  @spec primary_persistence(Team.t()) :: String.t() | nil
+  defp primary_persistence(team) do
+    case Enum.find(team.members, &(&1.type in ["orchestrator", "solo"])) do
+      nil -> nil
+      spec -> spec.persistence
+    end
   end
 
   # Build a name → id map for all agents in a team, keyed by their display name.
@@ -769,6 +810,7 @@ defmodule Planck.Headless do
       |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
       |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
       |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
+      |> Keyword.put(:persistence, resolve_hook_module(spec.persistence))
       |> Keyword.put(:sidecar_node, SidecarManager.node())
       |> Keyword.put(:team_name, ctx.team_name)
       |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
@@ -833,6 +875,7 @@ defmodule Planck.Headless do
         |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
         |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
         |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
+        |> Keyword.put(:persistence, resolve_hook_module(spec.persistence))
         |> Keyword.put(:sidecar_node, SidecarManager.node())
         |> Keyword.put(:team_name, ctx.team_name)
         |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
@@ -1058,6 +1101,7 @@ defmodule Planck.Headless do
           |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
           |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
           |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
+          |> Keyword.put(:persistence, resolve_hook_module(spec.persistence))
           |> Keyword.put(:sidecar_node, SidecarManager.node())
           |> Keyword.put(:team_name, nil)
 

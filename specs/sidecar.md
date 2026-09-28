@@ -449,6 +449,122 @@ The synthetic tool name (`"skill_reflector"`) does **not** appear in the agent's
 callable tool list — it exists only as a history entry the LLM sees passively on
 the next turn.
 
+## Per-agent persistence
+
+Conversation storage is implemented in the sidecar via the
+`Planck.Agent.Hooks.Persistence` behaviour. Declare the hook module in TEAM.json:
+
+```json
+{
+  "type":          "builder",
+  "provider":      "anthropic",
+  "model_id":      "claude-sonnet-4-6",
+  "persistence":   "MySidecar.Persistence.Postgres"
+}
+```
+
+planck_headless passes `persistence: MySidecar.Persistence.Postgres` (a module
+atom) at agent start time. Unlike the compactor/prompt/turn-end hooks, this one
+has six callbacks — five agent-scoped, one session-scoped — and `Planck.Agent`
+dispatches to it (via `Hooks.Persistence.*`) on every message write, usage
+write, history load, flush, and truncate, not just once per turn.
+
+### Behaviour
+
+```elixir
+@callback persist_message(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            message    :: Planck.Agent.Message.t()
+          ) :: Planck.Agent.Message.t()
+
+@callback persist_usage(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            usage      :: Planck.Agent.Usage.t()
+          ) :: :ok
+
+@callback load_messages(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            opts       :: [strip_orphans: boolean()]
+          ) :: {:ok, [Planck.Agent.Message.t()]} | :error
+
+@callback flush_unpersisted(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            messages   :: [Planck.Agent.Message.t()]
+          ) :: :flushed | :noop
+
+@callback truncate_after(session_id :: String.t(), message_id :: pos_integer()) ::
+            :ok | {:error, term()}
+
+@callback load_session_messages(session_id :: String.t(), opts :: keyword()) ::
+            {:ok, [session_row()]} | :error
+
+@callback persistence_timeout() :: pos_integer()
+```
+
+`persist_message/3`, `persist_usage/3`, `load_messages/3`, `flush_unpersisted/3`,
+and `truncate_after/2` are agent-scoped — an agent only ever touches its own
+history, and `Planck.Agent` calls these directly. `load_session_messages/2` is
+session-scoped and never called by `Planck.Agent` itself; it exists for a
+caller outside any agent process — planck_headless calls it (via
+`Planck.Headless.session_messages/1`) to hand a chat UI every agent's history
+for a session, interleaved by insertion order, so a closed session can still
+be read back.
+
+### Default — built-in SQLite store
+
+When `persistence` is not declared, `Planck.Agent.Hooks.Persistence.Default`
+handles storage: a thin delegation to `Planck.Agent.Session`/`SessionStore`,
+the same store every agent used before this hook existed. `Default` also
+satisfies the behaviour itself, so `state.persistence: nil` and
+`state.persistence: Default` are equivalent.
+
+### Fallback on RPC failure
+
+When the sidecar node is unavailable, `Hooks.Persistence` falls back to
+`Default` on `:badrpc` from any of the six calls — not a neutral no-op, unlike
+the prompt and turn-end hooks. Losing a persisted message on a transient RPC
+failure is worse than losing a compaction pass, so this always still writes
+somewhere.
+
+### Example
+
+```elixir
+defmodule MySidecar.Persistence.Postgres do
+  use Planck.Agent.Hooks.Persistence
+
+  @impl true
+  def persist_message(session_id, agent_id, message) do
+    # write `message`, return it with its own row id set on `message.id`
+  end
+
+  @impl true
+  def persist_usage(_session_id, _agent_id, _usage), do: :ok
+
+  @impl true
+  def load_messages(session_id, agent_id, opts) do
+    # return {:ok, [Message.t()]} in insertion order, or :error
+  end
+
+  @impl true
+  def flush_unpersisted(session_id, agent_id, messages) do
+    # write any of `messages` not yet persisted; :flushed | :noop
+  end
+
+  @impl true
+  def truncate_after(session_id, message_id), do: :ok
+
+  @impl true
+  def load_session_messages(session_id, opts) do
+    # return {:ok, [session_row()]} for every agent in the session,
+    # interleaved by insertion order, or :error
+  end
+end
+```
+
 ## Config
 
 ```elixir
@@ -479,7 +595,11 @@ and Mix must be installed on the system for sidecar support.
 - `ResourceStore.on_compact` — removed; compactors are per-agent via
   `AgentSpec.compactor` (module name string in TEAM.json).
 - `AgentSpec` gains `compactor: String.t() | nil`, `prompt_hook: String.t() | nil`,
-  and `turn_end_hook: String.t() | nil`.
+  `turn_end_hook: String.t() | nil`, and `persistence: String.t() | nil`.
 - The built-in LLM-based compactor (`Hooks.Compactor.compact/4` with
   `state.compactor: nil`) remains as the fallback when no sidecar compactor
   is configured.
+- Conversation storage is now pluggable via `AgentSpec.persistence`; the
+  built-in SQLite-backed store (`Planck.Agent.Session`/`SessionStore`) remains
+  as `Hooks.Persistence.Default`, the fallback when no sidecar persistence
+  module is configured.
