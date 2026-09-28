@@ -9,7 +9,7 @@ Application.put_env(:travel_agent, TravelAgent.Endpoint,
 )
 
 Mix.install([
-  {:planck_agent, path: Path.expand("../../", __DIR__)},
+  {:planck_agent, "~> 0.2"},
   {:plug_cowboy, "~> 2.5"},
   {:phoenix, "~> 1.7.0"},
   {:phoenix_live_view, "~> 0.20"},

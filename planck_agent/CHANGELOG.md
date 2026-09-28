@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.2.5
+
+### `"solo"` agent type — promptable, zero delegation tools
+
+A team member can now declare `"type": "solo"` instead of `"orchestrator"`.
+Like an orchestrator, a solo agent is directly promptable and is the one
+`Team.load/1` registers as the team's primary member; unlike an
+orchestrator, it carries none of the interagent tools
+(`spawn_agent`/`call_agent`/`send_agent`/`respond_agent`/`list_team`/etc.) —
+`Tools.solo_tools/0` returns `[]`. A solo team must have exactly one
+member; `Team.load/1` rejects a `"solo"` primary with any other member
+present, since a solo agent has no way to reach a worker anyway.
+
+### `Planck.Agent.Hooks.Persistence` — pluggable conversation storage
+
+Conversation storage was hardcoded to `Planck.Agent.Session`/`SessionStore`.
+Added a 6-callback `Hooks.Persistence` behaviour (5 agent-scoped:
+`persist_message/3`, `persist_usage/3`, `load_messages/3`,
+`flush_unpersisted/3`, `truncate_after/2`; 1 session-scoped:
+`load_session_messages/2`, for a caller outside any agent process — e.g. a
+chat UI — that needs a session's full cross-agent history) mirroring the
+existing `Compactor`/`Prompt`/`TurnEnd` hooks: `nil` dispatches to
+`Hooks.Persistence.Default` (the built-in SQLite-backed store), a module
+dispatches locally or via `sidecar_node` RPC, and an RPC failure falls back
+to `Default` rather than a neutral no-op — losing a persisted message on a
+transient RPC failure is worse than losing a compaction pass. `AgentSpec`
+gains a `persistence: String.t() | nil` field alongside `compactor`.
+
+### New example: `planck_agent/examples/travel-agent`
+
+A single-file `Mix.install/2` script demonstrating `planck_agent` embedded
+directly in a Phoenix LiveView app, no `planck_headless` involved: one
+`"solo"`-style agent, four tools (`get_weather`, `get_country_facts`,
+`search_flights`, `reserve_flight`), no team, no session ID.
+
 ## v0.2.4
 
 ### `classify` — a tool for calling RLCD models

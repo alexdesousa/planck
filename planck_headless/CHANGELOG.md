@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.5
+
+### `"solo"` agent type wiring
+
+`materialize_team/4` treats a `"solo"`-typed primary member the same as an
+`"orchestrator"` for start/registration purposes but grants it
+`Tools.solo_tools/0` (i.e. none) instead of the orchestrator/worker
+delegation set; `find_orchestrator/1` now looks up either
+`{team_id, "orchestrator"}` or `{team_id, "solo"}` in the registry, so
+`prompt/3`, `nudge/1`, `rewind_to_message/3`, and session resume all work
+unchanged for a solo session.
+
+### Pluggable persistence wired through session start/resume
+
+`AgentSpec.persistence` is resolved to a module atom and passed to the
+agent the same way `compactor`/`prompt_hook`/`turn_end_hook` already are,
+on initial start, worker start, and dynamic-worker-on-resume. Session
+metadata now records which persistence module a session was started with,
+so a new `Headless.session_messages/1` can resolve it later and hand a
+caller (e.g. a chat UI) every agent's cross-agent history for a session —
+including a closed one — via `Hooks.Persistence.load_session_messages/2`,
+without going through any single agent process.
+
 ## v0.2.4
 
 ### An RLCD model can never become `default_model`

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.5
+
+### Chat history now goes through the pluggable persistence hook
+
+`Planck.Web.Live.ChatComponent` read `Planck.Agent.Session.messages/1`
+directly, which only ever sees the built-in SQLite-backed store — a
+session started with a custom `persistence` module would render as empty
+in the web UI. Switched to `Planck.Headless.session_messages/1`, which
+resolves the session's actual persistence module before loading, so a
+custom backend's history now shows correctly.
+
 ## v0.2.4
 
 ### Setup modal — Typesafe / Typesafe-compatible providers
