@@ -5,15 +5,16 @@ points in the agent loop. Each hook is declared in `TEAM.json` as a
 fully-qualified module name; planck_headless resolves it to a module atom at
 session start and dispatches to the sidecar node via RPC.
 
-There are three hook behaviours:
+There are four hook behaviours:
 
 | Behaviour | TEAM.json field | Fires |
 |---|---|---|
 | `Planck.Agent.Hooks.Compactor` | `compactor` | Before every LLM turn — compact the message history when the context window is full |
 | `Planck.Agent.Hooks.Prompt` | `prompt_hook` | Before every LLM turn — inject dynamic content into the system prompt |
 | `Planck.Agent.Hooks.TurnEnd` | `turn_end_hook` | After every LLM turn ends — inspect the turn and act |
+| `Planck.Agent.Hooks.Persistence` | `persistence` | On every message/usage write and history load — pluggable conversation storage |
 
-All three follow the same pattern:
+All four follow the same pattern:
 
 1. Implement the behaviour in your sidecar with `use Planck.Agent.Hooks.<Name>`.
 2. Declare the module name in `TEAM.json`.
@@ -22,7 +23,9 @@ All three follow the same pattern:
 
 When the sidecar node is unavailable, each hook fails gracefully — the
 compactor falls back to the built-in LLM-based strategy; the prompt and
-turn-end hooks return `nil` / `:ok` without raising.
+turn-end hooks return `nil` / `:ok` without raising; the persistence hook
+falls back to `Planck.Agent.Hooks.Persistence.Default`, the built-in
+SQLite-backed store.
 
 ---
 
@@ -339,16 +342,128 @@ end
 
 ---
 
+## Persistence — `Planck.Agent.Hooks.Persistence`
+
+Pluggable conversation storage. By default every session is written to the
+built-in SQLite-backed store (`Planck.Agent.Session`/`SessionStore`); declaring
+a `persistence` module lets you swap in your own backend (Postgres, a
+sidecar-hosted store, etc.) with no change to how agents are started or
+prompted.
+
+### Callbacks
+
+```elixir
+@callback persist_message(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            message    :: Planck.Agent.Message.t()
+          ) :: Planck.Agent.Message.t()
+
+@callback persist_usage(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            usage      :: Planck.Agent.Usage.t()
+          ) :: :ok
+
+@callback load_messages(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            opts       :: [strip_orphans: boolean()]
+          ) :: {:ok, [Planck.Agent.Message.t()]} | :error
+
+@callback flush_unpersisted(
+            session_id :: String.t(),
+            agent_id   :: String.t(),
+            messages   :: [Planck.Agent.Message.t()]
+          ) :: :flushed | :noop
+
+@callback truncate_after(session_id :: String.t(), message_id :: pos_integer()) ::
+            :ok | {:error, term()}
+
+@callback load_session_messages(session_id :: String.t(), opts :: keyword()) ::
+            {:ok, [session_row()]} | :error
+
+@callback persistence_timeout() :: pos_integer()   # default: 5_000 ms
+```
+
+Five of the six are agent-scoped — `Planck.Agent` calls them itself, and an
+agent only ever touches its own history: `persist_message/3` on every new
+message, `persist_usage/3` after every turn, `load_messages/3` on session
+resume, `flush_unpersisted/3` before an agent stops, `truncate_after/2` when
+rewinding to an earlier message.
+
+`load_session_messages/2` is different: it's session-scoped, and
+`Planck.Agent` never calls it. It exists for a caller outside any agent
+process — planck_headless uses it to hand a chat UI every agent's history for
+a session, interleaved by insertion order, so a closed session can still be
+read back. `session_row()` is `%{db_id:, agent_id:, message:, inserted_at:}`,
+matching the shape `Planck.Agent.Session.messages/2` already returns.
+
+Ephemeral agents (no `session_id`) never reach a persistence module at all —
+each agent-scoped call is a no-op before dispatching.
+
+### Example
+
+```elixir
+defmodule MySidecar.Persistence.Postgres do
+  use Planck.Agent.Hooks.Persistence
+
+  @impl true
+  def persist_message(session_id, agent_id, message) do
+    # write `message`, return it with its own row id set on `message.id`
+  end
+
+  @impl true
+  def persist_usage(_session_id, _agent_id, _usage), do: :ok
+
+  @impl true
+  def load_messages(session_id, agent_id, opts) do
+    # return {:ok, [Message.t()]} in insertion order, or :error
+  end
+
+  @impl true
+  def flush_unpersisted(session_id, agent_id, messages) do
+    # write any of `messages` not yet persisted; :flushed | :noop
+  end
+
+  @impl true
+  def truncate_after(session_id, message_id), do: :ok
+
+  @impl true
+  def load_session_messages(session_id, opts) do
+    # return {:ok, [session_row()]} for every agent in the session,
+    # interleaved by insertion order, or :error
+  end
+end
+```
+
+### TEAM.json
+
+```json
+{
+  "type":         "builder",
+  "persistence":  "MySidecar.Persistence.Postgres"
+}
+```
+
+Unlike the other three hooks, an RPC failure here falls back to `Default` (the
+real, local, SQLite-backed store) rather than a neutral no-op — losing a
+persisted message on a transient RPC failure is worse than losing a
+compaction pass, so this always still writes somewhere.
+
+---
+
 ## Combining hooks
 
-All three hooks are independent and can be declared together:
+All four hooks are independent and can be declared together:
 
 ```json
 {
   "type":          "builder",
   "compactor":     "MySidecar.Compactors.Summary",
   "prompt_hook":   "MySidecar.Hooks.Memory",
-  "turn_end_hook": "MySidecar.Hooks.SkillReflector"
+  "turn_end_hook": "MySidecar.Hooks.SkillReflector",
+  "persistence":   "MySidecar.Persistence.Postgres"
 }
 ```
 
@@ -359,13 +474,14 @@ Each is resolved and dispatched independently. They share the same
 
 All hooks are dispatched via `:rpc.call/5` when the sidecar node is set.
 Override the timeout callback (`compact_timeout/0`, `hook_timeout/0`,
-`reflect_timeout/0`) when your implementation needs more time than the default.
-The module is consulted for its own timeout — it knows its latency better than
-any caller default.
+`reflect_timeout/0`, `persistence_timeout/0`) when your implementation needs
+more time than the default. The module is consulted for its own timeout — it
+knows its latency better than any caller default.
 
 On `:badrpc` the compactor falls back to the local LLM strategy; the prompt
 hook returns `nil` (no injection); the turn-end hook logs a warning and returns
-`:ok`. No hook raises or crashes the agent.
+`:ok`; the persistence hook logs a warning and falls back to `Default`. No hook
+raises or crashes the agent.
 
 The compactor's remote dispatch makes two RPC calls when it decides to
 compact — `compact?/3` then `compact/3` — since the decision must be checked

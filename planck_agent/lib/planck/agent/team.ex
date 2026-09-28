@@ -45,6 +45,10 @@ defmodule Planck.Agent.Team do
 
   Member entries follow the schema documented on `Planck.Agent.AgentSpec`.
   Exactly one member must have `"type": "orchestrator"`; the rest are workers.
+  Alternatively, a team may have exactly one member with `"type": "solo"` and
+  no other members — a solo agent is directly promptable like an orchestrator
+  but carries none of the interagent tools, since it has no team to delegate
+  to or receive from.
   All `system_prompt` file paths are resolved relative to the team directory.
 
   Tools and skills are global (loaded by `planck_headless` from
@@ -57,6 +61,8 @@ defmodule Planck.Agent.Team do
 
   @team_file "TEAM.json"
   @orchestrator_type "orchestrator"
+  @solo_type "solo"
+  @primary_types [@orchestrator_type, @solo_type]
 
   @typedoc """
   A team definition.
@@ -67,7 +73,8 @@ defmodule Planck.Agent.Team do
   - `:name` — informational label from TEAM.json.
   - `:description` — one-line purpose shown in team listings.
   - `:dir` — absolute path to the team directory, `nil` for dynamic teams.
-  - `:members` — agent specs; exactly one has `type: "orchestrator"`.
+  - `:members` — agent specs; exactly one has `type: "orchestrator"`, or the
+    team is a single member with `type: "solo"`.
   """
   @type t :: %__MODULE__{
           id: String.t() | nil,
@@ -189,22 +196,30 @@ defmodule Planck.Agent.Team do
 
   @spec validate_members([AgentSpec.t()], Path.t()) :: :ok | {:error, String.t()}
   defp validate_members(members, path) do
-    with :ok <- validate_single_orchestrator(members, path) do
+    with :ok <- validate_single_primary(members, path) do
       validate_unique_names(members, path)
     end
   end
 
-  @spec validate_single_orchestrator([AgentSpec.t()], Path.t()) :: :ok | {:error, String.t()}
-  defp validate_single_orchestrator(members, path) do
-    case Enum.count(members, &(&1.type == @orchestrator_type)) do
-      1 ->
+  # Exactly one member must be the team's primary — either the single
+  # "orchestrator" (workers may accompany it) or a lone "solo" agent (no
+  # other members, since nothing else in the team could ever reach them).
+  @spec validate_single_primary([AgentSpec.t()], Path.t()) :: :ok | {:error, String.t()}
+  defp validate_single_primary(members, path) do
+    case Enum.filter(members, &(&1.type in @primary_types)) do
+      [%AgentSpec{type: @solo_type}] when length(members) > 1 ->
+        {:error, "#{path}: a \"solo\" team cannot have additional members"}
+
+      [_primary] ->
         :ok
 
-      0 ->
-        {:error, "#{path}: team must have exactly one member with type \"orchestrator\""}
+      [] ->
+        {:error,
+         "#{path}: team must have exactly one member with type \"orchestrator\" or \"solo\""}
 
-      n ->
-        {:error, "#{path}: team must have exactly one orchestrator, found #{n}"}
+      primaries ->
+        {:error,
+         "#{path}: team must have exactly one orchestrator or solo member, found #{length(primaries)}"}
     end
   end
 

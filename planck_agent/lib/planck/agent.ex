@@ -55,8 +55,6 @@ defmodule Planck.Agent do
     AIBehaviour,
     Message,
     MessageBuilder,
-    Session,
-    SessionStore,
     SkillIndex,
     StreamBuffer,
     Tool,
@@ -108,6 +106,8 @@ defmodule Planck.Agent do
     `Planck.AI.Context.estimate_tokens/1`
   - `compactor` — resolved module atom for context compaction; `nil` uses the
     built-in LLM-based compactor
+  - `persistence` — resolved module atom for conversation persistence; `nil`
+    uses the built-in SQLite-backed store
   - `prompt_hook` — resolved module atom for per-turn system prompt injection
     (prepend/append); `nil` means no injection
   - `turn_end_hook` — resolved module atom called after every turn ends;
@@ -129,6 +129,7 @@ defmodule Planck.Agent do
           role: :orchestrator | :worker,
           model: Planck.AI.Model.t() | nil,
           compactor: module() | nil,
+          persistence: module() | nil,
           prompt_hook: module() | nil,
           turn_end_hook: module() | nil,
           sidecar_node: atom() | nil,
@@ -162,6 +163,7 @@ defmodule Planck.Agent do
     :role,
     :model,
     compactor: nil,
+    persistence: nil,
     prompt_hook: nil,
     turn_end_hook: nil,
     sidecar_node: nil,
@@ -432,6 +434,7 @@ defmodule Planck.Agent do
       cwd: Keyword.get(opts, :cwd, ""),
       system_prompt: Keyword.get(opts, :system_prompt, ""),
       compactor: Keyword.get(opts, :compactor),
+      persistence: Keyword.get(opts, :persistence),
       prompt_hook: Keyword.get(opts, :prompt_hook),
       turn_end_hook: Keyword.get(opts, :turn_end_hook),
       sidecar_node: Keyword.get(opts, :sidecar_node),
@@ -550,7 +553,13 @@ defmodule Planck.Agent do
   end
 
   def handle_cast({:rewind_to_message, message_id}, state) do
-    Session.truncate_after(state.session_id, message_id)
+    Hooks.Persistence.truncate_after(
+      state.persistence,
+      state.session_id,
+      message_id,
+      state.sidecar_node
+    )
+
     {:noreply, reload_messages_from_session(state)}
   end
 
@@ -916,7 +925,16 @@ defmodule Planck.Agent do
 
   @spec flush_unpersisted_messages(t()) :: t()
   defp flush_unpersisted_messages(state) do
-    case SessionStore.flush_unpersisted(state.session_id, state.id, state.messages) do
+    result =
+      Hooks.Persistence.flush_unpersisted(
+        state.persistence,
+        state.session_id,
+        state.id,
+        state.messages,
+        state.sidecar_node
+      )
+
+    case result do
       :noop ->
         state
 
@@ -935,7 +953,16 @@ defmodule Planck.Agent do
 
   @spec do_load_session(t(), keyword()) :: t()
   defp do_load_session(state, opts) do
-    case SessionStore.load_messages(state.session_id, state.id, opts) do
+    result =
+      Hooks.Persistence.load_messages(
+        state.persistence,
+        state.session_id,
+        state.id,
+        opts,
+        state.sidecar_node
+      )
+
+    case result do
       {:ok, messages} ->
         turn_state = TurnState.rebuild_checkpoints(state.turn_state, messages)
         %{state | messages: messages, turn_state: turn_state}
@@ -949,12 +976,24 @@ defmodule Planck.Agent do
   # agents (no session_id), the message is returned unchanged.
   @spec persist_usage(t()) :: :ok
   defp persist_usage(state) do
-    SessionStore.persist_usage(state.session_id, state.id, state.usage)
+    Hooks.Persistence.persist_usage(
+      state.persistence,
+      state.session_id,
+      state.id,
+      state.usage,
+      state.sidecar_node
+    )
   end
 
   @spec persist_message(t(), Message.t()) :: Message.t()
   defp persist_message(state, msg) do
-    SessionStore.persist_message(state.session_id, state.id, msg)
+    Hooks.Persistence.persist_message(
+      state.persistence,
+      state.session_id,
+      state.id,
+      msg,
+      state.sidecar_node
+    )
   end
 
   @spec process_event(t(), Planck.AI.Stream.t()) :: t()

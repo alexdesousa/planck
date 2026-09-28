@@ -2,7 +2,7 @@
 name: planck-setup
 description: Guides for configuring Planck — providers, models, teams, skills, sidecars, hooks, and the HTTP API. Use this skill whenever the user asks about setting up or configuring Planck, creating teams, installing providers, adding skills, writing sidecars, or using the HTTP API.
 always_present: true
-planck_version: 0.2.4
+planck_version: 0.2.5
 ---
 
 # Planck Setup
@@ -22,9 +22,9 @@ when you need details on a specific topic — read it fully before implementing.
   context into agent prompts, global vs project-local skill directories
 - `references/sidecar.md` — custom tools and compactors via a separate OTP
   application, external service integrations, PubSub event subscriptions,
-  hooks (Compactor, Prompt, TurnEnd), scaffold
-- `references/hooks.md` — Compactor, Prompt, and TurnEnd hook behaviours in
-  detail; implementing them in a sidecar; TEAM.json wiring
+  hooks (Compactor, Prompt, TurnEnd, Persistence), scaffold
+- `references/hooks.md` — Compactor, Prompt, TurnEnd, and Persistence hook
+  behaviours in detail; implementing them in a sidecar; TEAM.json wiring
 - `references/api.md` — manage sessions and stream events from external agents,
   scripts, or CI pipelines via REST + SSE
 - `references/tool-shadowing.md` — override built-in tools with sidecar

@@ -45,7 +45,8 @@ defmodule Planck.Web.Live.ChatEntries do
   @type agents :: %{String.t() => agent_info()}
 
   @typedoc """
-  A single persisted message as returned by `Planck.Agent.Session.messages/1`.
+  A single persisted message as returned by `Planck.Headless.session_messages/1`
+  (same row shape as `Planck.Agent.Hooks.Persistence.session_row/0`).
 
   Each row belongs to one agent (`agent_id`) and wraps a `Message` that holds
   the role and content parts. Multiple agents share the same session, so rows

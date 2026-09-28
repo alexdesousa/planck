@@ -54,9 +54,12 @@ has in its list.
 - `Planck.Agent.Skill` — filesystem-based skill loader; `load_all/1`, `from_file/1`,
   `system_prompt_section/3`
 - `Planck.Agent.Session` — SQLite-backed persistent store with checkpoint-based pagination;
-  caller supplies `dir:` explicitly (no built-in config; lives in `planck_headless`)
+  caller supplies `dir:` explicitly (no built-in config; lives in `planck_headless`);
+  the default backend behind `Hooks.Persistence.Default`
 - `Planck.Agent.Hooks.Compactor` — default LLM-based compaction anchored on `model.context_window`;
   used as fallback when no per-agent compactor is configured
+- `Planck.Agent.Hooks.Persistence` — pluggable conversation storage; `Session`/`SessionStore`
+  used as fallback when no per-agent persistence module is configured
 - `Planck.Agent.Sidecar` — behaviour for sidecar applications; defines `list_tools/0`
   and `compactor_for/1`. See `specs/sidecar.md`.
 - `Planck.Agent.Team` — loads a team directory (TEAM.json + members/) and exposes
@@ -70,6 +73,7 @@ has in its list.
 
 - Know anything about HTTP or LLM providers — all LLM calls go through `planck_ai`
 - Implement compaction strategy beyond the default `Compactor` — the hook is pluggable
+- Implement storage beyond the default SQLite-backed `Persistence.Default` — the hook is pluggable
 - Inspect environment variables or detect API key availability — the caller
   pre-filters `available_models` before passing them in
 - Define what tools workers have — the caller provides the tool list at start time
@@ -138,8 +142,10 @@ TEAM.json. The caller merges tools in before spawning.
                                         # e.g. "MySidecar.Compactors.Builder"; nil = default
   prompt_hook:   String.t() | nil,      # sidecar module implementing Hooks.Prompt behaviour,
                                         # e.g. "MySidecar.Hooks.Memory"; nil = no injection
-  turn_end_hook: String.t() | nil       # sidecar module implementing Hooks.TurnEnd behaviour,
+  turn_end_hook: String.t() | nil,      # sidecar module implementing Hooks.TurnEnd behaviour,
                                         # e.g. "MySidecar.Hooks.Reflector"; nil = no reflection
+  persistence:   String.t() | nil       # sidecar module implementing Hooks.Persistence behaviour,
+                                        # e.g. "MySidecar.Persistence.Postgres"; nil = built-in SQLite store
 }
 ```
 
@@ -180,6 +186,7 @@ Internal GenServer state — not part of the public API.
   compactor:                 module() | nil,
   prompt_hook:               module() | nil,
   turn_end_hook:             module() | nil,
+  persistence:               module() | nil,
   sidecar_node:              atom() | nil
 }
 ```
@@ -199,9 +206,9 @@ used internally for context management.
 state (pool, ranked names, top_n limit, declared names, and refresh functions). The
 `pool` is frozen at session start and rebuilt only after compaction; `refresh_fn` is
 used exclusively by the `load_skill` / `list_skills` tools to access a live pool.
-`compactor` / `prompt_hook` / `turn_end_hook` hold module atoms dispatched via
-`Planck.Agent.Hooks.*`. `sidecar_node` is the distributed Erlang node to RPC into
-when a hook module is set; `nil` means local dispatch only.
+`compactor` / `prompt_hook` / `turn_end_hook` / `persistence` hold module atoms
+dispatched via `Planck.Agent.Hooks.*`. `sidecar_node` is the distributed Erlang
+node to RPC into when a hook module is set; `nil` means local dispatch only.
 
 ## Public API
 
@@ -265,6 +272,7 @@ when a hook module is set; `nil` means local dispatch only.
 | `compactor` | `module() \| nil` | no | Module implementing `Hooks.Compactor`; `nil` = built-in LLM compactor |
 | `prompt_hook` | `module() \| nil` | no | Module implementing `Hooks.Prompt`; called before every LLM turn |
 | `turn_end_hook` | `module() \| nil` | no | Module implementing `Hooks.TurnEnd`; fires in background after each turn |
+| `persistence` | `module() \| nil` | no | Module implementing `Hooks.Persistence`; `nil` = built-in SQLite store |
 | `sidecar_node` | `atom() \| nil` | no | Distributed Erlang node for hook RPC dispatch |
 
 ## Agent loop — state machine
@@ -424,6 +432,16 @@ Configured via `PLANCK_SKILLS_DIRS` env var or `config :planck, :skills_dirs, [.
 in `planck_headless`. Callers pass the resolved dirs explicitly to `load_all/1`.
 
 ## Session
+
+Conversation storage is pluggable via `Planck.Agent.Hooks.Persistence` —
+`Planck.Agent` never calls `Planck.Agent.Session`/`SessionStore` directly, only
+the six `Hooks.Persistence.*` dispatcher functions, which resolve
+`state.persistence` (`nil` = `Hooks.Persistence.Default`) and dispatch locally
+or via `sidecar_node` RPC, same shape as the compactor/prompt/turn-end hooks.
+The rest of this section describes `Default`'s built-in strategy — what every
+agent uses unless a custom `AgentSpec.persistence` module is declared. See
+`specs/sidecar.md` and `skills/planck_setup/references/hooks.md` for the
+behaviour, callbacks, and how to implement a custom backend.
 
 `Planck.Agent.Session` is a GenServer backed by SQLite, registered globally as
 `{:session, session_id}`. Agents with a `session_id` append every message (including
@@ -627,6 +645,7 @@ application config. Tests assert broadcast sequences and final `get_state/1` out
 - Abort mid-stream → task terminated, status `:idle`, no `:turn_end`
 - Error path → `:error` event, agent returns to `:idle`
 - `compactor` hook → called before LLM turn; hook output sent to LLM
+- `persistence` hook → messages/usage dispatched to the resolved module on every turn
 - Usage tracking → `:usage_delta` and `:turn_end` include correct token counts
 - `rewind/2` → messages trimmed, `:rewind` event broadcast
 

@@ -14,11 +14,18 @@ their roles, models, and prompts. Teams live in `.planck/teams/<alias>/`.
 
 Exactly one member must have `"type": "orchestrator"`. All others are workers.
 
+Alternatively, a team may be a single member with `"type": "solo"` and no
+other members. A solo agent is promptable the same way an orchestrator is,
+but gets no inter-agent tools (`call_agent`, `send_agent`, `respond_agent`,
+`list_team`, `spawn_agent`, `destroy_agent`, `interrupt_agent`,
+`list_models`) — only what its own `"tools"` array grants. Use this when an
+agent should never delegate or be delegated to.
+
 ## Agent spec fields
 
 | Field | Required | Description |
 |---|---|---|
-| `type` | ✅ | Role string — `"orchestrator"` or any worker type (e.g. `"planner"`, `"builder"`) |
+| `type` | ✅ | Role string — `"orchestrator"`, `"solo"`, or any worker type (e.g. `"planner"`, `"builder"`) |
 | `name` | | Display name; defaults to `type` if omitted; must be unique within the team (types may repeat, names may not) |
 | `description` | | One-line description shown to the orchestrator via `list_team` |
 | `provider` | ✅ | LLM provider: `anthropic`, `openai`, `google` (use `openai` + `base_url` for Ollama or other OpenAI-compatible servers) |
@@ -28,6 +35,7 @@ Exactly one member must have `"type": "orchestrator"`. All others are workers.
 | `tools` | | List of tool names available to this agent (e.g. `["read", "write", "bash"]`) |
 | `skills` | | List of skill names whose content is appended to the system prompt at session start |
 | `compactor` | | Fully-qualified sidecar compactor module name (e.g. `"MySidecar.Compactors.Summary"`) |
+| `persistence` | | Fully-qualified custom persistence module name (e.g. `"MySidecar.Persistence.Postgres"`); omit to use the built-in SQLite-backed store |
 | `opts` | | Provider-specific opts, e.g. `{"temperature": 0.7}` |
 
 ## Built-in tools

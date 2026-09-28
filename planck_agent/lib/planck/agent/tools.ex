@@ -101,6 +101,14 @@ defmodule Planck.Agent.Tools do
     end
   end
 
+  @doc """
+  Returns the tool set for a `"solo"` agent: none. A solo agent has no team
+  to spawn, delegate to, or respond to, so it carries none of the interagent
+  tools `orchestrator_tools/6` and `worker_tools/3` provide.
+  """
+  @spec solo_tools() :: [Tool.t()]
+  def solo_tools, do: []
+
   # ---------------------------------------------------------------------------
   # All-agent tools
   # ---------------------------------------------------------------------------

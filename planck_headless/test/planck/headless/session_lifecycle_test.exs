@@ -1080,6 +1080,164 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- solo agents ---
+
+  describe "solo agents" do
+    test "solo member registers under \"solo\", not \"orchestrator\"", %{tmp_dir: dir} do
+      team_dir = write_solo_team(dir, "solo-registry-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+
+      assert [{_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "solo"})
+      assert [] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+    end
+
+    test "solo agent has only its declared tools — no inter-agent tools, no coding builtins",
+         %{tmp_dir: dir} do
+      team_dir = write_solo_team(dir, "solo-tools-team", ["read"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, solo_pid} = find_solo(meta["team_id"])
+
+      tool_names = Agent.get_state(solo_pid).tools |> Map.keys()
+
+      assert "read" in tool_names
+      refute "write" in tool_names
+      refute "edit" in tool_names
+      refute "bash" in tool_names
+
+      for tool <- ~w(spawn_agent destroy_agent interrupt_agent list_models
+                     call_agent send_agent respond_agent list_team) do
+        refute tool in tool_names
+      end
+    end
+
+    test "solo agent is promptable via prompt/2", %{tmp_dir: dir} do
+      team_dir = write_solo_team(dir, "solo-prompt-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "hello"}, {:done, %{}}]
+      end)
+
+      assert :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "rejects a solo team with additional members", %{tmp_dir: dir} do
+      team_dir = Path.join(dir, "solo-plus-worker")
+      File.mkdir_p!(team_dir)
+
+      File.write!(
+        Path.join(team_dir, "TEAM.json"),
+        Jason.encode!(%{
+          "members" => [
+            %{
+              "type" => "solo",
+              "provider" => "openai",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You work alone."
+            },
+            %{
+              "type" => "builder",
+              "provider" => "openai",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You build."
+            }
+          ]
+        })
+      )
+
+      assert {:error, reason} = Headless.start_session(template: team_dir)
+      assert reason =~ "a \"solo\" team cannot have additional members"
+    end
+  end
+
+  # --- session_messages/1 ---
+
+  defmodule RecordingPersistence do
+    use Planck.Agent.Hooks.Persistence
+
+    @impl true
+    def persist_message(_session_id, _agent_id, message), do: message
+    @impl true
+    def persist_usage(_session_id, _agent_id, _usage), do: :ok
+    @impl true
+    def load_messages(_session_id, _agent_id, _opts), do: {:ok, []}
+    @impl true
+    def flush_unpersisted(_session_id, _agent_id, _messages), do: :noop
+    @impl true
+    def truncate_after(_session_id, _message_id), do: :ok
+
+    @impl true
+    def load_session_messages(_session_id, _opts) do
+      {:ok,
+       [
+         %{
+           db_id: 1,
+           agent_id: "orchestrator",
+           message: Message.new(:assistant, [{:text, "from custom backend"}]),
+           inserted_at: 0
+         }
+       ]}
+    end
+  end
+
+  defp write_team_with_persistence(dir, alias_name, persistence_module) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read", "write", "edit", "bash"],
+            "persistence" => persistence_module
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
+  describe "session_messages/1" do
+    test "returns cross-agent history via the default SQLite backend", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "messages-default-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "hello"}, {:done, %{}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "hi there")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      assert {:ok, rows} = Headless.session_messages(session_id)
+      assert Enum.any?(rows, fn r -> match?([{:text, "hi there"}], r.message.content) end)
+    end
+
+    test "resolves and uses a configured persistence module", %{tmp_dir: dir} do
+      module_name = inspect(RecordingPersistence)
+      team_dir = write_team_with_persistence(dir, "messages-custom-team", module_name)
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      assert {:ok, [row]} = Headless.session_messages(session_id)
+      assert row.agent_id == "orchestrator"
+      assert row.message.content == [{:text, "from custom backend"}]
+    end
+  end
+
   # --- list_sessions/0 ---
 
   describe "list_sessions/0" do
@@ -1660,6 +1818,29 @@ defmodule Planck.Headless.SessionLifecycleTest do
     team_dir
   end
 
+  defp write_solo_team(dir, alias_name, tools \\ []) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "solo",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You work alone.",
+            "tools" => tools
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
   defp write_team_with_worker(dir, alias_name) do
     team_dir = Path.join(dir, alias_name)
     File.mkdir_p!(team_dir)
@@ -1825,6 +2006,13 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
   defp find_worker(team_id) do
     case Registry.lookup(Agent.Registry, {team_id, "worker"}) do
+      [{pid, _} | _] -> {:ok, pid}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  defp find_solo(team_id) do
+    case Registry.lookup(Agent.Registry, {team_id, "solo"}) do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :not_found}
     end

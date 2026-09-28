@@ -13,8 +13,9 @@ NOT re-describe what each sidecar tool or hook does in depth — that's:
 
 - `specs/bundled-sidecar-tools.md` — full tool reference (what each tool does,
   its parameters, its LLM-facing description)
-- `specs/sidecar.md` — hook mechanisms (compactor, prompt hook, turn-end hook)
-  and how a custom sidecar plugs into the same points the bundled one does
+- `specs/sidecar.md` — hook mechanisms (compactor, prompt hook, turn-end hook,
+  persistence) and how a custom sidecar plugs into the same points the
+  bundled one does
 
 ## Use cases
 
