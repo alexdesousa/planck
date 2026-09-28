@@ -275,6 +275,23 @@
     }
     .stack-card p { font-size: 0.74rem; color: var(--muted-fg); line-height: 1.65; }
 
+    /* ── Blog callouts ───────────────────────────────────────────────── */
+    .callout {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.7rem;
+      border: 2px solid var(--border);
+      background: var(--muted);
+      box-shadow: 3px 3px 0 var(--shadow);
+      padding: 0.6rem 1rem;
+      font-size: 0.74rem;
+      color: var(--fg);
+      text-align: left;
+    }
+    .callout a { color: var(--primary); font-weight: 700; text-decoration: underline; }
+    .callout a:hover { color: var(--fg); }
+
     /* ── Get started ─────────────────────────────────────────────────── */
     .code-block {
       border: 2px solid var(--border);
@@ -380,6 +397,16 @@
   </section>
 
   <!-- ── Blog banner ─────────────────────────────────────────────────── -->
+  <div class="container" style="text-align:center;padding-bottom:2.5rem;">
+    <div class="callout">
+      <span>Why many experts, not one? Read the design rationale —
+        <a href="https://thebroken.link/building-planck-context-is-the-real-problem/">Context</a> ·
+        <a href="https://thebroken.link/building-planck-specialized-teams-vs-general-agents/">Specialized Teams</a> ·
+        <a href="https://thebroken.link/building-planck-the-20-80-split/">The 20/80 Split</a>
+      </span>
+    </div>
+  </div>
+
   <!-- ── Demo video ──────────────────────────────────────────────────── -->
   <div class="container" style="padding-bottom: 3rem;">
     <video id="demo-video"
@@ -410,6 +437,9 @@
           <p>One conversation. The orchestrator breaks the goal into tasks, delegates to specialists, and reports back when done.</p>
         </div>
       </div>
+      <div class="callout" style="margin-top:1.5rem;">
+        <a href="https://thebroken.link/building-planck-introducing-planck/">Why a harness at all? →</a>
+      </div>
     </div>
   </section>
 
@@ -434,6 +464,9 @@
           <span class="pkg-tag">planck</span>
           <p>Web UI + HTTP API wrapped in a Burrito binary. Drop it on any machine, no Elixir required.</p>
         </a>
+      </div>
+      <div class="callout" style="margin-top:1.5rem;">
+        <a href="https://thebroken.link/building-planck-just-the-agent/">Just want the agent? Build directly on planck_agent →</a>
       </div>
     </div>
   </section>
@@ -528,6 +561,9 @@
         complete environment: private web search, workspace indexing, document
         extraction, long-term memory, a credential proxy, and more. Requires Docker.
       </p>
+      <div class="callout" style="margin-bottom:2rem;">
+        <a href="https://thebroken.link/building-planck-opinionated-harness/">Why this stack exists →</a>
+      </div>
 
       <div class="os-tabs">
         <button class="os-tab active" onclick="switchDockerTab('unix')">Linux / macOS</button>
