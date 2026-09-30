@@ -5,7 +5,8 @@ context and conventions for AI agents working in this repository.
 
 ## Project structure
 
-Monorepo of four independent Mix projects (no umbrella):
+Monorepo of four independent Mix projects (no umbrella), plus a fifth Mix
+project for the bundled sidecar:
 
 | Package | Role |
 |---|---|
@@ -13,6 +14,7 @@ Monorepo of four independent Mix projects (no umbrella):
 | `planck_agent/` | OTP agent runtime — GenServer per agent, teams, sessions, compactors, sidecar |
 | `planck_headless/` | Headless core — config, resources, session lifecycle, SidecarManager |
 | `planck_cli/` | CLI binary (Web UI + HTTP API, Burrito-packaged) |
+| `planck_docker/sidecar/` | Bundled sidecar (Docker stack) — checked by `./check`, versioned in lockstep (see Versioning) |
 
 Dependency order: `planck_ai` ← `planck_agent` ← `planck_headless` ← `planck_cli`.
 UI code never calls `planck_agent` directly — always through `planck_headless`.
@@ -62,7 +64,8 @@ the sync only applies to the bundled default.
 
 Commit messages use an emoji prefix:
 
-- `:sparkles:` — new features and improvements (including bug fixes in practice)
+- `:sparkles:` — new features and improvements
+- `:bug:` — bug fixes
 - `:memo:` — documentation, specs, and CHANGELOGs
 - `:arrow_up:` — dependency upgrades
 
@@ -98,6 +101,7 @@ Commit messages use an emoji prefix:
 | `destroy_agent` | orchestrator | Permanently remove a worker |
 | `interrupt_agent` | orchestrator | Abort a worker's current turn; worker stays alive |
 | `list_models` | orchestrator | List available models |
+| `classify` | orchestrator (auto when an RLCD model is available); grantable to workers via `TEAM.json` | Fast calibrated decision (routing, extraction, yes/no confidence) from an RLCD model (e.g. Typesafe/`decider`) instead of a chat model reasoning in text |
 
 All targeting tools accept `agent_id` (from `list_team`). Type and name targeting were removed in v0.1.2.
 
@@ -114,6 +118,9 @@ Read the relevant guide before implementing:
 - `references/hooks.md` — Compactor, Prompt, and TurnEnd hook behaviours
 - `references/docker.md` — Docker stack services, credential proxy, secrets
 - `references/images.md` — inline image display via the built-in proxy
+- `references/api.md` — HTTP API for managing sessions and sending prompts from external agents/scripts/CI
+- `references/new_team.md` — scaffolding a new team's TEAM.json from scratch, including RLCD/`classify` model wiring
+- `references/tool-shadowing.md` — tool pool resolution order (`builtins() ++ registered_tools ++ sidecar_tools`) and last-one-wins shadowing
 
 ## Specs
 

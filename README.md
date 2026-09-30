@@ -59,8 +59,49 @@ See [`specs/`](./specs) for design decisions.
 
 ## Running
 
+### On your computer
+
+For end users — install the released binary, no Elixir/Mix required:
+
 ```bash
-# Start the web UI
+# Linux / macOS
+curl -fsSL https://thebroken.link/planck/install.sh | sh
+planck
+# → http://localhost:4000
+```
+
+```powershell
+# Windows
+irm https://thebroken.link/planck/install.ps1 | iex
+planck
+```
+
+That's the bare CLI. There's also an opinionated, Docker-based stack that
+bundles private web search (Searxng), workspace indexing (Typesense), document
+extraction (Apache Tika), a credential proxy (agent-vault), long/short-term
+memory, and shared task tracking (Beads) around it — one command, requires
+Docker:
+
+```bash
+# Linux / macOS
+curl -fsSL https://thebroken.link/planck/install_docker.sh | sh
+```
+
+```powershell
+# Windows
+irm https://thebroken.link/planck/install_docker.ps1 | iex
+```
+
+See [`docs/index.html`](./docs/index.html) for what each service in that stack
+does and why it exists.
+
+### For development
+
+Building and running from source, for working on Planck itself.
+
+Bare CLI, no sidecar/search/indexing:
+
+```bash
 elixir --sname planck_cli -S mix run --no-halt
 # → http://localhost:4000
 ```
@@ -68,7 +109,20 @@ elixir --sname planck_cli -S mix run --no-halt
 The `--sname` flag enables Erlang distribution so the optional sidecar can
 connect back. See [`planck_cli/README.md`](./planck_cli/README.md) for details.
 
-## Development
+The full stack, built from source instead of pulling the released images — use
+this to pick up local changes to `planck_docker/`:
+
+```bash
+./dev_docker.sh              # fresh environment: tears down and rebuilds
+./dev_docker.sh preserve     # keep existing data, just rebuild images and restart
+./dev_docker.sh init-config  # fresh environment + write a deep-thought team config
+```
+
+Data lives in `.planck-dev/` (gitignored) so it doesn't touch `~/planck`. See
+[`skills/planck_setup/`](./skills/planck_setup) for configuring the resulting
+environment.
+
+## Testing
 
 This is a monorepo. Each package is developed and tested independently.
 
