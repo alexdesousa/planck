@@ -64,10 +64,12 @@ defmodule Planck.Agent.SkillTest do
       assert reason =~ "description"
     end
 
-    test "defaults always_present to false and creator/planck_version to nil", %{tmp_dir: dir} do
+    test "defaults always_present/disable_model_invocation to false and creator/planck_version to nil",
+         %{tmp_dir: dir} do
       {_, skill_file} = write_skill(dir, "my-skill", valid_md("my-skill", "Does things"))
       assert {:ok, skill} = Skill.from_file(skill_file)
       assert skill.always_present == false
+      assert skill.disable_model_invocation == false
       assert skill.planck_version == nil
       assert skill.creator == nil
     end
@@ -102,6 +104,57 @@ defmodule Planck.Agent.SkillTest do
 
       assert {:ok, skill} = Skill.from_file(skill_file)
       assert skill.description == "Expert at n8n: workflow automation"
+    end
+  end
+
+  # --- disable_model_invocation frontmatter ---
+
+  describe "disable_model_invocation frontmatter" do
+    test "parses true from frontmatter", %{tmp_dir: dir} do
+      content =
+        "---\nname: billing\ndescription: Performs billing actions.\ndisable-model-invocation: true\n---\n"
+
+      {_, skill_file} = write_skill(dir, "billing", content)
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.disable_model_invocation == true
+      assert skill.name == "billing"
+      assert skill.description == "Performs billing actions."
+      assert skill.always_present == false
+    end
+
+    test "parses false from frontmatter", %{tmp_dir: dir} do
+      content =
+        "---\nname: safe-skill\ndescription: Self-loadable.\ndisable-model-invocation: false\n---\n"
+
+      {_, skill_file} = write_skill(dir, "safe-skill", content)
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.disable_model_invocation == false
+    end
+
+    test "absent key defaults to false", %{tmp_dir: dir} do
+      {_, skill_file} =
+        write_skill(dir, "legacy-skill", valid_md("legacy-skill", "Predates this field."))
+
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.disable_model_invocation == false
+    end
+
+    test "non-boolean value normalizes to false", %{tmp_dir: dir} do
+      content =
+        "---\nname: bad-skill\ndescription: Malformed.\ndisable-model-invocation: \"yes\"\n---\n"
+
+      {_, skill_file} = write_skill(dir, "bad-skill", content)
+      assert {:ok, skill} = Skill.from_file(skill_file)
+      assert skill.disable_model_invocation == false
+    end
+  end
+
+  # --- struct defaults ---
+
+  describe "struct defaults" do
+    test "disable_model_invocation defaults to false" do
+      skill = %Skill{name: "x", description: "y", path: "/p", skill_file: "/p/SKILL.md"}
+      assert skill.disable_model_invocation == false
     end
   end
 

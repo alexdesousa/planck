@@ -37,8 +37,10 @@ defmodule Planck.Agent.Skill do
       - `docs/node-types.md` — reference for all n8n node types
       - `scripts/validate.sh` — validates a workflow JSON file
 
-  Only `name` and `description` are parsed from the frontmatter. The rest of
-  the file is plain Markdown consumed by the agent when it loads the skill.
+  Six fields are parsed from the frontmatter: `name`, `description`,
+  `always_present`, `planck_version`, `creator`, and `disable_model_invocation`.
+  The rest of the file is plain Markdown consumed by the agent when it loads
+  the skill.
 
   ## Usage
 
@@ -75,6 +77,10 @@ defmodule Planck.Agent.Skill do
   - `:creator` — `"agent"` for skills written by the SkillReflector; `nil` for
     user-created skills. Used to filter the reflector's `list_skills` view so
     agents only see and manage their own skills.
+  - `:disable_model_invocation` — when `true`, the skill is excluded from the
+    agent's autonomous skill pool so the model cannot self-load it; it remains
+    in `ResourceStore` and can still be loaded explicitly via slash commands or
+    `spawn_agent` grants. Defaults to `false`.
   """
   @type t :: %__MODULE__{
           name: String.t(),
@@ -83,7 +89,8 @@ defmodule Planck.Agent.Skill do
           skill_file: Path.t(),
           always_present: boolean(),
           planck_version: String.t() | nil,
-          creator: String.t() | nil
+          creator: String.t() | nil,
+          disable_model_invocation: boolean()
         }
 
   @enforce_keys [:name, :description, :path, :skill_file]
@@ -94,7 +101,8 @@ defmodule Planck.Agent.Skill do
     :skill_file,
     always_present: false,
     planck_version: nil,
-    creator: nil
+    creator: nil,
+    disable_model_invocation: false
   ]
 
   @doc """
@@ -129,7 +137,8 @@ defmodule Planck.Agent.Skill do
          skill_file: skill_file,
          always_present: fields.always_present,
          planck_version: fields.planck_version,
-         creator: fields.creator
+         creator: fields.creator,
+         disable_model_invocation: fields.disable_model_invocation
        }}
     end
   end
@@ -348,6 +357,7 @@ defmodule Planck.Agent.Skill do
         always_present = yaml_field(pairs, "always_present")
         planck_version = yaml_field(pairs, "planck_version")
         creator = yaml_field(pairs, "creator")
+        disable_model_invocation = yaml_field(pairs, "disable-model-invocation")
 
         cond do
           is_nil(name) ->
@@ -364,7 +374,8 @@ defmodule Planck.Agent.Skill do
                always_present: always_present == true,
                planck_version:
                  if(is_nil(planck_version), do: nil, else: to_string(planck_version)),
-               creator: if(is_nil(creator), do: nil, else: to_string(creator))
+               creator: if(is_nil(creator), do: nil, else: to_string(creator)),
+               disable_model_invocation: disable_model_invocation == true
              }}
         end
 
