@@ -770,7 +770,7 @@ defmodule Planck.Headless do
     %{metadata: metadata, session_tools: session_tools} = ctx
 
     skill_opts =
-      build_skill_opts(ctx.team_name, spec.name, spec.type, store.skills, cwd)
+      build_skill_opts(ctx.team_name, spec.name, spec.type, store.invocable_skills, cwd)
 
     default_tools = if spec.tools == [], do: builtins(), else: []
 
@@ -779,10 +779,10 @@ defmodule Planck.Headless do
         tool_pool:
           builtins() ++
             store.tools ++
-            store.registered_tools ++ skill_discovery_tools(store.skills),
+            store.registered_tools ++ skill_discovery_tools(store.invocable_skills),
         tools: default_tools,
-        skill_pool: store.skills,
-        skill_refresh_fn: fn -> ResourceStore.get().skills end,
+        skill_pool: store.invocable_skills,
+        skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
         on_skill_use: skill_opts[:on_skill_use],
         team_id: team_id,
         session_id: session_id,
@@ -793,7 +793,7 @@ defmodule Planck.Headless do
 
     full_tools =
       extra_tools_fn.(resolved) ++
-        skill_discovery_tools(store.skills) ++
+        skill_discovery_tools(store.invocable_skills) ++
         resolved ++
         store.registered_tools ++
         session_tools
@@ -844,9 +844,10 @@ defmodule Planck.Headless do
         AgentSpec.to_start_opts(spec,
           tool_pool:
             builtins() ++
-              store.tools ++ store.registered_tools ++ skill_discovery_tools(store.skills),
-          skill_pool: store.skills,
-          skill_refresh_fn: fn -> ResourceStore.get().skills end,
+              store.tools ++
+              store.registered_tools ++ skill_discovery_tools(store.invocable_skills),
+          skill_pool: store.invocable_skills,
+          skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
           team_id: team_id,
           session_id: session_id,
           available_models: store.available_models
@@ -859,7 +860,7 @@ defmodule Planck.Headless do
       system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
 
       skill_opts =
-        build_skill_opts(ctx.team_name, spec.name, spec.type, store.skills, cwd)
+        build_skill_opts(ctx.team_name, spec.name, spec.type, store.invocable_skills, cwd)
 
       opts =
         base_opts
@@ -909,7 +910,7 @@ defmodule Planck.Headless do
         SkillUsage.record_use(cwd, team_name, agent_name, agent_type, skill_name)
       end,
       skill_index_refresh_fn: fn ->
-        current = ResourceStore.get().skills
+        current = ResourceStore.get().invocable_skills
 
         new_ranked = SkillUsage.ranked_names(cwd, team_name, agent_name, current, top_n)
 
@@ -929,7 +930,7 @@ defmodule Planck.Headless do
 
     execute_fn =
       fn _agent_id, _id, _args ->
-        current = ResourceStore.get().skills
+        current = ResourceStore.get().invocable_skills
 
         entries =
           Enum.map_join(current, "\n", fn %Skill{name: name, description: desc} ->
@@ -1076,9 +1077,10 @@ defmodule Planck.Headless do
           AgentSpec.to_start_opts(spec,
             tool_pool:
               builtins() ++
-                store.tools ++ store.registered_tools ++ skill_discovery_tools(store.skills),
-            skill_pool: store.skills,
-            skill_refresh_fn: fn -> ResourceStore.get().skills end,
+                store.tools ++
+                store.registered_tools ++ skill_discovery_tools(store.invocable_skills),
+            skill_pool: store.invocable_skills,
+            skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
             team_id: team_id,
             session_id: session_id,
             available_models: store.available_models

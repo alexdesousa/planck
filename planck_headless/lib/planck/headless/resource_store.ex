@@ -26,6 +26,7 @@ defmodule Planck.Headless.ResourceStore do
           tools: [Planck.Agent.Tool.t()],
           registered_tools: [Planck.Agent.Tool.t()],
           skills: [Skill.t()],
+          invocable_skills: [Skill.t()],
           teams: %{String.t() => Team.t()},
           available_models: [Planck.AI.Model.t()]
         }
@@ -33,6 +34,7 @@ defmodule Planck.Headless.ResourceStore do
   defstruct tools: [],
             registered_tools: [],
             skills: [],
+            invocable_skills: [],
             teams: %{},
             available_models: [],
             on_reload: []
@@ -181,11 +183,13 @@ defmodule Planck.Headless.ResourceStore do
   @spec load_resources() :: t()
   defp load_resources do
     skills = Skill.load_all(Config.skills_dirs!())
+    invocable_skills = invocable_skills(skills)
     teams = load_teams(Config.teams_dirs!())
     available_models = detect_available_models()
 
     %__MODULE__{
       skills: skills,
+      invocable_skills: invocable_skills,
       teams: teams,
       available_models: available_models
     }
@@ -235,5 +239,10 @@ defmodule Planck.Headless.ResourceStore do
   @spec detect_available_models() :: [Planck.AI.Model.t()]
   defp detect_available_models do
     Planck.AI.Config.from_config(Config.providers!(), Config.models!())
+  end
+
+  @spec invocable_skills([Skill.t()]) :: [Skill.t()]
+  defp invocable_skills(skills) do
+    Enum.reject(skills, & &1.disable_model_invocation)
   end
 end

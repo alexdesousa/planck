@@ -609,6 +609,239 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- disable_model_invocation filtering ---
+
+  describe "disable_model_invocation filtering" do
+    setup %{tmp_dir: dir} do
+      skills_dir = Path.join(dir, "skills")
+
+      write_skill_fm(skills_dir, "self-skill", "Self-loadable.", always_present: true)
+
+      write_skill_fm(skills_dir, "gated-skill", "Gated.",
+        always_present: true,
+        disable_model_invocation: true
+      )
+
+      Application.put_env(:planck, :skills_dirs, [skills_dir])
+      Config.reload_skills_dirs()
+      ResourceStore.reload()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :skills_dirs)
+        Config.reload_skills_dirs()
+        ResourceStore.reload()
+      end)
+
+      :ok
+    end
+
+    test "ResourceStore still holds the disabled skill" do
+      names = ResourceStore.get().skills |> Enum.map(& &1.name) |> Enum.sort()
+      assert names == ["gated-skill", "self-skill"]
+    end
+
+    test "ResourceStore.invocable_skills excludes the disabled skill" do
+      names = ResourceStore.get().invocable_skills |> Enum.map(& &1.name) |> Enum.sort()
+      assert names == ["self-skill"]
+    end
+
+    test "orchestrator load_skill rejects the disabled skill and accepts the enabled one",
+         %{tmp_dir: dir} do
+      team_dir = write_team(dir, "filter-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool = Agent.get_state(orch_pid).tools["load_skill"]
+
+      assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "gated-skill"})
+      assert msg =~ "Unknown skill"
+      assert msg =~ "Available: self-skill"
+
+      assert {:ok, content} = tool.execute_fn.("agent", "id", %{"name" => "self-skill"})
+      assert content =~ "self-skill"
+    end
+
+    test "disabled skill is absent from the orchestrator system-prompt index", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "filter-prompt-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      state = Agent.get_state(orch_pid)
+
+      prompt =
+        Planck.Agent.SystemPrompt.build(%{
+          system_prompt: state.system_prompt,
+          name: state.name,
+          type: state.type,
+          tools: state.tools,
+          skill_pool: state.skills.pool,
+          ranked_skill_names: state.skills.ranked,
+          top_skills: state.skills.top_n,
+          prompt_hook: state.prompt_hook,
+          session_id: state.session_id,
+          sidecar_node: state.sidecar_node
+        })
+
+      assert prompt =~ "self-skill"
+      refute prompt =~ "gated-skill"
+    end
+
+    test "static workers also receive the filtered pool", %{tmp_dir: dir} do
+      team_dir = write_team_with_worker(dir, "filter-worker-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool = Agent.get_state(worker_pid).tools["load_skill"]
+
+      assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "gated-skill"})
+      assert msg =~ "Unknown skill"
+      assert msg =~ "Available: self-skill"
+
+      assert {:ok, content} = tool.execute_fn.("agent", "id", %{"name" => "self-skill"})
+      assert content =~ "self-skill"
+
+      state = Agent.get_state(worker_pid)
+
+      prompt =
+        Planck.Agent.SystemPrompt.build(%{
+          system_prompt: state.system_prompt,
+          name: state.name,
+          type: state.type,
+          tools: state.tools,
+          skill_pool: state.skills.pool,
+          ranked_skill_names: state.skills.ranked,
+          top_skills: state.skills.top_n,
+          prompt_hook: state.prompt_hook,
+          session_id: state.session_id,
+          sidecar_node: state.sidecar_node
+        })
+
+      assert prompt =~ "self-skill"
+      refute prompt =~ "gated-skill"
+    end
+
+    test "list_skills tool excludes the disabled skill", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "filter-list-skills-team")
+
+      File.write!(
+        Path.join(team_dir, "TEAM.json"),
+        Jason.encode!(%{
+          "name" => "filter-list-skills-team",
+          "members" => [
+            %{
+              "type" => "orchestrator",
+              "provider" => "openai",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You coordinate.",
+              "tools" => ["read", "list_skills"]
+            }
+          ]
+        })
+      )
+
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool = Agent.get_state(orch_pid).tools["list_skills"]
+      {:ok, result} = tool.execute_fn.("agent", "id", %{})
+      assert result =~ "self-skill"
+      refute result =~ "gated-skill"
+    end
+
+    test "dynamically reconstructed workers receive the filtered pool", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "filter-dynamic-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      call_id = "spawn-1"
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, call_id, "spawn_agent",
+           %{
+             "type" => "reviewer",
+             "name" => "Reviewer",
+             "description" => "Reviews code.",
+             "system_prompt" => "You are a code reviewer.",
+             "provider" => "openai",
+             "model_id" => "llama3.2",
+             "tools" => []
+           }}
+        ])
+      )
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [
+          {:tool_result, call_id, "reviewer-1"}
+        ])
+      )
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      team_id = new_meta["team_id"]
+
+      assert [{reviewer_pid, _} | _] = Registry.lookup(Agent.Registry, {team_id, "reviewer"})
+
+      tool = Agent.get_state(reviewer_pid).tools["load_skill"]
+
+      assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "gated-skill"})
+      assert msg =~ "Unknown skill"
+      assert msg =~ "Available: self-skill"
+
+      assert {:ok, content} = tool.execute_fn.("agent", "id", %{"name" => "self-skill"})
+      assert content =~ "self-skill"
+    end
+  end
+
+  describe "hot reload re-applies the disable_model_invocation filter" do
+    test "a skill flipped to disabled disappears from load_skill after reload", %{tmp_dir: dir} do
+      skills_dir = Path.join(dir, "skills")
+
+      write_skill_fm(skills_dir, "flip-skill", "Flippable.", always_present: true)
+      write_skill_fm(skills_dir, "other-skill", "Other.", always_present: true)
+
+      Application.put_env(:planck, :skills_dirs, [skills_dir])
+      Config.reload_skills_dirs()
+      ResourceStore.reload()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :skills_dirs)
+        Config.reload_skills_dirs()
+        ResourceStore.reload()
+      end)
+
+      team_dir = write_team(dir, "reload-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir, cwd: dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool = Agent.get_state(orch_pid).tools["load_skill"]
+      assert {:ok, _} = tool.execute_fn.("agent", "id", %{"name" => "flip-skill"})
+
+      write_skill_fm(skills_dir, "flip-skill", "Flippable.",
+        always_present: true,
+        disable_model_invocation: true
+      )
+
+      ResourceStore.reload()
+
+      assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "flip-skill"})
+      assert msg =~ "Unknown skill"
+      assert msg =~ "Available: other-skill"
+    end
+  end
+
   # --- configure_provider/1 ---
 
   describe "configure_provider/1" do
@@ -2009,6 +2242,23 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :not_found}
     end
+  end
+
+  defp write_skill_fm(skills_dir, name, description, opts) do
+    skill_dir = Path.join(skills_dir, name)
+    File.mkdir_p!(skill_dir)
+
+    extras =
+      Enum.map_join(opts, "", fn
+        {:always_present, true} -> "always_present: true\n"
+        {:disable_model_invocation, true} -> "disable-model-invocation: true\n"
+        _ -> ""
+      end)
+
+    File.write!(
+      Path.join(skill_dir, "SKILL.md"),
+      "---\nname: #{name}\ndescription: #{description}\n#{extras}---\n# #{name}\n"
+    )
   end
 
   defp find_solo(team_id) do
