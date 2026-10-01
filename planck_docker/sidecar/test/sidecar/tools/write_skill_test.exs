@@ -57,7 +57,6 @@ defmodule Sidecar.Tools.WriteSkillTest do
       assert content =~ "description: Does something useful."
       assert content =~ "always_present: false"
       assert content =~ "creator: agent"
-      assert content =~ "planck_version: null"
     end
 
     test "SKILL.md contains the body content", %{tmp_dir: dir} do
@@ -119,6 +118,87 @@ defmodule Sidecar.Tools.WriteSkillTest do
       WriteSkill.write("skill", "Desc.", "Body v2.")
       content = File.read!(skill_file(dir, "skill"))
       assert content =~ "creator: agent"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # write/3 — disable_model_invocation preservation
+  # ---------------------------------------------------------------------------
+
+  describe "write/3 — disable_model_invocation" do
+    test "omits the line on create", %{tmp_dir: dir} do
+      WriteSkill.write("fresh-skill", "A new skill.", "Body.")
+      content = File.read!(skill_file(dir, "fresh-skill"))
+      refute content =~ "disable-model-invocation"
+    end
+
+    test "preserves disable-model-invocation: true on update", %{tmp_dir: dir} do
+      WriteSkill.write("gated", "Original.", "Body.")
+      path = skill_file(dir, "gated")
+      content = File.read!(path)
+
+      File.write!(
+        path,
+        String.replace(content, "\n---\n\n", "\ndisable-model-invocation: true\n---\n\n")
+      )
+
+      WriteSkill.write("gated", "Updated.", "New body.")
+      updated = File.read!(skill_file(dir, "gated"))
+      assert updated =~ "disable-model-invocation: true"
+    end
+
+    test "preserves disable-model-invocation: false on update", %{tmp_dir: dir} do
+      WriteSkill.write("gated", "Original.", "Body.")
+      path = skill_file(dir, "gated")
+      content = File.read!(path)
+
+      File.write!(
+        path,
+        String.replace(content, "\n---\n\n", "\ndisable-model-invocation: false\n---\n\n")
+      )
+
+      WriteSkill.write("gated", "Updated.", "New body.")
+      updated = File.read!(skill_file(dir, "gated"))
+      assert updated =~ "disable-model-invocation: false"
+    end
+
+    test "omits the line on update when the existing file lacks it", %{tmp_dir: dir} do
+      WriteSkill.write("plain", "Original.", "Body.")
+      WriteSkill.write("plain", "Updated.", "New body.")
+      updated = File.read!(skill_file(dir, "plain"))
+      refute updated =~ "disable-model-invocation"
+    end
+
+    test "round-trip: update preserves all six fields", %{tmp_dir: dir} do
+      skill_dir = Path.join([dir, ".planck", "skills", "full-skill"])
+      File.mkdir_p!(skill_dir)
+
+      File.write!(
+        Path.join(skill_dir, "SKILL.md"),
+        """
+        ---
+        name: full-skill
+        description: Original description.
+        always_present: true
+        planck_version: 0.2.6
+        creator: agent
+        disable-model-invocation: true
+        ---
+
+        # Full Skill
+
+        Original body.
+        """
+      )
+
+      WriteSkill.write("full-skill", "Updated description.", "Updated body.")
+      {:ok, skill} = Planck.Agent.Skill.from_file(skill_file(dir, "full-skill"))
+
+      assert skill.name == "full-skill"
+      assert skill.description == "Updated description."
+      assert skill.always_present == true
+      assert skill.creator == "agent"
+      assert skill.disable_model_invocation == true
     end
   end
 

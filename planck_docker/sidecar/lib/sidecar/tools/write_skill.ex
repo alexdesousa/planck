@@ -88,23 +88,27 @@ defmodule Sidecar.Tools.WriteSkill do
 
   @spec default_frontmatter(String.t(), String.t()) :: String.t()
   defp default_frontmatter(name, description) do
-    build_frontmatter(name, description, false)
+    build_frontmatter(name, description, always_present: false)
   end
 
   @spec updated_frontmatter(Path.t(), String.t(), String.t()) :: String.t()
   defp updated_frontmatter(skill_file, name, description) do
-    build_frontmatter(name, description, read_always_present(skill_file))
+    opts = read_preserved_fields(skill_file)
+    build_frontmatter(name, description, opts)
   end
 
-  @spec build_frontmatter(String.t(), String.t(), boolean()) :: String.t()
-  defp build_frontmatter(name, description, always_present) do
-    fields = [
-      {"name", name},
-      {"description", description},
-      {"always_present", always_present},
-      {"planck_version", nil},
-      {"creator", "agent"}
-    ]
+  @spec build_frontmatter(String.t(), String.t(), keyword()) :: String.t()
+  defp build_frontmatter(name, description, opts) do
+    fields =
+      [
+        {"name", name},
+        {"description", description},
+        {"always_present", Keyword.get(opts, :always_present, false)},
+        {"disable-model-invocation", Keyword.get(opts, :disable_model_invocation)},
+        {"planck_version", nil},
+        {"creator", "agent"}
+      ]
+      |> Enum.reject(fn {_, value} -> is_nil(value) end)
 
     lines = Enum.map_join(fields, "\n", fn {k, v} -> "#{k}: #{yaml_scalar(v)}" end)
     "---\n#{lines}\n---"
@@ -118,26 +122,49 @@ defmodule Sidecar.Tools.WriteSkill do
 
   @frontmatter_re ~r/\A---\n(.*?)\n---/s
 
-  @spec read_always_present(Path.t()) :: boolean()
-  defp read_always_present(skill_file) do
+  @spec read_preserved_fields(Path.t()) :: keyword()
+  defp read_preserved_fields(skill_file) do
     with {:ok, content} <- File.read(skill_file),
          [frontmatter] <- Regex.run(@frontmatter_re, content, capture: :all_but_first) do
-      parse_always_present(frontmatter)
+      parse_preserved_fields(frontmatter)
     else
-      _ -> false
+      _ -> [always_present: false]
     end
   end
 
-  @spec parse_always_present(String.t()) :: boolean()
-  defp parse_always_present(frontmatter) do
+  @spec parse_preserved_fields(String.t()) :: keyword()
+  defp parse_preserved_fields(frontmatter) do
     Application.ensure_all_started(:yamerl)
 
     case :yamerl_constr.string(String.to_charlist(frontmatter)) do
       [[_ | _] = pairs] ->
-        Enum.any?(pairs, fn {k, v} -> k == ~c"always_present" and v == true end)
+        always_present = parse_always_present(pairs)
+        disable_model_invocation = parse_disable_model_invocation(pairs)
+
+        Enum.reject(
+          [
+            always_present: always_present,
+            disable_model_invocation: disable_model_invocation
+          ],
+          fn {_, value} -> is_nil(value) end
+        )
 
       _ ->
-        false
+        [always_present: false]
+    end
+  end
+
+  @spec parse_always_present([{charlist(), term()}]) :: boolean()
+  defp parse_always_present(pairs) do
+    Enum.any?(pairs, fn {k, v} -> k == ~c"always_present" and v == true end)
+  end
+
+  @spec parse_disable_model_invocation([{charlist(), term()}]) :: boolean() | nil
+  defp parse_disable_model_invocation(pairs) do
+    case Enum.find(pairs, fn {k, _} -> k == ~c"disable-model-invocation" end) do
+      {_, true} -> true
+      {_, false} -> false
+      _ -> nil
     end
   end
 end
