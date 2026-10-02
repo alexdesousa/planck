@@ -58,7 +58,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       def compact?(_state, _context, _recent), do: true
 
       @impl true
-      def compact(_state, _context, recent), do: {:compact, hd(recent), []}
+      def compact(_state, _context, recent, _args), do: {:compact, hd(recent), []}
     end
 
     defmodule CustomTimeoutCompactor do
@@ -68,7 +68,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       def compact?(_state, _context, _recent), do: true
 
       @impl true
-      def compact(_state, _context, recent), do: {:compact, hd(recent), []}
+      def compact(_state, _context, recent, _args), do: {:compact, hd(recent), []}
 
       @impl true
       def compact_timeout, do: 60_000
@@ -231,7 +231,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       def compact?(_state, _context, _recent), do: true
 
       @impl true
-      def compact(_state, _context, _recent), do: :skip
+      def compact(_state, _context, _recent, _args), do: :skip
     end
 
     defmodule LocalCompactCompactor do
@@ -241,7 +241,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       def compact?(_state, _context, _recent), do: true
 
       @impl true
-      def compact(_state, _context, recent) do
+      def compact(_state, _context, recent, _args) do
         summary = Message.new({:custom, :summary}, [{:text, "Local compact."}])
         {:compact, summary, Enum.take(recent, -1)}
       end
@@ -339,6 +339,94 @@ defmodule Planck.Agent.Hooks.CompactorTest do
   end
 
   # ---------------------------------------------------------------------------
+  # compact/4 — args forwarding (prompt from /compact)
+  # ---------------------------------------------------------------------------
+
+  describe "compact/4 args forwarding" do
+    defmodule ArgsRecordingCompactor do
+      use Planck.Agent.Hooks.Compactor
+
+      @impl true
+      def compact?(_state, _context, _recent), do: true
+
+      @impl true
+      def compact(_state, _context, recent, args) do
+        summary = Message.new({:custom, :summary}, [{:text, "args: #{inspect(args)}"}])
+        {:compact, summary, Enum.take(recent, -1)}
+      end
+    end
+
+    test "forwards args: from opts to the callback's 4th parameter" do
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages, compactor: ArgsRecordingCompactor)
+      context = build_context(messages)
+
+      opts = [args: %{prompt: "focus on API design"}]
+
+      assert {:compact, summary, _kept} = Compactor.compact(state, context, messages, opts)
+      assert summary.content == [{:text, "args: %{prompt: \"focus on API design\"}"}]
+    end
+
+    test "defaults args to %{prompt: nil} when not in opts" do
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages, compactor: ArgsRecordingCompactor)
+      context = build_context(messages)
+
+      assert {:compact, summary, _kept} = Compactor.compact(state, context, messages)
+      assert summary.content == [{:text, "args: %{prompt: nil}"}]
+    end
+
+    test "compact?/3 arity is unchanged — still receives 3 args" do
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages, compactor: ArgsRecordingCompactor)
+      context = build_context(messages)
+
+      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages)
+    end
+  end
+
+  describe "compact/4 with prompt (Default compactor EEx rendering)" do
+    test "delegate system prompt includes the user's prompt when args.prompt is set" do
+      parent = self()
+
+      stub(MockAI, :stream, fn _model, %Context{system: system}, _opts ->
+        send(parent, {:delegate_system_prompt, system})
+        [{:text_delta, "Summary."}, {:done, %{}}]
+      end)
+
+      messages = make_messages(12, 400)
+      state = build_state(messages: messages)
+      context = build_context(messages)
+
+      opts = [args: %{prompt: "focus on the API design discussion"}]
+
+      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages, opts)
+
+      assert_received {:delegate_system_prompt, system}
+      assert system =~ "Additional instruction from the user: focus on the API design discussion"
+    end
+
+    test "delegate system prompt does not include additional instruction when prompt is nil" do
+      parent = self()
+
+      stub(MockAI, :stream, fn _model, %Context{system: system}, _opts ->
+        send(parent, {:delegate_system_prompt, system})
+        [{:text_delta, "Summary."}, {:done, %{}}]
+      end)
+
+      messages = make_messages(12, 400)
+      state = build_state(messages: messages)
+      context = build_context(messages)
+
+      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages)
+
+      assert_received {:delegate_system_prompt, system}
+      refute system =~ "Additional instruction from the user"
+      assert system =~ "Summarize the conversation below"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # compact/3 — remote dispatch (same-node simulation)
   # ---------------------------------------------------------------------------
 
@@ -352,7 +440,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
     def compact?(_state, _context, _recent), do: true
 
     @impl true
-    def compact(_state, _context, _recent), do: :skip
+    def compact(_state, _context, _recent, _args), do: :skip
 
     @impl true
     def compact_timeout, do: 5_000
@@ -410,7 +498,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
     def compact?(_state, _context, _recent), do: true
 
     @impl true
-    def compact(_state, _context, recent) do
+    def compact(_state, _context, recent, _args) do
       summary = Message.new({:custom, :summary}, [{:text, "Compacted."}])
       {:compact, summary, Enum.take(recent, -1)}
     end
@@ -427,7 +515,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
     def compact?(_state, _context, _recent), do: false
 
     @impl true
-    def compact(_state, _context, _recent), do: :skip
+    def compact(_state, _context, _recent, _args), do: :skip
   end
 
   defp unique_id, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)

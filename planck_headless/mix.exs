@@ -80,7 +80,10 @@ defmodule Planck.Headless.MixProject do
   end
 
   defp dialyzer do
-    [plt_file: {:no_warn, "priv/plts/#{@app}.plt"}]
+    [
+      plt_file: {:no_warn, "priv/plts/#{@app}.plt"},
+      plt_add_apps: [:eex]
+    ]
   end
 
   defp docs do

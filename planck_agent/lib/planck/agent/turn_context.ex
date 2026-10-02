@@ -26,8 +26,9 @@ defmodule Planck.Agent.TurnContext do
   end
 
   @doc """
-  Return `true` if any user or agent-response message arrived at or after
-  `stream_start` (i.e. was appended during streaming and not yet seen by the LLM).
+  Return `true` if any user, agent-response, user-invoked command, or skill
+  message arrived at or after `stream_start` (i.e. was appended during
+  streaming and not yet seen by the LLM).
   """
   @spec has_pending_input?([Message.t()], non_neg_integer()) :: boolean()
   def has_pending_input?(messages, stream_start) do
@@ -36,6 +37,8 @@ defmodule Planck.Agent.TurnContext do
     |> Enum.any?(fn
       %{role: :user} -> true
       %{role: {:custom, :agent_response}} -> true
+      %{role: {:custom, :command}, metadata: %{invoked_by: :user}} -> true
+      %{role: {:custom, :skill}} -> true
       _ -> false
     end)
   end

@@ -238,6 +238,125 @@ defmodule Planck.Web.API.SessionControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # POST /api/sessions/:id/cancel_queued
+  # ---------------------------------------------------------------------------
+
+  describe "cancel_queued/2" do
+    test "cancels a queued message while the agent is busy", %{conn: conn, team_dir: team_dir} do
+      # A stream that blocks until the gate is set, keeping the agent busy so a
+      # queued prompt stays unpersisted and cancellable.
+      gate = :atomics.new(1, signed: true)
+      :atomics.put(gate, 1, 0)
+
+      stub(MockAI, :stream, fn _model, _messages, _opts ->
+        Stream.concat(
+          [{:text_delta, "hi"}],
+          Stream.resource(
+            fn -> gate end,
+            fn g ->
+              if :atomics.get(g, 1) == 1 do
+                {:halt, :done}
+              else
+                Process.sleep(10)
+                {[], gate}
+              end
+            end,
+            fn _ -> :ok end
+          )
+        )
+      end)
+
+      {:ok, sid} = Headless.start_session(template: team_dir)
+
+      # First prompt starts the turn (agent is now streaming).
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "first"})
+
+      # Subscribe to capture the message_queued event for the second prompt.
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{sid}")
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "second"})
+
+      assert_receive {:agent_event, :message_queued, %{id: queued_id}}, 1_000
+
+      conn2 = post(conn, "/api/sessions/#{sid}/cancel_queued", %{message_id: queued_id})
+      body = json_response(conn2, 200)
+
+      assert_schema(body, "Ok", api_spec())
+      assert body["ok"] == true
+
+      :atomics.put(gate, 1, 1)
+    end
+
+    test "returns 404 for an unknown message id", %{conn: conn, team_dir: team_dir} do
+      stub(MockAI, :stream, fn _model, _messages, _opts ->
+        {:ok, Stream.map([], & &1)}
+      end)
+
+      {:ok, sid} = Headless.start_session(template: team_dir)
+
+      conn2 = post(conn, "/api/sessions/#{sid}/cancel_queued", %{message_id: "nonexistent"})
+
+      body = json_response(conn2, 404)
+      assert_schema(body, "Error", api_spec())
+      assert body["error"] == "Message not found"
+    end
+
+    test "returns 404 for an already-flushed message", %{conn: conn, team_dir: team_dir} do
+      gate = :atomics.new(1, signed: true)
+      :atomics.put(gate, 1, 0)
+
+      stub(MockAI, :stream, fn _model, _messages, _opts ->
+        Stream.concat(
+          [{:text_delta, "hi"}],
+          Stream.resource(
+            fn -> gate end,
+            fn g ->
+              if :atomics.get(g, 1) == 1 do
+                {:halt, :done}
+              else
+                Process.sleep(10)
+                {[], gate}
+              end
+            end,
+            fn _ -> :ok end
+          )
+        )
+      end)
+
+      {:ok, sid} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{sid}")
+
+      # First prompt starts the turn (agent is busy streaming).
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "first"})
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      # Second prompt is queued while the agent is busy.
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "second"})
+      assert_receive {:agent_event, :message_queued, %{id: queued_id}}, 1_000
+
+      # Release the gate — the turn finishes and flushes the queued message
+      # (its string id is replaced by a db id).
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      # Cancelling the old string id now returns :not_found (the message is
+      # persisted with a db id; the string id is gone).
+      conn2 = post(conn, "/api/sessions/#{sid}/cancel_queued", %{message_id: queued_id})
+
+      body = json_response(conn2, 404)
+      assert_schema(body, "Error", api_spec())
+      assert body["error"] == "Message not found"
+    end
+
+    test "returns 404 for an unknown session", %{conn: conn} do
+      conn2 = post(conn, "/api/sessions/nonexistent/cancel_queued", %{message_id: "abc"})
+
+      body = json_response(conn2, 404)
+      assert_schema(body, "Error", api_spec())
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
 

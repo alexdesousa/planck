@@ -5,7 +5,7 @@ defmodule PlanckTestSidecar.Compactor do
   def compact?(_state, _context, _recent), do: true
 
   @impl true
-  def compact(_state, _context, recent) do
+  def compact(_state, _context, recent, _args) do
     summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "Test summary."}])
     kept = Enum.take(recent, -3)
     {:compact, summary, kept}

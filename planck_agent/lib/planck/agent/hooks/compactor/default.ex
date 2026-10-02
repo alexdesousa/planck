@@ -53,7 +53,7 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.Message
+  alias Planck.Agent.{EExRenderer, Message}
   alias Planck.AI.Context
 
   @default_ratio 0.8
@@ -68,6 +68,9 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   - Be written as context for an AI agent continuing this conversation
 
   Prioritize recency — the active task and latest requests take priority over earlier history.
+  <%= if prompt do %>
+  Additional instruction from the user: <%= prompt %>
+  <% end %>
   """
 
   @impl true
@@ -77,13 +80,13 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   end
 
   @impl true
-  def compact(%Agent{model: model} = state, %Context{} = _context, recent) do
+  def compact(%Agent{model: model} = state, %Context{} = _context, recent, args) do
     keep_budget = trunc(model.context_window * @keep_ratio)
     {old, kept} = split_by_token_budget(recent, keep_budget)
 
     with [_ | _] = to_summarize <-
            Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1)),
-         {:ok, text} <- spawn_delegate(state, to_summarize) do
+         {:ok, text} <- spawn_delegate(state, to_summarize, args) do
       summary_msg = Message.new({:custom, :summary}, [{:text, text}])
       {:compact, summary_msg, kept}
     else
@@ -101,14 +104,18 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   # Delegate agent
   # ---------------------------------------------------------------------------
 
-  @spec spawn_delegate(Agent.t(), [Message.t()]) :: {:ok, String.t()} | {:error, term()}
-  defp spawn_delegate(state, to_summarize)
+  @spec spawn_delegate(Agent.t(), [Message.t()], %{prompt: String.t() | nil}) ::
+          {:ok, String.t()} | {:error, term()}
+  defp spawn_delegate(state, to_summarize, args)
 
-  defp spawn_delegate(%Agent{model: model}, to_summarize) do
+  defp spawn_delegate(%Agent{model: model}, to_summarize, args) do
+    prompt = Map.get(args, :prompt)
+    system_prompt = EExRenderer.render(@delegate_system_prompt, prompt: prompt)
+
     start_opts = [
       id: generate_id(),
       model: model,
-      system_prompt: @delegate_system_prompt,
+      system_prompt: system_prompt,
       tools: []
     ]
 

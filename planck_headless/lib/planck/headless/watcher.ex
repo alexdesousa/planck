@@ -89,6 +89,7 @@ defmodule Planck.Headless.Watcher do
   @spec watched_dirs() :: [Path.t()]
   defp watched_dirs do
     skill_dirs = Config.skills_dirs!() |> Enum.map(&Path.expand/1)
+    command_dirs = Config.commands_dirs!() |> Enum.map(&Path.expand/1)
     team_dirs = Config.teams_dirs!() |> Enum.map(&Path.expand/1)
 
     # Watch the parent directories of config and env files so renames/writes
@@ -97,7 +98,7 @@ defmodule Planck.Headless.Watcher do
       (Config.config_files!() ++ Config.env_files!())
       |> Enum.map(&(&1 |> Path.expand() |> Path.dirname()))
 
-    (skill_dirs ++ team_dirs ++ config_dirs)
+    (skill_dirs ++ command_dirs ++ team_dirs ++ config_dirs)
     |> Enum.uniq()
     |> Enum.filter(&File.dir?/1)
   end

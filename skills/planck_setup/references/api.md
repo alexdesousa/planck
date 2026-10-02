@@ -121,6 +121,31 @@ curl -X POST http://localhost:4000/api/sessions/a1b2c3d4/abort
 
 ---
 
+### Cancel a queued message
+
+Removes a still-unpersisted message (user prompt, custom command, or a
+queued `/clear` / `/compact` primitive) from the orchestrator's in-memory
+queue before the agent processes it. Use the `message_id` from a
+`message_queued` SSE event (the `id` field). Once the message has been
+flushed to the session, it can no longer be cancelled.
+
+```sh
+curl -X POST http://localhost:4000/api/sessions/a1b2c3d4/cancel_queued \
+  -H "Content-Type: application/json" \
+  -d '{"message_id": "a1b2c3d4e5f6g7h8"}'
+```
+
+```json
+{"ok": true}
+```
+
+Returns 404 with `{"error": "Message not found"}` if no message with
+that id is queued, or 422 with `{"error": "Message cannot be cancelled, because
+it has been already sent"}` if the message has been flushed to the
+session.
+
+---
+
 ### Close a session
 
 Stops all agents. The session file is retained on disk and can be resumed.
@@ -287,6 +312,8 @@ http://localhost:4000/api. Key operations:
 - List sessions:   GET  /api/sessions
 - Start session:   POST /api/sessions   {"template": "<alias>", "name": "<name>"}
 - Send prompt:     POST /api/sessions/:id/prompt   {"text": "..."}
+- Abort turn:      POST /api/sessions/:id/abort
+- Cancel queued:   POST /api/sessions/:id/cancel_queued   {"message_id": "..."}
 - Stream events:   GET  /api/sessions/:id/events   (SSE — listen for turn_end)
 - Close session:   DELETE /api/sessions/:id
 - List teams:      GET  /api/teams

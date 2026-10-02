@@ -17,7 +17,7 @@ defmodule Planck.Agent.Hooks.Compactor do
         end
 
         @impl true
-        def compact(_state, _context, recent) do
+        def compact(_state, _context, recent, _args) do
           summary = Message.new({:custom, :summary}, [{:text, summarise(recent)}])
           kept    = Enum.take(recent, -5)
           {:compact, summary, kept}
@@ -27,12 +27,12 @@ defmodule Planck.Agent.Hooks.Compactor do
         def compact_timeout, do: 60_000
       end
 
-  `compact?/3` is checked first; `compact/3` — the potentially slow part, an
+  `compact?/3` is checked first; `compact/4` — the potentially slow part, an
   LLM call for the built-in strategy — is only ever called when it returns
   `true`. Splitting these means the *dispatcher* (`compact/4` below), not
   each implementation, can wrap the slow part with a progress announcement
   correctly for any compactor, without needing to predict anything — see
-  "Why a separate compact?/3, and why the dispatcher wraps compact/3" below.
+  "Why a separate compact?/3, and why the dispatcher wraps compact/4" below.
 
   ## Dispatch
 
@@ -50,11 +50,14 @@ defmodule Planck.Agent.Hooks.Compactor do
   - `recent` — `state.messages` since the last `{:custom, :summary}`
     checkpoint (or all of them, if there isn't one yet).
   - `opts` — `:on_compacting` and `:on_compacted`, both zero-arity functions,
-    both optional. Called by *this dispatch function*, around `compact/3` —
-    never by a `compact/3` implementation itself, which never receives
-    `opts` at all. `Planck.Agent` supplies these so the UI can be told
-    compaction is in progress without any compactor needing to know
-    anything about `Planck.Agent`'s own PubSub topics or event shapes.
+    both optional. `:args` — a map (default `%{prompt: nil}`) forwarded to
+    the compactor's `compact/4` callback as its 4th parameter; used by
+    `/compact [prompt]` to steer the summarization. Called by *this dispatch
+    function*, around `compact/4` — never by a `compact/4` implementation
+    itself, which never receives `opts` at all. `Planck.Agent` supplies
+    `on_compacting`/`on_compacted` so the UI can be told compaction is in
+    progress without any compactor needing to know anything about
+    `Planck.Agent`'s own PubSub topics or event shapes.
 
   - `state.compactor: nil` — uses `Planck.Agent.Hooks.Compactor.Default`, the
     built-in strategy (see its own moduledoc). Not special-cased beyond this:
@@ -95,12 +98,26 @@ defmodule Planck.Agent.Hooks.Compactor do
   # just a theoretical concern.
   @default_compact_timeout_ms 600_000
 
+  @typedoc false
+  @type compact_opt ::
+          {:on_compacting, (-> any())}
+          | {:on_compacted, (-> any())}
+          | {:args, %{prompt: String.t() | nil}}
+          | {:force, boolean()}
+          | {:timeout, non_neg_integer()}
+
   @typedoc """
   `:on_compacting`/`:on_compacted` — both zero-arity, both optional (neither
   given just means nothing tells the UI compaction is in progress, not an
-  error).
+  error). `:args` — a map forwarded to the compactor's `compact/4` callback;
+  defaults to `%{prompt: nil}` when absent (auto-compaction). `:force` — when
+  `true`, bypasses `compact?/3` and calls `compact/4` directly; used by the
+  `/compact` slash command.
   """
-  @type compact_opts :: [on_compacting: (-> any()), on_compacted: (-> any())]
+  @type compact_opts :: [compact_opt()]
+
+  @typedoc false
+  @type compact_args :: %{prompt: String.t() | nil}
 
   @typedoc false
   @type compact_result :: :skip | {:compact, Message.t(), [Message.t()]}
@@ -114,15 +131,24 @@ defmodule Planck.Agent.Hooks.Compactor do
 
   @doc """
   Compact the conversation. Only ever called when `compact?/3` (checked by
-  the dispatcher, not called here) already returned `true`.
+  the dispatcher, not called here) already returned `true`, or directly by
+  the forced `/compact` slash-command path (which bypasses `compact?/3`).
+
+  `args` is a map that may contain `:prompt` — a user-supplied string (from
+  `/compact [prompt]`) that can steer the summarization. `nil` when absent
+  (auto-compaction).
 
   Return `{:compact, summary_msg, kept}` to replace older messages with a
   summary, or `:skip` to leave the list unchanged — a compactor is free to
   still decide against compacting here even after saying `true` to
   `compact?/3` (e.g. nothing old enough left worth summarizing).
   """
-  @callback compact(state :: Agent.t(), context :: Context.t(), recent :: [Message.t()]) ::
-              compact_result()
+  @callback compact(
+              state :: Agent.t(),
+              context :: Context.t(),
+              recent :: [Message.t()],
+              args :: compact_args()
+            ) :: compact_result()
 
   @doc """
   RPC call timeout in milliseconds when this compactor is invoked remotely.
@@ -166,8 +192,11 @@ defmodule Planck.Agent.Hooks.Compactor do
         recent,
         opts
       ) do
-    if module.compact?(state, context, recent) do
-      with_notice(opts, fn -> module.compact(state, context, recent) end)
+    args = Keyword.get(opts, :args, %{prompt: nil})
+    force = Keyword.get(opts, :force, false)
+
+    if force or module.compact?(state, context, recent) do
+      with_notice(opts, fn -> module.compact(state, context, recent, args) end)
     else
       :skip
     end
@@ -180,7 +209,33 @@ defmodule Planck.Agent.Hooks.Compactor do
         opts
       ) do
     :rpc.call(sidecar_node, :code, :ensure_loaded, [module], 5_000)
-    timeout = remote_timeout(module, sidecar_node)
+
+    opts = add_remote_timeout(opts, module, sidecar_node)
+
+    timeout = opts[:timeout]
+    args = opts[:args] || %{prompt: nil}
+    force = Keyword.get(opts, :force, false)
+
+    if force do
+      with_notice(opts, fn ->
+        do_compact_remote(state, context, recent, args, timeout)
+      end)
+    else
+      compact_remote(state, context, recent, opts)
+    end
+  end
+
+  @spec compact_remote(Agent.t(), Context.t(), [Message.t()], compact_opts()) :: compact_result()
+  defp compact_remote(state, context, recent, opts)
+
+  defp compact_remote(
+         %Agent{compactor: module, sidecar_node: sidecar_node} = state,
+         %Context{} = context,
+         recent,
+         opts
+       ) do
+    timeout = opts[:timeout]
+    args = opts[:args] || %{prompt: nil}
 
     case :rpc.call(sidecar_node, module, :compact?, [state, context, recent], timeout) do
       {:badrpc, reason} ->
@@ -192,7 +247,7 @@ defmodule Planck.Agent.Hooks.Compactor do
 
       true ->
         with_notice(opts, fn ->
-          compact_remote(state, context, recent, timeout)
+          do_compact_remote(state, context, recent, args, timeout)
         end)
 
       false ->
@@ -221,21 +276,22 @@ defmodule Planck.Agent.Hooks.Compactor do
   # we already have a `true` from it — re-deciding via a different
   # compactor's rules here would be a confusing outcome after already
   # committing to compacting.
-  @spec compact_remote(Agent.t(), Context.t(), [Message.t()], pos_integer()) ::
+  @spec do_compact_remote(Agent.t(), Context.t(), [Message.t()], compact_args(), pos_integer()) ::
           compact_result()
-  defp compact_remote(
+  defp do_compact_remote(
          %Agent{sidecar_node: sidecar_node, compactor: module} = state,
          %Context{} = context,
          recent,
+         args,
          timeout
        ) do
-    case :rpc.call(sidecar_node, module, :compact, [state, context, recent], timeout) do
+    case :rpc.call(sidecar_node, module, :compact, [state, context, recent, args], timeout) do
       {:badrpc, reason} ->
         Logger.warning(
           "[Planck.Agent.Hooks.Compactor] RPC failed (#{module}): #{inspect(reason)}, falling back to local"
         )
 
-        Default.compact(state, context, recent)
+        Default.compact(state, context, recent, args)
 
       result ->
         result
@@ -246,11 +302,14 @@ defmodule Planck.Agent.Hooks.Compactor do
   # Private
   # ---------------------------------------------------------------------------
 
-  @spec remote_timeout(module(), atom()) :: pos_integer()
-  defp remote_timeout(module, sidecar_node) do
+  @spec add_remote_timeout(compact_opts(), module(), atom()) :: compact_opts()
+  defp add_remote_timeout(opts, module, sidecar_node) do
     case :rpc.call(sidecar_node, module, :compact_timeout, [], 5_000) do
-      timeout when is_integer(timeout) and timeout > 0 -> timeout
-      _ -> @default_compact_timeout_ms
+      timeout when is_integer(timeout) and timeout > 0 ->
+        Keyword.put(opts, :timeout, timeout)
+
+      _ ->
+        Keyword.put(opts, :timeout, @default_compact_timeout_ms)
     end
   end
 end

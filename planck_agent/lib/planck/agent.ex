@@ -55,6 +55,7 @@ defmodule Planck.Agent do
     AIBehaviour,
     Message,
     MessageBuilder,
+    Skill,
     SkillIndex,
     StreamBuffer,
     Tool,
@@ -221,6 +222,73 @@ defmodule Planck.Agent do
   end
 
   @doc """
+  Dispatch a custom slash command to the agent.
+
+  Enqueues a `{:custom, :command}` message carrying `command_meta` and the
+  rendered command body. When the agent is idle, a new turn starts
+  immediately; when busy, the message stacks in `state.messages` (broadcast
+  as `:message_queued` with `role: :command`) and starts a turn at the next
+  turn boundary.
+
+  `command_meta` should carry `command`, `args`, and `invoked_by`
+  (`:user` or `:agent`). The `invoked_by: :user` path is mapped to a `:user`
+  AI message for the LLM by `Message.to_ai_messages/1`.
+  """
+  @spec command(agent(), map(), String.t() | [Planck.AI.Message.content_part()]) ::
+          :ok | {:error, :already_sent}
+  def command(agent, command_meta, content) do
+    GenServer.call(agent, {:command, command_meta, content})
+  end
+
+  @doc """
+  Cancel a message still queued (unpersisted) in the agent's in-memory
+  message list.
+
+  Covers queued user messages, custom-command messages, and the
+  `{:custom, :clear}` / `{:custom, :compact}` primitive markers. Returns
+  `{:error, :already_sent}` if the message has already been flushed to the
+  session (its id is now a db id, not the agent's string id), or
+  `{:error, :not_found}` if no message with that id is in the list. No
+  broadcast — the caller removes its own UI entry on `:ok`.
+  """
+  @spec cancel_queued(agent(), String.t()) ::
+          :ok | {:error, :not_found} | {:error, :already_sent}
+  def cancel_queued(agent, id) do
+    GenServer.call(agent, {:cancel_queued, id})
+  end
+
+  @doc """
+  Load a skill into the agent's context.
+
+  Reads the skill's `SKILL.md`, enqueues a `{:custom, :skill}` message
+  carrying the `Skill.t()` struct and the rendered content in metadata.
+  If `user_text` is non-empty, it is enqueued as a `:user` message after
+  the skill message. When the agent is idle a turn starts immediately;
+  when busy both messages stack and run at the next turn boundary.
+
+  User-initiated skill loading does not record usage — only the
+  autonomous `load_skill` tool path records via `on_skill_use`.
+
+  Replaces the previous `inject_tool_result` + `prompt` pair used for
+  slash-command skill loading. The LLM sees the skill content as a
+  `:user` message (via `Message.to_ai_messages/1`).
+  """
+  @spec load_skill(agent(), Planck.Agent.Skill.t(), String.t() | nil) :: :ok
+  def load_skill(agent, skill, user_text)
+
+  def load_skill(agent, skill, nil) do
+    GenServer.call(agent, {:load_skill, skill, nil})
+  end
+
+  def load_skill(agent, skill, user_text) when is_binary(user_text) do
+    if String.trim(user_text) == "" do
+      load_skill(agent, skill, nil)
+    else
+      GenServer.call(agent, {:load_skill, skill, user_text})
+    end
+  end
+
+  @doc """
   Trigger the agent to run an LLM turn without adding a new user message.
 
   Used after session resume when a recovery context message is already present
@@ -280,6 +348,37 @@ defmodule Planck.Agent do
   @spec inject_tool_result(agent(), String.t(), String.t()) :: :ok
   def inject_tool_result(agent, name, result) do
     GenServer.call(agent, {:inject_tool_result, name, result})
+  end
+
+  @doc """
+  Delete all messages in the session and reset the agent's in-memory history.
+
+  The session process itself stays alive and its metadata is preserved. No
+  LLM call is made. If the agent is busy, the clear is queued and executed
+  at the next turn boundary, before any queued user messages.
+  """
+  @spec clear(agent()) :: :ok
+  def clear(agent) do
+    GenServer.call(agent, :clear)
+  end
+
+  @doc """
+  Force a compaction pass on demand, bypassing the compactor's own trigger
+  heuristic.
+
+  `args` is a map that may contain `:prompt` — a user-supplied string (from
+  `/compact [prompt]`) that can steer the summarization. When the agent is
+  idle, compaction runs immediately. When busy, it is queued and runs at
+  the next turn boundary, before any queued user message starts a new turn.
+
+  Returns `:ok` immediately — the actual compaction runs in a
+  `handle_continue` so the caller's `GenServer.call` doesn't timeout while
+  the delegate agent summarises (which can take tens of seconds). Progress
+  is reported via `:compacting` / `:compacted` PubSub events.
+  """
+  @spec compact(agent(), %{prompt: String.t() | nil}) :: :ok
+  def compact(agent, args \\ %{prompt: nil}) do
+    GenServer.call(agent, {:compact, args})
   end
 
   @doc "Stop the agent. Cancels any in-flight work and removes it from the supervisor."
@@ -502,17 +601,20 @@ defmodule Planck.Agent do
     end
   end
 
-  def handle_call(:abort, _from, state) do
-    cancel_stream(state)
-    cancel_running_tools(state)
-    new_state = reset_streaming(state)
+  def handle_call({:command, command_meta, content}, _from, state) do
+    do_prompt_or_queue_command(content, command_meta, state)
+  end
 
-    if TurnContext.has_pending_input?(new_state.messages, new_state.stream_start) do
-      broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
-      {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
-    else
-      {:reply, :ok, new_state}
-    end
+  def handle_call({:cancel_queued, id}, _from, state) do
+    do_cancel_queued(id, state)
+  end
+
+  def handle_call({:load_skill, skill, user_text}, _from, state) do
+    do_load_skill(skill, user_text, state)
+  end
+
+  def handle_call(:abort, _from, state) do
+    do_abort(state)
   end
 
   def handle_call({:checkpoint, summary_text}, _from, state) do
@@ -534,6 +636,26 @@ defmodule Planck.Agent do
 
     new_messages = state.messages ++ [tool_call_msg, tool_result_msg]
     {:reply, :ok, %{state | messages: new_messages}}
+  end
+
+  def handle_call(:clear, _from, state) do
+    if state.status == :idle do
+      do_clear(state)
+    else
+      msg = Message.new({:custom, :clear}, [])
+      broadcast(state, :message_queued, %{id: msg.id, content: [], role: :clear})
+      {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
+    end
+  end
+
+  def handle_call({:compact, args}, _from, state) do
+    if state.status == :idle do
+      {:reply, :ok, state, {:continue, {:compact, args}}}
+    else
+      msg = Message.new({:custom, :compact}, [], args)
+      broadcast(state, :message_queued, %{id: msg.id, content: [], role: :compact, args: args})
+      {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
+    end
   end
 
   @impl true
@@ -592,6 +714,11 @@ defmodule Planck.Agent do
 
   def handle_continue({:execute_tools, calls}, state) do
     {:noreply, start_tool_tasks(calls, state)}
+  end
+
+  def handle_continue({:compact, args}, state) do
+    {_messages, new_state} = apply_compact(state, args: args, force: true)
+    maybe_turn_start(new_state)
   end
 
   @impl true
@@ -666,6 +793,122 @@ defmodule Planck.Agent do
     {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
   end
 
+  @spec do_prompt_or_queue_command(
+          String.t() | [Planck.AI.Message.content_part()],
+          map(),
+          t()
+        ) ::
+          {:reply, :ok, t()}
+          | {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
+  defp do_prompt_or_queue_command(content, command_meta, state)
+
+  defp do_prompt_or_queue_command(content, command_meta, %{status: :idle} = state) do
+    parts = MessageBuilder.normalize_content(content)
+    msg = Message.new({:custom, :command}, parts, command_meta)
+    checkpoint = length(state.messages)
+    msg = persist_message(state, msg)
+
+    new_state = %{
+      state
+      | messages: state.messages ++ [msg],
+        turn_state: TurnState.push_checkpoint(state.turn_state, checkpoint)
+    }
+
+    broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
+    {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
+  end
+
+  defp do_prompt_or_queue_command(content, command_meta, state) do
+    parts = MessageBuilder.normalize_content(content)
+    msg = Message.new({:custom, :command}, parts, command_meta)
+
+    broadcast(state, :message_queued, %{
+      id: msg.id,
+      content: parts,
+      role: :command,
+      command_meta: command_meta
+    })
+
+    {:reply, :ok, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @spec do_load_skill(Skill.t(), nil | String.t(), t()) ::
+          {:reply, :ok, t()}
+          | {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
+  defp do_load_skill(skill, user_text, state)
+
+  defp do_load_skill(skill, user_text, state) do
+    case File.read(skill.skill_file) do
+      {:ok, content} ->
+        skill_content = "Skill directory: #{skill.path}\n\n" <> content
+        add_skill(skill, skill_content, user_text, state)
+
+      {:error, _reason} when is_nil(user_text) ->
+        {:reply, :ok, state}
+
+      {:error, _reason} ->
+        do_prompt_or_queue(user_text, state)
+    end
+  end
+
+  @spec add_skill(Skill.t(), String.t(), String.t() | nil, t()) ::
+          {:reply, :ok, t()}
+          | {:reply, :ok, t(), {:continue, {:run_llm, :new_turn}}}
+  defp add_skill(skill, content, user_text, state)
+
+  defp add_skill(skill, content, nil, %{status: :idle} = state) do
+    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
+    skill_msg = persist_message(state, skill_msg)
+
+    checkpoint = length(state.messages)
+
+    new_state = %{
+      state
+      | messages: state.messages ++ [skill_msg],
+        turn_state: TurnState.push_checkpoint(state.turn_state, checkpoint)
+    }
+
+    broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
+    {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
+  end
+
+  defp add_skill(skill, content, user_text, %{status: :idle} = state)
+       when is_binary(user_text) do
+    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
+    skill_msg = persist_message(state, skill_msg)
+
+    user_parts = MessageBuilder.normalize_content(user_text)
+    user_msg = Message.new(:user, user_parts)
+    user_msg = persist_message(state, user_msg)
+
+    checkpoint = length(state.messages)
+
+    new_state = %{
+      state
+      | messages: state.messages ++ [skill_msg, user_msg],
+        turn_state: TurnState.push_checkpoint(state.turn_state, checkpoint)
+    }
+
+    broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
+    {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
+  end
+
+  defp add_skill(skill, content, nil, state) do
+    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
+    {:reply, :ok, %{state | messages: state.messages ++ [skill_msg]}}
+  end
+
+  defp add_skill(skill, content, user_text, state)
+       when is_binary(user_text) do
+    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
+
+    user_parts = MessageBuilder.normalize_content(user_text)
+    user_msg = Message.new(:user, user_parts)
+
+    broadcast(state, :message_queued, %{id: user_msg.id, content: user_parts})
+    {:reply, :ok, %{state | messages: state.messages ++ [skill_msg, user_msg]}}
+  end
+
   @spec do_edit_queued(String.t(), String.t() | [Planck.AI.Message.content_part()], t()) ::
           {:reply, :ok | {:error, :already_sent}, t()}
   defp do_edit_queued(id, content, state) do
@@ -698,6 +941,22 @@ defmodule Planck.Agent do
 
     broadcast(new_state, :turn_start, %{index: new_state.turn_state.index})
     {:reply, :ok, %{new_state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
+  end
+
+  @spec do_clear(t()) :: {:reply, :ok, t()}
+  defp do_clear(state) do
+    {:reply, :ok, clear_state(state)}
+  end
+
+  @spec clear_state(t()) :: t()
+  defp clear_state(state) do
+    if state.session_id do
+      Planck.Agent.Session.clear(state.session_id)
+    end
+
+    new_state = %{state | messages: [], turn_state: %TurnState{}}
+    broadcast(new_state, :cleared, %{})
+    new_state
   end
 
   defp do_run_llm(state, turn_type) do
@@ -906,7 +1165,7 @@ defmodule Planck.Agent do
       session_event = {:agent_event, type, Map.put(payload, :agent_id, id)}
       Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "session:#{session_id}", session_event)
 
-      if type in [:turn_end, :compacted] do
+      if type in [:turn_end, :compacted, :cleared] do
         global_payload =
           payload
           |> Map.put(:agent_id, id)
@@ -1066,27 +1325,17 @@ defmodule Planck.Agent do
   end
 
   @spec apply_compact(t()) :: {[Message.t()], t()}
-  defp apply_compact(state)
+  @spec apply_compact(t(), keyword()) :: {[Message.t()], t()}
+  defp apply_compact(state, opts \\ [])
 
-  defp apply_compact(%__MODULE__{messages: messages} = state) do
+  defp apply_compact(state, opts) do
     {recent, context} = calculate_context(state)
 
-    # Hooks.Compactor.compact/4 is a synchronous call that can (and, for the
-    # built-in compactor, does) block on an LLM request for as long as that
-    # takes — passed in as callbacks rather than broadcasting :compacting
-    # unconditionally before every call, since apply_compact/1 runs on every
-    # turn and can't know in advance whether this particular call will
-    # actually compact (that decision belongs to the compactor, and for a
-    # custom one, its criteria are opaque here) — broadcasting before every
-    # call would flash "compacting" on every ordinary turn, not just the
-    # rare one that actually does it. Only `id`/`session_id`/`name`/`team_name`
-    # matter to broadcast/3, all stable across compaction, so closing over
-    # the pre-compaction `state` here is safe even though these callbacks
-    # might not run until after this function would otherwise have returned.
-    compact_opts = [
-      on_compacting: fn -> broadcast(state, :compacting, %{}) end,
-      on_compacted: fn -> broadcast(state, :compacted, %{}) end
-    ]
+    compact_opts =
+      opts
+      |> Keyword.put(:on_compacting, fn -> broadcast(state, :compacting, %{}) end)
+      |> Keyword.put(:on_compacted, fn -> broadcast(state, :compacted, %{}) end)
+      |> Keyword.put_new(:args, %{prompt: nil})
 
     case Hooks.Compactor.compact(state, context, recent, compact_opts) do
       :skip ->
@@ -1095,8 +1344,8 @@ defmodule Planck.Agent do
       {:compact, %Message{} = summary_msg, kept} ->
         summary_msg = persist_message(state, summary_msg)
 
-        prefix_len = length(messages) - length(recent)
-        prefix = Enum.take(messages, prefix_len)
+        prefix_len = length(state.messages) - length(recent)
+        prefix = Enum.take(state.messages, prefix_len)
         new_messages = prefix ++ [summary_msg | kept]
 
         new_state = %{state | messages: new_messages}
@@ -1108,17 +1357,110 @@ defmodule Planck.Agent do
 
   @spec maybe_turn_start(t()) ::
           {:noreply, t()}
-          | {:noreply, t(), {:continue, {:run_llm, :new_turn}}}
-  defp maybe_turn_start(state)
-
-  defp maybe_turn_start(%__MODULE__{} = state) do
-    if TurnContext.has_pending_input?(state.messages, state.stream_start) do
-      broadcast(state, :turn_start, %{index: state.turn_state.index})
-      {:noreply, %{state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
-    else
+          | {:noreply, t(), {:continue, term()}}
+  defp maybe_turn_start(state) do
+    with {:none, state} <- drain_control_markers(state),
+         {:ok, state} <- start_queued_turn(state) do
       {:noreply, state}
+    else
+      {:clear, cleared} ->
+        {:noreply, cleared}
+
+      {:compact, state, args} ->
+        {:noreply, state, {:continue, {:compact, args}}}
+
+      {:ok, state, continue} ->
+        {:noreply, state, continue}
     end
   end
+
+  @spec start_queued_turn(t()) ::
+          {:ok, t()}
+          | {:ok, t(), {:continue, {:run_llm, :new_turn}}}
+  defp start_queued_turn(state) do
+    if TurnContext.has_pending_input?(state.messages, state.stream_start) do
+      broadcast(state, :turn_start, %{index: state.turn_state.index})
+      {:ok, %{state | status: :streaming}, {:continue, {:run_llm, :new_turn}}}
+    else
+      {:ok, state}
+    end
+  end
+
+  @spec drain_control_markers(t()) ::
+          {:clear, t()}
+          | {:compact, t(), %{prompt: String.t() | nil}}
+          | {:none, t()}
+  defp drain_control_markers(state) do
+    markers = Enum.filter(state.messages, &control_marker?/1)
+
+    cond do
+      Enum.any?(markers, &(&1.role == {:custom, :clear})) ->
+        {:clear, clear_state(state)}
+
+      compact = Enum.find(Enum.reverse(markers), &(&1.role == {:custom, :compact})) ->
+        prompt = Map.get(compact.metadata, :prompt)
+        remaining = Enum.reject(state.messages, &control_marker?/1)
+        {:compact, %{state | messages: remaining}, %{prompt: prompt}}
+
+      true ->
+        {:none, state}
+    end
+  end
+
+  @spec control_marker?(Message.t()) :: boolean()
+  defp control_marker?(%Message{role: {:custom, :clear}}), do: true
+  defp control_marker?(%Message{role: {:custom, :compact}}), do: true
+  defp control_marker?(_), do: false
+
+  @spec do_abort(t()) ::
+          {:reply, :ok, t()}
+          | {:reply, :ok, t(), {:continue, term()}}
+  defp do_abort(state) do
+    cancel_stream(state)
+    cancel_running_tools(state)
+    new_state = reset_streaming(state)
+
+    with {:none, new_state} <- drain_control_markers(new_state),
+         {:ok, new_state} <- start_queued_turn(new_state) do
+      {:reply, :ok, new_state}
+    else
+      {:clear, cleared} ->
+        {:reply, :ok, cleared}
+
+      {:compact, state, args} ->
+        {:reply, :ok, state, {:continue, {:compact, args}}}
+
+      {:ok, state, continue} ->
+        {:reply, :ok, state, continue}
+    end
+  end
+
+  @spec do_cancel_queued(String.t(), t()) ::
+          {:reply, :ok | {:error, :not_found | :already_sent}, t()}
+  defp do_cancel_queued(id, state)
+
+  defp do_cancel_queued(id, state) do
+    with {:ok, idx} <- find_message_index(state.messages, id),
+         {:ok, _msg} <- ensure_unpersisted(Enum.at(state.messages, idx)) do
+      {:reply, :ok, %{state | messages: List.delete_at(state.messages, idx)}}
+    else
+      {:error, :not_found} -> {:reply, {:error, :not_found}, state}
+      {:error, :already_sent} -> {:reply, {:error, :already_sent}, state}
+    end
+  end
+
+  @spec find_message_index([Message.t()], String.t()) ::
+          {:ok, non_neg_integer()} | {:error, :not_found}
+  defp find_message_index(messages, id) do
+    case Enum.find_index(messages, &(&1.id == id)) do
+      nil -> {:error, :not_found}
+      idx -> {:ok, idx}
+    end
+  end
+
+  @spec ensure_unpersisted(Message.t()) :: {:ok, Message.t()} | {:error, :already_sent}
+  defp ensure_unpersisted(%{id: db_id}) when is_integer(db_id), do: {:error, :already_sent}
+  defp ensure_unpersisted(msg), do: {:ok, msg}
 
   @spec cancel_stream(t()) :: :ok
   defp cancel_stream(%{stream_task: nil}), do: :ok

@@ -125,6 +125,7 @@ defmodule Planck.Headless.Config do
           default_model: String.t() | nil,
           sessions_dir: Path.t(),
           skills_dirs: [Path.t()],
+          commands_dirs: [Path.t()],
           teams_dirs: [Path.t()],
           sidecar: Path.t(),
           providers: %{String.t() => map()},
@@ -137,6 +138,7 @@ defmodule Planck.Headless.Config do
   defstruct default_model: nil,
             sessions_dir: ".planck/sessions",
             skills_dirs: [".planck/skills", "~/.planck/skills"],
+            commands_dirs: [".planck/commands", "~/.planck/commands"],
             teams_dirs: [".planck/teams", "~/.planck/teams"],
             sidecar: ".planck/sidecar",
             providers: %{},
@@ -195,6 +197,12 @@ defmodule Planck.Headless.Config do
   app_env :skills_dirs, :planck, :skills_dirs,
     type: PathList,
     default: [".planck/skills", "~/.planck/skills"],
+    binding_order: @json
+
+  @envdoc "Colon-separated list of custom command directories."
+  app_env :commands_dirs, :planck, :commands_dirs,
+    type: PathList,
+    default: [".planck/commands", "~/.planck/commands"],
     binding_order: @json
 
   @envdoc "Maximum number of recently-used skills shown in the agent skill index."
@@ -319,6 +327,7 @@ defmodule Planck.Headless.Config do
       default_model: default_model!(),
       sessions_dir: sessions_dir!(),
       skills_dirs: skills_dirs!(),
+      commands_dirs: commands_dirs!(),
       teams_dirs: teams_dirs!(),
       sidecar: sidecar!(),
       providers: providers!(),

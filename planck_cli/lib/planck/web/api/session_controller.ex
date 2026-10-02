@@ -84,6 +84,27 @@ defmodule Planck.Web.API.SessionController do
       }
     }
 
+  def open_api_operation(:cancel_queued),
+    do: %Operation{
+      tags: ["Sessions"],
+      summary: "Cancel a queued message",
+      description:
+        "Removes a still-unpersisted message (user, command, /clear, or /compact) " <>
+          "from the orchestrator's in-memory queue. Returns 422 if the message " <>
+          "has been flushed to the session (`already_sent`) or no message with " <>
+          "that id is queued (`not_found`). Returns 404 if the session itself " <>
+          "does not exist.",
+      operationId: "SessionController.cancel_queued",
+      parameters: [Operation.parameter(:id, :path, :string, "Session ID", required: true)],
+      requestBody:
+        Operation.request_body("Cancel params", "application/json", Schemas.CancelQueued),
+      responses: %{
+        200 => Operation.response("OK", "application/json", Schemas.Ok),
+        404 => Operation.response("Not Found", "application/json", Schemas.Error),
+        422 => Operation.response("Unprocessable Content", "application/json", Schemas.Error)
+      }
+    }
+
   # ---------------------------------------------------------------------------
   # Actions
   # ---------------------------------------------------------------------------
@@ -171,6 +192,38 @@ defmodule Planck.Web.API.SessionController do
     end
   end
 
+  @spec cancel_queued(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def cancel_queued(conn, params)
+
+  def cancel_queued(conn, %{id: session_id}) do
+    message_id = conn.body_params.message_id
+
+    with :ok <- ensure_session(session_id),
+         :ok <- Headless.cancel_queued_message(session_id, message_id) do
+      json(conn, %{ok: true})
+    else
+      {:error, :session_not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{error: "Session not found"})
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{error: "Message not found"})
+
+      {:error, :already_sent} ->
+        conn
+        |> put_status(422)
+        |> json(%{error: "Message cannot be cancelled, because it has been already sent"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(422)
+        |> json(%{error: inspect(reason)})
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
@@ -218,6 +271,14 @@ defmodule Planck.Web.API.SessionController do
     else
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec ensure_session(String.t()) :: :ok | {:error, :session_not_found}
+  defp ensure_session(session_id) do
+    case Session.get_metadata(session_id) do
+      {:ok, _} -> :ok
+      {:error, _} -> {:error, :session_not_found}
     end
   end
 

@@ -19,7 +19,7 @@ defmodule Planck.Headless.ResourceStore do
 
   require Logger
 
-  alias Planck.Agent.{Skill, Team}
+  alias Planck.Agent.{Command, Skill, Team}
   alias Planck.Headless.Config
 
   @type t :: %__MODULE__{
@@ -27,6 +27,7 @@ defmodule Planck.Headless.ResourceStore do
           registered_tools: [Planck.Agent.Tool.t()],
           skills: [Skill.t()],
           invocable_skills: [Skill.t()],
+          commands: [Command.t()],
           teams: %{String.t() => Team.t()},
           available_models: [Planck.AI.Model.t()]
         }
@@ -35,6 +36,7 @@ defmodule Planck.Headless.ResourceStore do
             registered_tools: [],
             skills: [],
             invocable_skills: [],
+            commands: [],
             teams: %{},
             available_models: [],
             on_reload: []
@@ -128,6 +130,7 @@ defmodule Planck.Headless.ResourceStore do
     Config.reload_locale()
     Config.reload_sessions_dir()
     Config.reload_skills_dirs()
+    Config.reload_commands_dirs()
     Config.reload_teams_dirs()
     Config.reload_sidecar()
     Config.reload_top_skills()
@@ -184,12 +187,14 @@ defmodule Planck.Headless.ResourceStore do
   defp load_resources do
     skills = Skill.load_all(Config.skills_dirs!())
     invocable_skills = invocable_skills(skills)
+    commands = Command.load_all(Config.commands_dirs!())
     teams = load_teams(Config.teams_dirs!())
     available_models = detect_available_models()
 
     %__MODULE__{
       skills: skills,
       invocable_skills: invocable_skills,
+      commands: commands,
       teams: teams,
       available_models: available_models
     }

@@ -1313,6 +1313,305 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  describe "prompt/2 slash command dispatch" do
+    defp configure_dirs(_dir, commands_dir, skills_dir) do
+      File.mkdir_p!(commands_dir)
+      File.mkdir_p!(skills_dir)
+
+      orig_commands = Application.get_env(:planck, :commands_dirs)
+      orig_skills = Application.get_env(:planck, :skills_dirs)
+
+      Application.put_env(:planck, :commands_dirs, [commands_dir])
+      Application.put_env(:planck, :skills_dirs, [skills_dir])
+      Config.reload_commands_dirs()
+      Config.reload_skills_dirs()
+      ResourceStore.reload()
+
+      on_exit(fn ->
+        if orig_commands,
+          do: Application.put_env(:planck, :commands_dirs, orig_commands),
+          else: Application.delete_env(:planck, :commands_dirs)
+
+        if orig_skills,
+          do: Application.put_env(:planck, :skills_dirs, orig_skills),
+          else: Application.delete_env(:planck, :skills_dirs)
+
+        Config.reload_commands_dirs()
+        Config.reload_skills_dirs()
+        ResourceStore.reload()
+      end)
+
+      :ok
+    end
+
+    defp write_command(dir, name, description, body) do
+      command_dir = Path.join(dir, name)
+      File.mkdir_p!(command_dir)
+
+      File.write!(Path.join(command_dir, "COMMAND.md"), """
+      ---
+      name: #{name}
+      description: #{description}
+      ---
+
+      #{body}
+      """)
+    end
+
+    defp write_skill(dir, name, description) do
+      skill_dir = Path.join(dir, name)
+      File.mkdir_p!(skill_dir)
+
+      File.write!(Path.join(skill_dir, "SKILL.md"), """
+      ---
+      name: #{name}
+      description: #{description}
+      ---
+
+      # #{String.capitalize(name)}
+
+      You are an expert at #{name}.
+      """)
+    end
+
+    test "/clear wipes the session", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      team_dir = write_team(dir, "clear-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "hi"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      :ok = Headless.prompt(session_id, "/clear")
+      assert_receive {:agent_event, :cleared, _}, 1_000
+    end
+
+    test "/compact with prompt forces compaction", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      team_dir = write_team(dir, "compact-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "hi"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "summary"}, {:done, %{}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "/compact focus on the API")
+      assert_receive {:agent_event, :compacting, _}, 2_000
+      assert_receive {:agent_event, :compacted, _}, 2_000
+    end
+
+    test "/compact without prompt forces compaction", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      team_dir = write_team(dir, "compact-no-prompt-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "hi"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "summary"}, {:done, %{}}]
+      end)
+
+      :ok = Headless.prompt(session_id, "/compact")
+      assert_receive {:agent_event, :compacting, _}, 2_000
+      assert_receive {:agent_event, :compacted, _}, 2_000
+    end
+
+    test "custom command enqueues a {:custom, :command} message", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      commands_dir = Path.join(dir, "commands")
+      skills_dir = Path.join(dir, "skills")
+      configure_dirs(dir, commands_dir, skills_dir)
+
+      write_command(
+        commands_dir,
+        "review-checklist",
+        "Reviews code.",
+        "You are reviewing: <%= args %>"
+      )
+
+      ResourceStore.reload()
+
+      team_dir = write_team(dir, "command-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "ok"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "/review-checklist src/auth")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      assert command_msg != nil
+      assert command_msg.metadata.command == "review-checklist"
+      assert command_msg.metadata.args == "src/auth"
+      assert command_msg.metadata.invoked_by == :user
+      assert Enum.any?(command_msg.content, fn {:text, text} -> text =~ "src/auth" end)
+    end
+
+    test "custom command with no args renders with nil", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      commands_dir = Path.join(dir, "commands")
+      skills_dir = Path.join(dir, "skills")
+      configure_dirs(dir, commands_dir, skills_dir)
+
+      write_command(commands_dir, "no-args-cmd", "No args command.", "Args: <%= args %>")
+
+      ResourceStore.reload()
+
+      team_dir = write_team(dir, "no-args-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "ok"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "/no-args-cmd")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      assert command_msg != nil
+      assert command_msg.metadata.args == nil
+    end
+
+    test "skill slash command loads the skill via {:custom, :skill} message", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      commands_dir = Path.join(dir, "commands")
+      skills_dir = Path.join(dir, "skills")
+      configure_dirs(dir, commands_dir, skills_dir)
+
+      write_skill(skills_dir, "grill-me", "Grills with questions.")
+
+      ResourceStore.reload()
+
+      team_dir = write_team(dir, "skill-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "ok"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "/grill-me give me five questions")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      skill_msg = Enum.find(state.messages, &(&1.role == {:custom, :skill}))
+      assert skill_msg != nil
+      assert skill_msg.metadata.skill.name == "grill-me"
+      assert skill_msg.metadata.skill_content =~ "Skill directory:"
+      assert skill_msg.metadata.skill_content =~ "grill-me"
+
+      user_msg =
+        Enum.find(state.messages, fn msg ->
+          msg.role == :user and
+            Enum.any?(msg.content, fn {:text, t} -> t =~ "give me five questions" end)
+        end)
+
+      assert user_msg != nil
+    end
+
+    test "unknown slash command passes through verbatim", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      team_dir = write_team(dir, "unknown-cmd-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "ok"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "/not-a-command hello there")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      user_msg = Enum.find(state.messages, &(&1.role == :user))
+      assert user_msg != nil
+      {:text, text} = Enum.find(user_msg.content, &match?({:text, _}, &1))
+      assert text == "/not-a-command hello there"
+    end
+
+    test "non-slash message passes through unchanged", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      team_dir = write_team(dir, "non-slash-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "ok"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "hello there")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      user_msg = Enum.find(state.messages, &(&1.role == :user))
+      assert user_msg != nil
+      {:text, text} = Enum.find(user_msg.content, &match?({:text, _}, &1))
+      assert text == "hello there"
+    end
+
+    test "built-in shadows a custom command of the same name", %{tmp_dir: dir} do
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      commands_dir = Path.join(dir, "commands")
+      skills_dir = Path.join(dir, "skills")
+      configure_dirs(dir, commands_dir, skills_dir)
+
+      write_command(commands_dir, "clear", "A custom clear command.", "Custom clear body.")
+
+      ResourceStore.reload()
+
+      team_dir = write_team(dir, "shadow-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{session_id}")
+      stub(MockAI, :stream, fn _model, _context, _opts -> [{:text_delta, "hi"}, {:done, %{}}] end)
+
+      :ok = Headless.prompt(session_id, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      :ok = Headless.prompt(session_id, "/clear")
+      assert_receive {:agent_event, :cleared, _}, 1_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :command}))
+    end
+  end
+
   # --- solo agents ---
 
   describe "solo agents" do

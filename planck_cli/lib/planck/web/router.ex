@@ -37,6 +37,7 @@ defmodule Planck.Web.Router do
     delete("/sessions/:id", SessionController, :close)
     post("/sessions/:id/prompt", SessionController, :prompt)
     post("/sessions/:id/abort", SessionController, :abort)
+    post("/sessions/:id/cancel_queued", SessionController, :cancel_queued)
     get("/sessions/:id/events", EventController, :stream)
 
     get("/teams", TeamController, :index)

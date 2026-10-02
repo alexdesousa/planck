@@ -13,7 +13,19 @@ defmodule Planck.Headless do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{AgentSpec, BuiltinTools, Message, Session, Skill, SkillUsage, Team, Tools}
+
+  alias Planck.Agent.{
+    AgentSpec,
+    BuiltinTools,
+    EExRenderer,
+    Message,
+    Session,
+    Skill,
+    SkillUsage,
+    Team,
+    Tools
+  }
+
   alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
 
   @type session_id :: String.t()
@@ -159,6 +171,12 @@ defmodule Planck.Headless do
   @doc """
   Send a user prompt to the orchestrator of a session.
 
+  If the text starts with `/<command-name>`, it is dispatched as a slash
+  command against three precedence tiers: built-in primitives (`/clear`,
+  `/compact`), custom commands (from `ResourceStore.commands`), and skills
+  (from `ResourceStore.skills`). A `/<name>` that matches no tier is passed
+  through verbatim as a normal user message.
+
   Pass `edit: id` to instead replace the text of a message with that id —
   only succeeds if it's still the last, unpersisted message queued while
   the orchestrator was busy; fails with `{:error, :already_sent}` once it's
@@ -169,8 +187,87 @@ defmodule Planck.Headless do
   def prompt(session_id, text, opts \\ []) do
     with {:ok, team_id} <- read_team_id(session_id),
          {:ok, pid} <- find_orchestrator(team_id) do
-      Agent.prompt(pid, text, opts)
+      dispatch_prompt(pid, text, opts)
     end
+  end
+
+  @doc """
+  Cancel a message still queued (unpersisted) in the orchestrator's
+  in-memory message list. Used by the UI to remove a queued command,
+  `/clear`, `/compact`, or user message before the agent processes it.
+
+  Returns `{:error, :already_sent}` once the message has been flushed to
+  the session, or `{:error, :not_found}` if no message with that id is
+  queued.
+  """
+  @spec cancel_queued_message(session_id(), String.t()) ::
+          :ok | {:error, :not_found} | {:error, :already_sent} | {:error, term()}
+  def cancel_queued_message(session_id, id) do
+    with {:ok, team_id} <- read_team_id(session_id),
+         {:ok, pid} <- find_orchestrator(team_id) do
+      Agent.cancel_queued(pid, id)
+    end
+  end
+
+  @slash_re ~r/\A\/([a-z0-9_-]+)(\s+(.*))?\z/i
+
+  @spec dispatch_prompt(pid(), String.t(), keyword()) :: :ok | {:error, :already_sent}
+  defp dispatch_prompt(pid, text, opts)
+
+  defp dispatch_prompt(pid, "/clear", _opts) do
+    Agent.clear(pid)
+  end
+
+  defp dispatch_prompt(pid, "/compact" <> prompt, _opts) do
+    Agent.compact(pid, %{prompt: String.trim(prompt)})
+  end
+
+  defp dispatch_prompt(pid, "/" <> _ = original, opts) do
+    case Regex.run(@slash_re, original, capture: :all_but_first) do
+      [name, _full_extra, args] ->
+        dispatch_command(pid, original, name, args, opts)
+
+      [name] ->
+        dispatch_command(pid, original, name, nil, opts)
+
+      _ ->
+        Agent.prompt(pid, original, opts)
+    end
+  end
+
+  defp dispatch_prompt(pid, text, opts) do
+    Agent.prompt(pid, text, opts)
+  end
+
+  @spec dispatch_command(pid(), String.t(), String.t(), String.t() | nil, keyword()) ::
+          :ok | {:error, :already_sent}
+  defp dispatch_command(pid, original, name, args, opts)
+
+  defp dispatch_command(pid, original, name, args, opts) do
+    store = ResourceStore.get()
+
+    cond do
+      command = find_by_name(store.commands, name) ->
+        rendered = EExRenderer.render(command.template, args: args)
+        command_meta = %{command: name, args: args, invoked_by: :user}
+        Agent.command(pid, command_meta, rendered)
+
+      skill = find_by_name(store.skills, name) ->
+        dispatch_skill(pid, skill, args, opts)
+
+      true ->
+        Agent.prompt(pid, original, opts)
+    end
+  end
+
+  @spec dispatch_skill(pid(), Skill.t(), String.t() | nil, keyword()) :: :ok
+  defp dispatch_skill(pid, skill, args, _opts) do
+    Agent.load_skill(pid, skill, args)
+  end
+
+  @spec find_by_name([struct()], String.t()) :: struct() | nil
+  defp find_by_name(items, name) do
+    Enum.find(items, &(&1.name == name))
   end
 
   @doc """

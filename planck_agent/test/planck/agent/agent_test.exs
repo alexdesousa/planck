@@ -47,6 +47,38 @@ defmodule Planck.Agent.AgentTest do
     end)
   end
 
+  # A stream that emits `events` then blocks until the returned gate is set to 1,
+  # keeping the agent `:streaming` so queued messages can be inspected/cancelled
+  # without the turn racing to completion. Release with
+  # `:atomics.put(gate, 1, 1)` and let the turn finish (or stop the agent).
+  defp stream_blocking(events) do
+    gate = :atomics.new(1, signed: true)
+    :atomics.put(gate, 1, 0)
+
+    stub(MockAI, :stream, fn _model, _context, _opts ->
+      Stream.concat(events, gate_stream(gate))
+    end)
+
+    gate
+  end
+
+  defp gate_stream(gate) do
+    Stream.resource(
+      fn -> gate end,
+      &gate_next/1,
+      fn _ -> :ok end
+    )
+  end
+
+  defp gate_next(gate) do
+    if :atomics.get(gate, 1) == 1 do
+      {:halt, :done}
+    else
+      Process.sleep(10)
+      {[], gate}
+    end
+  end
+
   # --- init / get_state ---
 
   describe "init" do
@@ -582,7 +614,7 @@ defmodule Planck.Agent.AgentTest do
     def compact?(_state, _context, _recent), do: true
 
     @impl true
-    def compact(_state, _context, recent) do
+    def compact(_state, _context, recent, _args) do
       summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, "Past summary."}])
       {:compact, summary, Enum.take(recent, -1)}
     end
@@ -703,7 +735,428 @@ defmodule Planck.Agent.AgentTest do
     end
   end
 
+  describe "clear/1" do
+    test "wipes all messages when idle and broadcasts :cleared" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      state = Agent.get_state(agent)
+      assert length(state.messages) == 2
+
+      :ok = Agent.clear(agent)
+
+      assert_receive {:agent_event, :cleared, _}, 1_000
+
+      state = Agent.get_state(agent)
+      assert state.messages == []
+      assert state.turn_state.checkpoints == []
+      assert state.status == :idle
+    end
+
+    test "preserves session metadata" do
+      {agent, session_id} = start_agent_with_session(system_prompt: "hi")
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      Agent.subscribe(agent)
+      :ok = Session.save_metadata(session_id, %{"session_name" => "test", "cwd" => "/app"})
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      :ok = Agent.clear(agent)
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["session_name"] == "test"
+      assert meta["cwd"] == "/app"
+    end
+
+    test "queues :clear when busy and executes at turn boundary" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      :ok = Agent.clear(agent)
+      assert_receive {:agent_event, :message_queued, %{role: :clear}}, 1_000
+
+      state = Agent.get_state(agent)
+      assert Enum.any?(state.messages, &(&1.role == {:custom, :clear}))
+
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_receive {:agent_event, :cleared, _}, 2_000
+
+      state = Agent.get_state(agent)
+      assert state.messages == []
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :clear}))
+    end
+
+    test "pending clear wipes queued user messages" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      Agent.prompt(agent, "queued before clear")
+      :ok = Agent.clear(agent)
+
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_receive {:agent_event, :cleared, _}, 2_000
+
+      state = Agent.get_state(agent)
+      assert state.messages == []
+    end
+
+    test "cancel_queued/2 removes a queued :clear marker" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      :ok = Agent.clear(agent)
+
+      state = Agent.get_state(agent)
+      marker = Enum.find(state.messages, &(&1.role == {:custom, :clear}))
+      assert marker != nil
+
+      :ok = Agent.cancel_queued(agent, marker.id)
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :clear}))
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+  end
+
+  describe "compact/2" do
+    defmodule ForceTestCompactor do
+      use Planck.Agent.Hooks.Compactor
+
+      @impl true
+      def compact?(_state, _context, _recent), do: false
+
+      @impl true
+      def compact(_state, _context, recent, _args) do
+        summary = Message.new({:custom, :summary}, [{:text, "Forced summary."}])
+        {:compact, summary, Enum.take(recent, -1)}
+      end
+    end
+
+    test "forces compaction even when compact?/3 returns false" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi", compactor: ForceTestCompactor)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      :ok = Agent.compact(agent, %{prompt: "focus on API"})
+
+      assert_receive {:agent_event, :compacting, _}, 1_000
+      assert_receive {:agent_event, :compacted, _}, 1_000
+
+      state = Agent.get_state(agent)
+      assert Enum.any?(state.messages, &(&1.role == {:custom, :summary}))
+    end
+
+    test "broadcasts :compacted only when compaction actually happens" do
+      defmodule SkipCompactor do
+        use Planck.Agent.Hooks.Compactor
+
+        @impl true
+        def compact?(_state, _context, _recent), do: true
+
+        @impl true
+        def compact(_state, _context, _recent, _args), do: :skip
+      end
+
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi", compactor: SkipCompactor)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      :ok = Agent.compact(agent)
+
+      assert_receive {:agent_event, :compacting, _}, 1_000
+      assert_receive {:agent_event, :compacted, _}, 1_000
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :summary}))
+    end
+
+    test "queues :compact when busy and runs at turn boundary" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi", compactor: ForceTestCompactor)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      :ok = Agent.compact(agent, %{prompt: "preserve paths"})
+
+      assert_receive {:agent_event, :message_queued,
+                      %{role: :compact, args: %{prompt: "preserve paths"}}},
+                     1_000
+
+      state = Agent.get_state(agent)
+      marker = Enum.find(state.messages, &(&1.role == {:custom, :compact}))
+      assert marker.metadata.prompt == "preserve paths"
+
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_receive {:agent_event, :compacting, _}, 2_000
+      assert_receive {:agent_event, :compacted, _}, 1_000
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :compact}))
+    end
+
+    test "multiple queued :compact markers — last one wins" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi", compactor: ForceTestCompactor)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      :ok = Agent.compact(agent, %{prompt: "focus on auth"})
+      :ok = Agent.compact(agent, %{prompt: "focus on the UI"})
+
+      state = Agent.get_state(agent)
+      markers = for m <- state.messages, m.role == {:custom, :compact}, do: m
+      assert length(markers) == 2
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+      assert_receive {:agent_event, :compacted, _}, 3_000
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :compact}))
+    end
+
+    test "cancel_queued/2 removes a queued :compact marker" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi", compactor: ForceTestCompactor)
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      :ok = Agent.compact(agent, %{prompt: "preserve paths"})
+
+      state = Agent.get_state(agent)
+      marker = Enum.find(state.messages, &(&1.role == {:custom, :compact}))
+      assert marker != nil
+      assert marker.metadata.prompt == "preserve paths"
+
+      :ok = Agent.cancel_queued(agent, marker.id)
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :compact}))
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+  end
+
+  describe "command/3" do
+    test "enqueues a {:custom, :command} message and starts a turn when idle" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      command_meta = %{command: "review-checklist", args: "src/auth", invoked_by: :user}
+      :ok = Agent.command(agent, command_meta, "You are reviewing: src/auth")
+
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      state = Agent.get_state(agent)
+      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      assert command_msg != nil
+      assert command_msg.metadata == command_meta
+    end
+
+    test "stacks in state.messages and broadcasts :message_queued when busy" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      command_meta = %{command: "review-checklist", args: "src/auth", invoked_by: :user}
+      :ok = Agent.command(agent, command_meta, "You are reviewing: src/auth")
+
+      assert_receive {:agent_event, :message_queued,
+                      %{role: :command, command_meta: ^command_meta}},
+                     1_000
+
+      state = Agent.get_state(agent)
+      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      assert command_msg != nil
+      assert command_msg.metadata == command_meta
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "cancel_queued/2 removes a queued command message" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      command_meta = %{command: "review-checklist", args: "src/auth", invoked_by: :user}
+      :ok = Agent.command(agent, command_meta, "You are reviewing: src/auth")
+
+      state = Agent.get_state(agent)
+      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      :ok = Agent.cancel_queued(agent, command_msg.id)
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.role == {:custom, :command}))
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+  end
+
+  describe "cancel_queued/2" do
+    test "returns :not_found for an absent id" do
+      agent = start_agent(system_prompt: "hi")
+      assert {:error, :not_found} = Agent.cancel_queued(agent, "nonexistent")
+    end
+
+    test "returns :already_sent for a persisted (db id) message" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      {agent, _session_id} = start_agent_with_session()
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      state = Agent.get_state(agent)
+      persisted = Enum.find(state.messages, &is_integer(&1.id))
+      assert persisted != nil
+
+      assert {:error, :already_sent} = Agent.cancel_queued(agent, persisted.id)
+    end
+
+    test "removes a queued user message" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      Agent.prompt(agent, "queued message")
+
+      state = Agent.get_state(agent)
+      queued = Enum.find(state.messages, &(&1.role == :user and is_binary(&1.id)))
+      assert queued != nil
+
+      :ok = Agent.cancel_queued(agent, queued.id)
+
+      state = Agent.get_state(agent)
+      refute Enum.any?(state.messages, &(&1.id == queued.id))
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+  end
+
   # --- rewind_to_message ---
+
+  describe "load_skill/3" do
+    test "loads a skill and starts a turn when idle" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      File.mkdir_p!("/tmp/planck_test_skills/grill-me")
+
+      File.write!(
+        "/tmp/planck_test_skills/grill-me/SKILL.md",
+        "# Grill Me\n\nAsk hard questions."
+      )
+
+      skill = %Planck.Agent.Skill{
+        name: "grill-me",
+        description: "Grills with questions.",
+        path: "/tmp/planck_test_skills/grill-me",
+        skill_file: "/tmp/planck_test_skills/grill-me/SKILL.md"
+      }
+
+      :ok = Agent.load_skill(agent, skill, "give me five questions")
+
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      state = Agent.get_state(agent)
+      skill_msg = Enum.find(state.messages, &(&1.role == {:custom, :skill}))
+      assert skill_msg != nil
+      assert skill_msg.metadata.skill.name == "grill-me"
+      assert skill_msg.metadata.skill_content =~ "Skill directory:"
+      assert skill_msg.metadata.skill_content =~ "# Grill Me"
+
+      user_msg = Enum.find(state.messages, &(&1.role == :user))
+      assert user_msg != nil
+      {:text, text} = Enum.find(user_msg.content, &match?({:text, _}, &1))
+      assert text == "give me five questions"
+    after
+      File.rm_rf!("/tmp/planck_test_skills")
+    end
+
+    test "stacks skill + user message when busy" do
+      gate = stream_blocking([{:text_delta, "hi"}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "first")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+
+      File.mkdir_p!("/tmp/planck_test_skills/grill-me")
+      File.write!("/tmp/planck_test_skills/grill-me/SKILL.md", "# Grill Me")
+
+      skill = %Planck.Agent.Skill{
+        name: "grill-me",
+        description: "d",
+        path: "/tmp/planck_test_skills/grill-me",
+        skill_file: "/tmp/planck_test_skills/grill-me/SKILL.md"
+      }
+
+      :ok = Agent.load_skill(agent, skill, "extra instructions")
+
+      assert_receive {:agent_event, :message_queued, _}, 1_000
+
+      state = Agent.get_state(agent)
+      skill_msg = Enum.find(state.messages, &(&1.role == {:custom, :skill}))
+      assert skill_msg != nil
+      assert skill_msg.metadata.skill.name == "grill-me"
+
+      queued_user = Enum.find(state.messages, &(&1.role == :user and is_binary(&1.id)))
+      assert queued_user != nil
+
+      :atomics.put(gate, 1, 1)
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    after
+      File.rm_rf!("/tmp/planck_test_skills")
+    end
+  end
 
   describe "rewind_to_message/2" do
     test "truncates history to strictly before the given message id (reloads from session)" do

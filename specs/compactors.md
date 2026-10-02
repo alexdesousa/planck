@@ -16,7 +16,8 @@ older messages into a single checkpoint, keeping only recent messages verbatim.
 @callback compact(
             state :: Planck.Agent.t(),
             context :: Planck.AI.Context.t(),
-            recent :: [Planck.Agent.Message.t()]
+            recent :: [Planck.Agent.Message.t()],
+            args   :: %{prompt: String.t() | nil}
           ) ::
             {:compact,
               summary_msg :: Planck.Agent.Message.t(),
@@ -26,15 +27,22 @@ older messages into a single checkpoint, keeping only recent messages verbatim.
 @callback compact_timeout() :: pos_integer()
 ```
 
+> **Breaking change in v0.3.0**: `compact/3` is now `compact/4` — it gains a
+> fourth `args` parameter (`%{prompt: String.t() | nil}`). This lets the
+> `/compact [prompt]` slash command thread a user-supplied prompt into the
+> summarization. Custom compactor modules must add a fourth parameter; the
+> simplest migration is `def compact(state, context, recent, _args)` to
+> preserve existing behavior. `compact?/3` arity is unchanged.
+
 > Breaking change from the single-callback shape: `compact/3` used to be the
 > only required callback, and the caller had no way to know in advance
 > whether a given dispatch would actually compact. A custom compactor must
 > now also implement `compact?/3` — a cheap decision (must not itself do
-> anything slow, e.g. no LLM call) that the dispatcher checks first. `compact/3`,
+> anything slow, e.g. no LLM call) that the dispatcher checks first. `compact/4`,
 > the potentially slow part, is only ever called when `compact?/3` returns
-> `true`. For a simple port of an existing custom compactor, `compact?/3` can
-> just re-run whatever check `compact/3` used to do up front, returning a
-> boolean instead of `:skip`.
+> `true` (or when forced via `/compact`). For a simple port of an existing
+> custom compactor, `compact?/3` can just re-run whatever check `compact/3`
+> used to do up front, returning a boolean instead of `:skip`.
 
 - **Input**: `state` (the agent's full state — model, messages, etc., for
   anything a custom strategy might need beyond the two below), `context` (the
@@ -61,20 +69,22 @@ for a large summarization prompt.
 Planck.Agent.Hooks.Compactor.compact(state, context, recent, opts)
 ```
 
-`opts` is `[on_compacting: (-> any()), on_compacted: (-> any())]` — both
+`opts` is `[on_compacting: (-> any()), on_compacted: (-> any()), args: %{prompt: String.t() | nil}, force: boolean()]` — both
 zero-arity, both optional. The dispatcher, not any compactor implementation,
-calls `compact?/3` first and, only if it returns `true`, wraps the call to
-`compact/3` with these two closures (`on_compacting` before, `on_compacted`
-after, regardless of what `compact/3` itself then returns). `Planck.Agent`
+calls `compact?/3` first and, only if it returns `true` (or `force: true` is
+set, used by `/compact`), wraps the call to `compact/4` with these two
+closures (`on_compacting` before, `on_compacted`
+after, regardless of what `compact/4` itself then returns). `Planck.Agent`
 uses this to broadcast `:compacting`/`:compacted` PubSub events so the UI can
 show a progress indicator for the duration of the call — accurate for any
 compactor, without `Planck.Agent` needing to predict the outcome, and without
 any compactor implementation needing to know about PubSub topics or event
-shapes at all.
+shapes at all. `:args` is forwarded to the compactor's `compact/4` callback
+as its 4th parameter; defaults to `%{prompt: nil}` (auto-compaction).
 
 - `state.compactor: nil` → runs the built-in LLM-based compactor locally.
 - `state.compactor: MyMod` + `state.sidecar_node: nil` → calls `MyMod.compact?/3`,
-  then, only if `true`, `MyMod.compact/3`, locally.
+  then, only if `true`, `MyMod.compact/4`, locally.
 - `state.compactor: MyMod` + `state.sidecar_node: node` → `:rpc.call` to the
   sidecar node for both calls (same two-call shape); falls back to the
   built-in compactor if either RPC fails (`:badrpc`).
@@ -186,7 +196,8 @@ Planck.Agent.start_link(
 @callback compact(
             state :: Planck.Agent.t(),
             context :: Planck.AI.Context.t(),
-            recent :: [Message.t()]
+            recent :: [Message.t()],
+            args :: %{prompt: String.t() | nil}
           ) :: {:compact, summary :: Message.t(), kept :: [Message.t()]} | :skip
 @callback compact_timeout() :: pos_integer()
 
@@ -195,6 +206,11 @@ Planck.Agent.start_link(
         state :: Planck.Agent.t(),
         context :: Planck.AI.Context.t(),
         recent :: [Message.t()],
-        opts :: [on_compacting: (-> any()), on_compacted: (-> any())]
+        opts :: [
+          on_compacting: (-> any()),
+          on_compacted: (-> any()),
+          args: %{prompt: String.t() | nil},
+          force: boolean()
+        ]
       ) :: {:compact, Message.t(), [Message.t()]} | :skip
 ```

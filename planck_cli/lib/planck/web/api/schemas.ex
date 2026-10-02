@@ -131,6 +131,25 @@ defmodule Planck.Web.API.Schemas do
     })
   end
 
+  defmodule CancelQueued do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      properties: %{
+        message_id: %Schema{
+          type: :string,
+          description:
+            "The agent-side string id of the queued message to cancel. " <>
+              "Only messages still unpersisted (not yet flushed to the session) can be cancelled."
+        }
+      },
+      required: [:message_id],
+      example: %{message_id: "a1b2c3d4e5f6g7h8"}
+    })
+  end
+
   defmodule TeamSummary do
     @moduledoc false
     require OpenApiSpex

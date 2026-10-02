@@ -302,6 +302,71 @@ defmodule Planck.Agent.SessionTest do
     end
   end
 
+  describe "clear/1" do
+    test "deletes all message rows" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("first"))
+      Session.append(id, "a1", assistant_msg("second"))
+      Session.append(id, "a1", summary_msg("checkpoint"))
+      Session.append(id, "a1", user_msg("fourth"))
+      Process.sleep(50)
+
+      {:ok, rows} = Session.messages(id)
+      assert length(rows) == 4
+
+      :ok = Session.clear(id)
+
+      {:ok, rows_after} = Session.messages(id)
+      assert rows_after == []
+    end
+
+    test "preserves the metadata table" do
+      {id, _} = start_session()
+      :ok = Session.save_metadata(id, %{"team_alias" => "my-team", "cwd" => "/app"})
+      Session.append(id, "a1", user_msg("msg"))
+      Process.sleep(50)
+
+      :ok = Session.clear(id)
+
+      {:ok, meta} = Session.get_metadata(id)
+      assert meta["team_alias"] == "my-team"
+      assert meta["cwd"] == "/app"
+    end
+
+    test "subsequent append starts from row id 1 again" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("first"))
+      Process.sleep(50)
+
+      {:ok, [row]} = Session.messages(id)
+      assert row.db_id == 1
+
+      :ok = Session.clear(id)
+
+      Session.append(id, "a1", user_msg("after clear"))
+      Process.sleep(50)
+
+      {:ok, [row_after]} = Session.messages(id)
+      assert row_after.db_id == 1
+    end
+
+    test "deletes across all agents" do
+      {id, _} = start_session()
+      Session.append(id, "a1", user_msg("a1 msg"))
+      Session.append(id, "a2", user_msg("a2 msg"))
+      Process.sleep(50)
+
+      :ok = Session.clear(id)
+
+      {:ok, rows} = Session.messages(id)
+      assert rows == []
+    end
+
+    test "returns :not_found for unknown session" do
+      assert {:error, :not_found} = Session.clear("ghost-session")
+    end
+  end
+
   describe "find_by_id/2 and find_by_name/2" do
     test "find_by_id resolves path and name", %{tmp_dir: dir} do
       {id, _pid} = start_session(name: "crazy-mango", dir: dir)

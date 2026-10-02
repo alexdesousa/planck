@@ -151,6 +151,20 @@ defmodule Planck.Agent.Session do
   end
 
   @doc """
+  Delete all messages in the session. The `metadata` table is preserved.
+
+  Used by the `/clear` slash command to wipe the conversation history while
+  keeping the session process and its metadata alive.
+  """
+  @spec clear(session_id()) :: :ok | {:error, :not_found}
+  def clear(session_id) do
+    case whereis(session_id) do
+      {:ok, pid} -> GenServer.call(pid, :clear)
+      error -> error
+    end
+  end
+
+  @doc """
   Delete all messages with a DB row id >= `db_id`, across all agents in the session.
 
   Used when editing a previous message: truncates the session to strictly before
@@ -309,6 +323,19 @@ defmodule Planck.Agent.Session do
     :ok = Exqlite.Sqlite3.bind(stmt, [db_id])
     :done = Exqlite.Sqlite3.step(state.conn, stmt)
     :ok = Exqlite.Sqlite3.release(state.conn, stmt)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:clear, _from, state) do
+    :ok =
+      Exqlite.Sqlite3.execute(state.conn, "DELETE FROM messages")
+
+    :ok =
+      Exqlite.Sqlite3.execute(
+        state.conn,
+        "DELETE FROM sqlite_sequence WHERE name = 'messages'"
+      )
+
     {:reply, :ok, state}
   end
 
