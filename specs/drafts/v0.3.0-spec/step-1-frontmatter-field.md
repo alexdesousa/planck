@@ -1,6 +1,6 @@
 # Step 1 — Frontmatter field `disable-model-invocation`
 
-Part of [v0.2.6-spec](../v0.2.6-spec.md).
+Part of [v0.3.0-spec](../v0.3.0-spec.md).
 
 ## Description
 

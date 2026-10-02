@@ -1,6 +1,6 @@
 # Step 3 — Preserve `disable-model-invocation` in the sidecar `write_skill` tool
 
-Part of [v0.2.6-spec](../v0.2.6-spec.md). Depends on
+Part of [v0.3.0-spec](../v0.3.0-spec.md). Depends on
 [Step 1](step-1-frontmatter-field.md).
 
 ## Description

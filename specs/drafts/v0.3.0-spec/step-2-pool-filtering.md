@@ -1,6 +1,6 @@
 # Step 2 — Filter disabled skills out of the agent-facing pool
 
-Part of [v0.2.6-spec](../v0.2.6-spec.md). Depends on
+Part of [v0.3.0-spec](../v0.3.0-spec.md). Depends on
 [Step 1](step-1-frontmatter-field.md).
 
 ## Description
@@ -141,7 +141,7 @@ These tests touch `ResourceStore` (global state), so they must use
 
 ## Open question
 
-See [v0.2.6-spec.md](../v0.2.6-spec.md) Open Question 2: whether
+See [v0.3.0-spec.md](../v0.3.0-spec.md) Open Question 2: whether
 `spawn_agent`'s `filter_granted` should also hide disabled skills. This
 step's Definition of Done does **not** change the `spawn_agent` path —
 confirm during implementation whether that's the desired behaviour; if so,
