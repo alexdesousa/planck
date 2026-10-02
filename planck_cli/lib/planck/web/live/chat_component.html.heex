@@ -66,6 +66,27 @@
               <% end %>
             </div>
           <% else %>
+            <%= if entry.type == :command and entry.author == :user do %>
+              <div class="border-2 border-black shadow-[2px_2px_0px_#000] bg-muted">
+                <button
+                  class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted/80
+                         font-mono text-xs text-left"
+                  phx-click="toggle_entry"
+                  phx-value-id={entry.id}
+                  phx-target={@myself}
+                >
+                  <span class="text-muted-foreground"><%= if entry.expanded, do: "▼", else: "▶" %></span>
+                  <span class="font-bold text-foreground">
+                    /<%= entry.command.name %><%= if entry.command.args, do: " #{Enum.join(entry.command.args, " ")}" %>
+                  </span>
+                </button>
+                <%= if entry.expanded and entry.text do %>
+                  <div class="border-t-2 border-black/20 px-3 py-2">
+                    <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+                  </div>
+                <% end %>
+              </div>
+            <% else %>
             <div class="flex flex-col items-end gap-1">
               <%= if entry.type == :user && is_integer(entry.id) do %>
                 <button
@@ -96,6 +117,7 @@
                 <div class="chat-prose"><%= render_markdown(entry.text) %></div>
               </div>
             </div>
+            <% end %>
           <% end %>
         </div>
       </div>
@@ -217,6 +239,13 @@
             <div class="flex-1 border-t border-dashed border-border" />
           </div>
 
+        <% :clear -> %>
+          <div class="flex items-center gap-2 my-2">
+            <div class="flex-1 border-t border-dashed border-border" />
+            <span class="font-mono text-xs text-muted-foreground px-2"><%= pgettext("chat label", "conversation cleared") %></span>
+            <div class="flex-1 border-t border-dashed border-border" />
+          </div>
+
         <% :ui_text -> %>
           <div class="max-w-[70%]">
             <p class="font-mono text-xs text-muted-foreground mb-1"><%= author_label(entry.author) %></p>
@@ -237,6 +266,29 @@
               <span class="text-muted-foreground">▢</span>
               <span class="font-bold text-foreground"><%= entry.label %></span>
             </button>
+          </div>
+
+        <% :command -> %>
+          <div class="max-w-[70%]">
+            <div class="border-2 border-dashed border-border">
+              <button
+                class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50
+                       font-mono text-xs text-left"
+                phx-click="toggle_entry"
+                phx-value-id={entry.id}
+                phx-target={@myself}
+              >
+                <span class="text-muted-foreground"><%= if entry.expanded, do: "▼", else: "▶" %></span>
+                <span class="text-muted-foreground font-bold">
+                  /<%= entry.command.name %><%= if entry.command.args, do: " #{Enum.join(entry.command.args, " ")}" %>
+                </span>
+              </button>
+              <%= if entry.expanded and entry.text do %>
+                <div class="border-t-2 border-dashed border-border px-3 py-2">
+                  <div class="chat-prose text-muted-foreground"><%= render_markdown(entry.text) %></div>
+                </div>
+              <% end %>
+            </div>
           </div>
 
         <% _ -> %>
@@ -277,26 +329,48 @@
     <div class="flex justify-end">
       <div class="max-w-[70%]">
         <div class="flex flex-col items-end gap-1">
-          <%= if entry.editable do %>
+          <%= if entry.type == :command do %>
             <button
               class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
                      shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
                      hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
-              phx-click="open_edit_queued"
-              phx-value-queued-id={entry.id}
-              phx-value-text={entry.text}
+              phx-click="delete_pending_command"
+              phx-value-id={entry.id}
               phx-target={@myself}
             >
-              <span class="text-base">✎</span> <%= pgettext("button label", "edit") %>
+              <span class="text-base">✕</span> <%= pgettext("button label", "delete") %>
             </button>
+            <div class="border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000] bg-muted opacity-70">
+              <p class="font-mono text-xs mb-1 flex items-center gap-2 text-muted-foreground">
+                <span class="font-bold">/<%= entry.command.name %><%= if entry.command.args, do: " #{Enum.join(entry.command.args, " ")}" %></span>
+                <span class="opacity-60"><%= pgettext("chat label", "queued") %></span>
+              </p>
+              <%= if entry.text do %>
+                <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+              <% end %>
+            </div>
+          <% else %>
+            <%= if entry.editable do %>
+              <button
+                class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
+                       shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                       hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+                phx-click="open_edit_queued"
+                phx-value-queued-id={entry.id}
+                phx-value-text={entry.text}
+                phx-target={@myself}
+              >
+                <span class="text-base">✎</span> <%= pgettext("button label", "edit") %>
+              </button>
+            <% end %>
+            <div class="border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000] bg-muted opacity-70">
+              <p class="font-mono text-xs mb-1 flex items-center gap-2 text-muted-foreground">
+                <%= author_label(entry.author) %>
+                <span class="opacity-60"><%= pgettext("chat label", "queued") %></span>
+              </p>
+              <div class="chat-prose"><%= render_markdown(entry.text) %></div>
+            </div>
           <% end %>
-          <div class="border-2 border-black px-3 py-2 shadow-[2px_2px_0px_#000] bg-muted opacity-70">
-            <p class="font-mono text-xs mb-1 flex items-center gap-2 text-muted-foreground">
-              <%= author_label(entry.author) %>
-              <span class="opacity-60"><%= pgettext("chat label", "queued") %></span>
-            </p>
-            <div class="chat-prose"><%= render_markdown(entry.text) %></div>
-          </div>
         </div>
       </div>
     </div>

@@ -109,8 +109,7 @@ defmodule Planck.Agent.MessageTest do
     test "{:custom, :command} with invoked_by: :user converts to :user" do
       messages = [
         Message.new({:custom, :command}, [{:text, "Run the checklist."}], %{
-          command: "review-checklist",
-          args: "src/auth",
+          command: %{name: "review-checklist", args: ["src/auth"]},
           invoked_by: :user
         })
       ]
@@ -123,12 +122,22 @@ defmodule Planck.Agent.MessageTest do
     test "{:custom, :command} with invoked_by: :assistant is dropped" do
       messages = [
         Message.new({:custom, :command}, [{:text, "Agent ran a command."}], %{
-          command: "auto-cmd",
+          command: %{name: "auto-cmd", args: []},
           invoked_by: :assistant
         })
       ]
 
       assert Message.to_ai_messages(messages) == []
+    end
+
+    test "{:custom, :clear} converts to :user" do
+      messages = [
+        Message.new({:custom, :clear}, [{:text, "Previous conversation cleared."}])
+      ]
+
+      [ai_msg] = Message.to_ai_messages(messages)
+      assert ai_msg.role == :user
+      assert ai_msg.content == [{:text, "Previous conversation cleared."}]
     end
 
     test "{:custom, :command} without invoked_by metadata is dropped" do
@@ -137,27 +146,6 @@ defmodule Planck.Agent.MessageTest do
       ]
 
       assert Message.to_ai_messages(messages) == []
-    end
-
-    test "{:custom, :skill} converts to :user with the skill content" do
-      messages = [
-        Message.new({:custom, :skill}, [], %{
-          skill: %Planck.Agent.Skill{
-            name: "grill-me",
-            description: "d",
-            path: "/tmp/skills/grill-me",
-            skill_file: "/tmp/skills/grill-me/SKILL.md"
-          },
-          skill_content: "Skill directory: /path\n\n# Grill Me\n\nInstructions..."
-        })
-      ]
-
-      [ai_msg] = Message.to_ai_messages(messages)
-      assert ai_msg.role == :user
-
-      assert ai_msg.content == [
-               {:text, "Skill directory: /path\n\n# Grill Me\n\nInstructions..."}
-             ]
     end
   end
 end

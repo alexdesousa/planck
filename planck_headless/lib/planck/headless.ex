@@ -17,7 +17,6 @@ defmodule Planck.Headless do
   alias Planck.Agent.{
     AgentSpec,
     BuiltinTools,
-    EExRenderer,
     Message,
     Session,
     Skill,
@@ -214,8 +213,12 @@ defmodule Planck.Headless do
   @spec dispatch_prompt(pid(), String.t(), keyword()) :: :ok | {:error, :already_sent}
   defp dispatch_prompt(pid, text, opts)
 
-  defp dispatch_prompt(pid, "/clear", _opts) do
-    Agent.clear(pid)
+  defp dispatch_prompt(pid, "/clear" <> rest, opts) do
+    if String.trim(rest) == "" do
+      Agent.clear(pid)
+    else
+      dispatch_slash(pid, "/clear" <> rest, opts)
+    end
   end
 
   defp dispatch_prompt(pid, "/compact" <> prompt, _opts) do
@@ -223,6 +226,14 @@ defmodule Planck.Headless do
   end
 
   defp dispatch_prompt(pid, "/" <> _ = original, opts) do
+    dispatch_slash(pid, original, opts)
+  end
+
+  defp dispatch_prompt(pid, text, opts) do
+    Agent.prompt(pid, text, opts)
+  end
+
+  defp dispatch_slash(pid, original, opts) do
     case Regex.run(@slash_re, original, capture: :all_but_first) do
       [name, _full_extra, args] ->
         dispatch_command(pid, original, name, args, opts)
@@ -235,10 +246,6 @@ defmodule Planck.Headless do
     end
   end
 
-  defp dispatch_prompt(pid, text, opts) do
-    Agent.prompt(pid, text, opts)
-  end
-
   @spec dispatch_command(pid(), String.t(), String.t(), String.t() | nil, keyword()) ::
           :ok | {:error, :already_sent}
   defp dispatch_command(pid, original, name, args, opts)
@@ -248,9 +255,7 @@ defmodule Planck.Headless do
 
     cond do
       command = find_by_name(store.commands, name) ->
-        rendered = EExRenderer.render(command.template, args: args)
-        command_meta = %{command: name, args: args, invoked_by: :user}
-        Agent.command(pid, command_meta, rendered)
+        Agent.command(pid, command, args)
 
       skill = find_by_name(store.skills, name) ->
         dispatch_skill(pid, skill, args, opts)

@@ -1,4 +1,50 @@
-<div class="border-t-2 border-border p-3 bg-card">
+<div id={"prompt-container-#{@id}"} class="border-t-2 border-border p-3 bg-card relative">
+  <%= if @dropdown_open do %>
+    <div
+      id={"command-dropdown-#{@id}"}
+      class="command-dropdown absolute bottom-full left-3 right-3 mb-1
+             border-2 border-black bg-card shadow-[4px_4px_0px_#000]
+             max-h-60 overflow-y-auto z-50"
+      phx-hook="CommandDropdown"
+    >
+      <%= for {cmd, index} <- Enum.with_index(@command_matches) do %>
+        <button
+          type="button"
+          class={"w-full flex items-center gap-2 px-3 py-1.5 text-left font-mono text-xs
+                 border-b border-border/50 last:border-b-0 transition-colors
+                 #{if index == @selected_index, do: "bg-muted", else: "hover:bg-muted/50"}"}
+          phx-click="select_command"
+          phx-value-name={cmd.name}
+          phx-target={@myself}
+          data-command-index={index}
+          data-command-name={cmd.name}
+        >
+          <span class="font-bold text-foreground flex-shrink-0">/<%= cmd.name %></span>
+          <span class="text-muted-foreground truncate flex-1"><%= command_subtitle(cmd) %></span>
+          <span class="flex-shrink-0 flex gap-1">
+            <%= if cmd.kind == :builtin do %>
+              <span class="px-1.5 py-0.5 border border-border text-muted-foreground text-[10px] font-bold"
+                    data-badge="builtin">
+                <%= pgettext("command badge", "builtin") %>
+              </span>
+            <% end %>
+            <%= if cmd.kind == :command do %>
+              <span class="px-1.5 py-0.5 border border-border text-muted-foreground text-[10px] font-bold"
+                    data-badge="command">
+                <%= pgettext("command badge", "command") %>
+              </span>
+            <% end %>
+            <%= if cmd.kind == :skill and cmd.disable_model_invocation do %>
+              <span class="px-1.5 py-0.5 border border-border text-muted-foreground text-[10px] font-bold"
+                    data-badge="manual">
+                <%= pgettext("command badge", "manual") %>
+              </span>
+            <% end %>
+          </span>
+        </button>
+      <% end %>
+    </div>
+  <% end %>
   <form phx-submit="submit" phx-change="change" phx-target={@myself} class="flex gap-2">
     <textarea
       name="prompt"

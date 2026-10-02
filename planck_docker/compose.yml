@@ -123,7 +123,7 @@ services:
       # request landing in that narrow window can still see the same
       # "Access denied" this was written to fix; it's expected to be
       # rare and self-heal via beads' own restart, not fully closed here.
-      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306'"]
+      test: ["CMD-SHELL", "bash -c 'cd / && cat < /dev/null > /dev/tcp/127.0.0.1/3306'"]
       interval: 5s
       retries: 10
     restart: unless-stopped

@@ -4,7 +4,7 @@ defmodule Planck.Agent.AgentTest do
   import Mox
 
   alias Planck.Agent
-  alias Planck.Agent.{Message, MockAI, Session, Tool}
+  alias Planck.Agent.{Command, Message, MockAI, Session, Tool}
   alias Planck.AI.{Context, Model}
 
   setup :set_mox_global
@@ -736,7 +736,7 @@ defmodule Planck.Agent.AgentTest do
   end
 
   describe "clear/1" do
-    test "wipes all messages when idle and broadcasts :cleared" do
+    test "clears messages and broadcasts :cleared when idle" do
       stream_events([{:text_delta, "hi"}, {:done, %{}}])
       agent = start_agent(system_prompt: "hi")
       Agent.subscribe(agent)
@@ -752,7 +752,8 @@ defmodule Planck.Agent.AgentTest do
       assert_receive {:agent_event, :cleared, _}, 1_000
 
       state = Agent.get_state(agent)
-      assert state.messages == []
+      assert length(state.messages) == 1
+      assert hd(state.messages).role == {:custom, :clear}
       assert state.turn_state.checkpoints == []
       assert state.status == :idle
     end
@@ -791,8 +792,13 @@ defmodule Planck.Agent.AgentTest do
       assert_receive {:agent_event, :cleared, _}, 2_000
 
       state = Agent.get_state(agent)
-      assert state.messages == []
-      refute Enum.any?(state.messages, &(&1.role == {:custom, :clear}))
+      assert length(state.messages) == 1
+      assert hd(state.messages).role == {:custom, :clear}
+
+      refute Enum.any?(
+               state.messages,
+               &(&1.role == {:custom, :clear} and &1 != hd(state.messages))
+             )
     end
 
     test "pending clear wipes queued user messages" do
@@ -810,7 +816,8 @@ defmodule Planck.Agent.AgentTest do
       assert_receive {:agent_event, :cleared, _}, 2_000
 
       state = Agent.get_state(agent)
-      assert state.messages == []
+      assert length(state.messages) == 1
+      assert hd(state.messages).role == {:custom, :clear}
     end
 
     test "cancel_queued/2 removes a queued :clear marker" do
@@ -828,6 +835,9 @@ defmodule Planck.Agent.AgentTest do
       assert marker != nil
 
       :ok = Agent.cancel_queued(agent, marker.id)
+
+      marker_id = marker.id
+      assert_receive {:agent_event, :message_cancelled, %{id: ^marker_id}}, 1_000
 
       state = Agent.get_state(agent)
       refute Enum.any?(state.messages, &(&1.role == {:custom, :clear}))
@@ -961,6 +971,9 @@ defmodule Planck.Agent.AgentTest do
 
       :ok = Agent.cancel_queued(agent, marker.id)
 
+      marker_id = marker.id
+      assert_receive {:agent_event, :message_cancelled, %{id: ^marker_id}}, 1_000
+
       state = Agent.get_state(agent)
       refute Enum.any?(state.messages, &(&1.role == {:custom, :compact}))
 
@@ -970,13 +983,22 @@ defmodule Planck.Agent.AgentTest do
   end
 
   describe "command/3" do
+    defp test_command do
+      %Command{
+        name: "review-checklist",
+        description: "test",
+        path: "/tmp",
+        command_file: "/tmp/COMMAND.md",
+        template: "You are reviewing: <%= Enum.join(args, \" \") %>"
+      }
+    end
+
     test "enqueues a {:custom, :command} message and starts a turn when idle" do
       stream_events([{:text_delta, "hi"}, {:done, %{}}])
       agent = start_agent(system_prompt: "hi")
       Agent.subscribe(agent)
 
-      command_meta = %{command: "review-checklist", args: "src/auth", invoked_by: :user}
-      :ok = Agent.command(agent, command_meta, "You are reviewing: src/auth")
+      :ok = Agent.command(agent, test_command(), "src/auth")
 
       assert_receive {:agent_event, :turn_start, _}, 1_000
       assert_receive {:agent_event, :turn_end, _}, 1_000
@@ -984,7 +1006,9 @@ defmodule Planck.Agent.AgentTest do
       state = Agent.get_state(agent)
       command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
       assert command_msg != nil
-      assert command_msg.metadata == command_meta
+      assert command_msg.metadata.command.name == "review-checklist"
+      assert command_msg.metadata.command.args == ["src/auth"]
+      assert command_msg.metadata.invoked_by == :user
     end
 
     test "stacks in state.messages and broadcasts :message_queued when busy" do
@@ -995,17 +1019,21 @@ defmodule Planck.Agent.AgentTest do
       Agent.prompt(agent, "first")
       assert_receive {:agent_event, :turn_start, _}, 1_000
 
-      command_meta = %{command: "review-checklist", args: "src/auth", invoked_by: :user}
-      :ok = Agent.command(agent, command_meta, "You are reviewing: src/auth")
+      :ok = Agent.command(agent, test_command(), "src/auth")
+
+      expected_meta = %{
+        command: %{name: "review-checklist", args: ["src/auth"]},
+        invoked_by: :user
+      }
 
       assert_receive {:agent_event, :message_queued,
-                      %{role: :command, command_meta: ^command_meta}},
+                      %{role: :command, command_meta: ^expected_meta}},
                      1_000
 
       state = Agent.get_state(agent)
       command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
       assert command_msg != nil
-      assert command_msg.metadata == command_meta
+      assert command_msg.metadata == expected_meta
 
       :atomics.put(gate, 1, 1)
       assert_receive {:agent_event, :turn_end, _}, 2_000
@@ -1019,12 +1047,14 @@ defmodule Planck.Agent.AgentTest do
       Agent.prompt(agent, "first")
       assert_receive {:agent_event, :turn_start, _}, 1_000
 
-      command_meta = %{command: "review-checklist", args: "src/auth", invoked_by: :user}
-      :ok = Agent.command(agent, command_meta, "You are reviewing: src/auth")
+      :ok = Agent.command(agent, test_command(), "src/auth")
 
       state = Agent.get_state(agent)
       command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
       :ok = Agent.cancel_queued(agent, command_msg.id)
+
+      command_msg_id = command_msg.id
+      assert_receive {:agent_event, :message_cancelled, %{id: ^command_msg_id}}, 1_000
 
       state = Agent.get_state(agent)
       refute Enum.any?(state.messages, &(&1.role == {:custom, :command}))
@@ -1037,7 +1067,9 @@ defmodule Planck.Agent.AgentTest do
   describe "cancel_queued/2" do
     test "returns :not_found for an absent id" do
       agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
       assert {:error, :not_found} = Agent.cancel_queued(agent, "nonexistent")
+      refute_received {:agent_event, :message_cancelled, _}
     end
 
     test "returns :already_sent for a persisted (db id) message" do
@@ -1053,6 +1085,7 @@ defmodule Planck.Agent.AgentTest do
       assert persisted != nil
 
       assert {:error, :already_sent} = Agent.cancel_queued(agent, persisted.id)
+      refute_received {:agent_event, :message_cancelled, _}
     end
 
     test "removes a queued user message" do
@@ -1071,6 +1104,9 @@ defmodule Planck.Agent.AgentTest do
 
       :ok = Agent.cancel_queued(agent, queued.id)
 
+      queued_id = queued.id
+      assert_receive {:agent_event, :message_cancelled, %{id: ^queued_id}}, 1_000
+
       state = Agent.get_state(agent)
       refute Enum.any?(state.messages, &(&1.id == queued.id))
 
@@ -1082,7 +1118,7 @@ defmodule Planck.Agent.AgentTest do
   # --- rewind_to_message ---
 
   describe "load_skill/3" do
-    test "loads a skill and starts a turn when idle" do
+    test "loads a skill as a tool call and starts a turn when idle" do
       stream_events([{:text_delta, "hi"}, {:done, %{}}])
       agent = start_agent(system_prompt: "hi")
       Agent.subscribe(agent)
@@ -1107,11 +1143,16 @@ defmodule Planck.Agent.AgentTest do
       assert_receive {:agent_event, :turn_end, _}, 1_000
 
       state = Agent.get_state(agent)
-      skill_msg = Enum.find(state.messages, &(&1.role == {:custom, :skill}))
-      assert skill_msg != nil
-      assert skill_msg.metadata.skill.name == "grill-me"
-      assert skill_msg.metadata.skill_content =~ "Skill directory:"
-      assert skill_msg.metadata.skill_content =~ "# Grill Me"
+
+      tool_call_msg =
+        Enum.find(state.messages, fn msg ->
+          match?(%{role: :assistant, content: [{:tool_call, _, "load_skill", _}]}, msg)
+        end)
+
+      assert tool_call_msg != nil
+
+      tool_result_msg = Enum.find(state.messages, &(&1.role == :tool_result))
+      assert tool_result_msg != nil
 
       user_msg = Enum.find(state.messages, &(&1.role == :user))
       assert user_msg != nil
@@ -1121,7 +1162,7 @@ defmodule Planck.Agent.AgentTest do
       File.rm_rf!("/tmp/planck_test_skills")
     end
 
-    test "stacks skill + user message when busy" do
+    test "stacks tool call + user message when busy" do
       gate = stream_blocking([{:text_delta, "hi"}])
       agent = start_agent(system_prompt: "hi")
       Agent.subscribe(agent)
@@ -1144,9 +1185,13 @@ defmodule Planck.Agent.AgentTest do
       assert_receive {:agent_event, :message_queued, _}, 1_000
 
       state = Agent.get_state(agent)
-      skill_msg = Enum.find(state.messages, &(&1.role == {:custom, :skill}))
-      assert skill_msg != nil
-      assert skill_msg.metadata.skill.name == "grill-me"
+
+      tool_call_msg =
+        Enum.find(state.messages, fn msg ->
+          match?(%{role: :assistant, content: [{:tool_call, _, "load_skill", _}]}, msg)
+        end)
+
+      assert tool_call_msg != nil
 
       queued_user = Enum.find(state.messages, &(&1.role == :user and is_binary(&1.id)))
       assert queued_user != nil

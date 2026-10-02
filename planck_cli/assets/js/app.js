@@ -10,16 +10,136 @@ const Hooks = {}
 Hooks.LiveToast = createLiveToastHook()
 
 // Submit on Enter, newline on Shift+Enter.
-// ↑/↓ on empty first line navigates message history.
 // Auto-grow is handled by field-sizing: content (Chrome/Safari).
+// When the command dropdown is open, ↑/↓ navigate, Enter selects,
+// Escape closes — see CommandDropdown hook for the dropdown state.
 Hooks.PromptInput = {
   mounted() {
+    this.dropdownOpen = false
+    this.selectedIndex = 0
+    this.matches = []
+    this.el.__promptHook = this
+
+    this.handleEvent("select-textarea", ({text}) => {
+      this.el.value = text
+      this.el.focus()
+      this.el.setSelectionRange(text.length, text.length)
+    })
+
     this.el.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (this.dropdownOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault()
+          this.moveSelection(1)
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault()
+          this.moveSelection(-1)
+        } else if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault()
+          this.selectCurrent()
+          return
+        } else if (e.key === "Escape") {
+          e.preventDefault()
+          this.pushEventTo(this.el, "close_dropdown", {})
+          this.dropdownOpen = false
+          this.updateHighlight()
+          return
+        }
+      } else if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
         this.el.closest("form").requestSubmit()
       }
     })
+  },
+
+  moveSelection(delta) {
+    const n = this.matches.length
+    if (n === 0) return
+    this.selectedIndex = (this.selectedIndex + delta + n) % n
+    this.pushEventTo(this.el, "navigate", { index: this.selectedIndex })
+    this.updateHighlight()
+    this.scrollIntoView()
+  },
+
+  selectCurrent() {
+    if (this.matches.length === 0) return
+    const cmd = this.matches[this.selectedIndex]
+    if (!cmd) return
+    this.pushEventTo(this.el, "select_command", { name: cmd })
+    this.dropdownOpen = false
+    this.matches = []
+    this.updateHighlight()
+  },
+
+  updateHighlight() {
+    const dropdown = this.el.closest(".border-t-2")?.querySelector(".command-dropdown")
+    if (!dropdown) return
+    dropdown.querySelectorAll("button[data-command-index]").forEach((btn) => {
+      const idx = parseInt(btn.dataset.commandIndex, 10)
+      if (idx === this.selectedIndex) {
+        btn.classList.add("bg-muted")
+        btn.classList.remove("hover:bg-muted/50")
+      } else {
+        btn.classList.remove("bg-muted")
+        btn.classList.add("hover:bg-muted/50")
+      }
+    })
+  },
+
+  scrollIntoView() {
+    const dropdown = this.el.closest(".border-t-2")?.querySelector(".command-dropdown")
+    if (!dropdown) return
+    const btn = dropdown.querySelector(`button[data-command-index="${this.selectedIndex}"]`)
+    if (btn) btn.scrollIntoView({ block: "nearest" })
+  }
+}
+
+// Tracks the command dropdown state from the server and keeps the
+// PromptInput hook's local state in sync. Listens for dropdown open/close
+// events by observing the DOM for the dropdown panel element.
+Hooks.CommandDropdown = {
+  mounted() {
+    const container = this.el.closest(".border-t-2")
+    const textarea = container?.querySelector("textarea")
+    if (!textarea) return
+
+    const syncState = () => {
+      const promptHook = textarea.__promptHook
+      const dropdown = container.querySelector(".command-dropdown")
+
+      if (dropdown) {
+        const buttons = dropdown.querySelectorAll("button[data-command-name]")
+        const matches = Array.from(buttons).map((b) => b.dataset.commandName)
+        const selectedBtn = dropdown.querySelector("button.bg-muted[data-command-name]")
+        const selectedIndex = selectedBtn
+          ? parseInt(selectedBtn.dataset.commandIndex, 10)
+          : 0
+
+        if (promptHook) {
+          promptHook.dropdownOpen = true
+          promptHook.matches = matches
+          promptHook.selectedIndex = selectedIndex
+        }
+      } else {
+        if (promptHook) {
+          promptHook.dropdownOpen = false
+          promptHook.matches = []
+        }
+      }
+    }
+
+    this.syncState = syncState
+    this.observer = new MutationObserver(syncState)
+    this.observer.observe(container, { childList: true, subtree: true })
+    syncState()
+  },
+
+  updated() {
+    this.syncState()
+  },
+
+  destroyed() {
+    this.observer?.disconnect()
   }
 }
 

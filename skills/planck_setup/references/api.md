@@ -213,6 +213,9 @@ data: {"agent_id":"orch-id","total":{"input_tokens":1200,"output_tokens":340,"co
 | `usage_delta` | `agent_id`, `total` (`input_tokens`, `output_tokens`, `cost`) | Usage update |
 | `compacting` | `agent_id` | Context compaction in progress |
 | `compacted` | `agent_id` | Context compaction complete |
+| `message_queued` | `agent_id`, `id`, `content` | Message queued while agent was busy |
+| `messages_flushed` | `agent_id` | Queued messages persisted to the session |
+| `message_cancelled` | `agent_id`, `id` | A queued message was cancelled before processing |
 | `error` | `agent_id`, `reason` | Agent error |
 
 ---

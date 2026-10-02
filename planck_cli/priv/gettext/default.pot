@@ -57,50 +57,50 @@ msgctxt "button label"
 msgid "Resend"
 msgstr ""
 
-#: lib/planck/web/live/prompt_input.html.heex:46
+#: lib/planck/web/live/prompt_input.html.heex:92
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Send"
 msgstr ""
 
-#: lib/planck/web/live/prompt_input.html.heex:24
+#: lib/planck/web/live/prompt_input.html.heex:70
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Stop"
 msgstr ""
 
-#: lib/planck/web/live/prompt_input.html.heex:36
+#: lib/planck/web/live/prompt_input.html.heex:82
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "Stop All"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:80
-#: lib/planck/web/live/chat_component.html.heex:290
+#: lib/planck/web/live/chat_component.html.heex:101
+#: lib/planck/web/live/chat_component.html.heex:363
 #, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "edit"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:263
+#: lib/planck/web/live/chat_component.html.heex:315
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "agent"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:252
+#: lib/planck/web/live/chat_component.html.heex:304
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "compacting context…"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:216
+#: lib/planck/web/live/chat_component.html.heex:238
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "context compacted"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:203
+#: lib/planck/web/live/chat_component.html.heex:225
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "error"
@@ -112,19 +112,19 @@ msgctxt "chat label"
 msgid "responded"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:130
+#: lib/planck/web/live/chat_component.html.heex:152
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "thinking"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:130
+#: lib/planck/web/live/chat_component.html.heex:152
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "thinking…"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.ex:389
+#: lib/planck/web/live/chat_component.ex:458
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"
@@ -203,7 +203,7 @@ msgctxt "modal title"
 msgid "New Session"
 msgstr ""
 
-#: lib/planck/web/live/prompt_input.html.heex:9
+#: lib/planck/web/live/prompt_input.html.heex:55
 #, elixir-autogen, elixir-format
 msgctxt "placeholder"
 msgid "Message planck…"
@@ -257,43 +257,43 @@ msgctxt "status"
 msgid "no session"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:174
+#: lib/planck/web/live/chat_component.html.heex:196
 #, elixir-autogen, elixir-format
 msgctxt "tool label"
 msgid "input"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:180
+#: lib/planck/web/live/chat_component.html.heex:202
 #, elixir-autogen, elixir-format
 msgctxt "tool label"
 msgid "output"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:164
+#: lib/planck/web/live/chat_component.html.heex:186
 #, elixir-autogen, elixir-format
 msgctxt "tool status"
 msgid "done"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:162
+#: lib/planck/web/live/chat_component.html.heex:184
 #, elixir-autogen, elixir-format
 msgctxt "tool status"
 msgid "error"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:166
+#: lib/planck/web/live/chat_component.html.heex:188
 #, elixir-autogen, elixir-format
 msgctxt "tool status"
 msgid "running…"
 msgstr ""
 
-#: lib/planck/web/live/prompt_input.html.heex:22
+#: lib/planck/web/live/prompt_input.html.heex:68
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
 msgid "Stop"
 msgstr ""
 
-#: lib/planck/web/live/prompt_input.html.heex:34
+#: lib/planck/web/live/prompt_input.html.heex:80
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
 msgid "Stop All"
@@ -403,7 +403,7 @@ msgctxt "setup title"
 msgid "Configure Planck"
 msgstr ""
 
-#: lib/planck/web/live/session_live.html.heex:81
+#: lib/planck/web/live/session_live.html.heex:82
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
 msgid "Configure models"
@@ -907,7 +907,8 @@ msgstr ""
 msgid "%{action} succeeded"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.html.heex:296
+#: lib/planck/web/live/chat_component.html.heex:346
+#: lib/planck/web/live/chat_component.html.heex:369
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "queued"
@@ -935,4 +936,34 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgctxt "setup help"
 msgid "RLCD models can't be set as default — they can't serve chat."
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:341
+#, elixir-autogen, elixir-format
+msgctxt "button label"
+msgid "delete"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:28
+#, elixir-autogen, elixir-format
+msgctxt "command badge"
+msgid "builtin"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:34
+#, elixir-autogen, elixir-format
+msgctxt "command badge"
+msgid "command"
+msgstr ""
+
+#: lib/planck/web/live/prompt_input.html.heex:40
+#, elixir-autogen, elixir-format
+msgctxt "command badge"
+msgid "manual"
+msgstr ""
+
+#: lib/planck/web/live/chat_component.html.heex:245
+#, elixir-autogen, elixir-format
+msgctxt "chat label"
+msgid "conversation cleared"
 msgstr ""

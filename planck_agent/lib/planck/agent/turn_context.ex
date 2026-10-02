@@ -39,6 +39,7 @@ defmodule Planck.Agent.TurnContext do
       %{role: {:custom, :agent_response}} -> true
       %{role: {:custom, :command}, metadata: %{invoked_by: :user}} -> true
       %{role: {:custom, :skill}} -> true
+      %{role: :assistant, metadata: %{invoked_by: :user}} -> true
       _ -> false
     end)
   end

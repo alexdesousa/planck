@@ -1374,7 +1374,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       """)
     end
 
-    test "/clear wipes the session", %{tmp_dir: dir} do
+    test "/clear inserts a clear checkpoint", %{tmp_dir: dir} do
       configure_available_model("llama3.2")
       on_exit(fn -> clear_available_model() end)
       team_dir = write_team(dir, "clear-team")
@@ -1388,6 +1388,13 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       :ok = Headless.prompt(session_id, "/clear")
       assert_receive {:agent_event, :cleared, _}, 1_000
+
+      {:ok, meta} = Session.get_metadata(session_id)
+      [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
+      state = Agent.get_state(orch_pid)
+
+      clear_msg = Enum.find(state.messages, &(&1.role == {:custom, :clear}))
+      assert clear_msg != nil
     end
 
     test "/compact with prompt forces compaction", %{tmp_dir: dir} do
@@ -1463,8 +1470,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
       assert command_msg != nil
-      assert command_msg.metadata.command == "review-checklist"
-      assert command_msg.metadata.args == "src/auth"
+      assert command_msg.metadata.command == %{name: "review-checklist", args: ["src/auth"]}
       assert command_msg.metadata.invoked_by == :user
       assert Enum.any?(command_msg.content, fn {:text, text} -> text =~ "src/auth" end)
     end
@@ -1495,10 +1501,10 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
       assert command_msg != nil
-      assert command_msg.metadata.args == nil
+      assert command_msg.metadata.command.args == []
     end
 
-    test "skill slash command loads the skill via {:custom, :skill} message", %{tmp_dir: dir} do
+    test "skill slash command loads the skill via load_skill tool call", %{tmp_dir: dir} do
       configure_available_model("llama3.2")
       on_exit(fn -> clear_available_model() end)
       commands_dir = Path.join(dir, "commands")
@@ -1522,11 +1528,12 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      skill_msg = Enum.find(state.messages, &(&1.role == {:custom, :skill}))
-      assert skill_msg != nil
-      assert skill_msg.metadata.skill.name == "grill-me"
-      assert skill_msg.metadata.skill_content =~ "Skill directory:"
-      assert skill_msg.metadata.skill_content =~ "grill-me"
+      tool_call_msg =
+        Enum.find(state.messages, fn msg ->
+          match?({:tool_call, _, "load_skill", %{"name" => "grill-me"}}, hd(msg.content))
+        end)
+
+      assert tool_call_msg != nil
 
       user_msg =
         Enum.find(state.messages, fn msg ->

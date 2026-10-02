@@ -27,8 +27,11 @@ INIT_CONFIG=0
 [ "$1" = "init-config" ] && INIT_CONFIG=1
 
 # ── Tear down existing environment (default and init-config) ─────────────────
-if [ "$PRESERVE" = "0" ]; then
-  rm -rf "$DEV_DIR"
+if [ "$PRESERVE" = "0" ] && [ -d "$DEV_DIR" ]; then
+  dc -f planck_docker/compose.yml --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
+  # beads/dolt write root-owned files into bind mounts; rm -rf fails on Linux
+  # without sudo. Run the removal inside a container to sidestep UID mismatch.
+  docker run --rm -v "$(pwd):/host" alpine sh -c "rm -rf '/host/$DEV_DIR'"
   echo "  → $DEV_DIR removed."
 fi
 

@@ -111,6 +111,13 @@ defmodule Planck.Web.Live.ChatComponent do
     {:noreply, socket}
   end
 
+  def handle_event("delete_pending_command", %{"id" => id}, socket) do
+    session_id = socket.assigns.session_id
+    _ = Headless.cancel_queued_message(session_id, id)
+    pending = Enum.reject(socket.assigns.pending_entries, &(&1.id == id))
+    {:noreply, assign(socket, :pending_entries, pending)}
+  end
+
   # ---------------------------------------------------------------------------
   # Real-time event handling
   # ---------------------------------------------------------------------------
@@ -128,6 +135,7 @@ defmodule Planck.Web.Live.ChatComponent do
     |> assign(:waiting, false)
     |> assign(:streaming, true)
     |> assign(:streaming_agent_id, aid)
+    |> load_entries(socket.assigns.session_id)
   end
 
   defp handle_agent_event(socket, {:agent_event, :turn_end, _}) do
@@ -237,6 +245,17 @@ defmodule Planck.Web.Live.ChatComponent do
   defp handle_agent_event(socket, {:agent_event, :compacted, _}) do
     socket
     |> assign(:compacting, false)
+    |> assign(:waiting, false)
+    |> assign(:pending_entries, [])
+    |> load_entries(socket.assigns.session_id)
+  end
+
+  defp handle_agent_event(socket, {:agent_event, :cleared, _}) do
+    socket
+    |> assign(:waiting, false)
+    |> assign(:streaming, false)
+    |> assign(:streaming_agent_id, nil)
+    |> assign(:pending_entries, [])
     |> load_entries(socket.assigns.session_id)
   end
 
@@ -251,7 +270,65 @@ defmodule Planck.Web.Live.ChatComponent do
   # only be cleared once :messages_flushed confirms it's actually persisted.
   # A repeat with the same id is an edit of the still-queued message,
   # updating its text in place rather than appending a second entry.
-  defp handle_agent_event(socket, {:agent_event, :message_queued, %{id: id, content: content}}) do
+  defp handle_agent_event(socket, {:agent_event, :message_queued, payload}) do
+    handle_message_queued(socket, payload)
+  end
+
+  defp handle_agent_event(socket, {:agent_event, :messages_flushed, _}) do
+    socket
+    |> assign(:pending_entries, [])
+    |> load_entries(socket.assigns.session_id)
+  end
+
+  defp handle_agent_event(socket, {:agent_event, :message_cancelled, %{id: id}}) do
+    pending = Enum.reject(socket.assigns.pending_entries, &(&1.id == id))
+    assign(socket, :pending_entries, pending)
+  end
+
+  defp handle_agent_event(socket, _event), do: socket
+
+  defp handle_message_queued(socket, %{id: id, content: content} = payload) do
+    case payload[:role] do
+      :command ->
+        meta = payload[:command_meta] || %{}
+        body = ChatEntries.extract_text(content)
+        push_pending_command(socket, id, meta[:command], body)
+
+      role when role in [:clear, :compact, :skill] ->
+        command = queued_command(payload)
+        push_pending_command(socket, id, command, nil)
+
+      _ ->
+        push_pending_message(socket, id, content)
+    end
+  end
+
+  defp queued_command(%{role: :clear}), do: %{name: "clear", args: nil}
+
+  defp queued_command(%{role: :compact, args: args}) do
+    args_list = if args && args[:prompt], do: [args[:prompt]], else: nil
+    %{name: "compact", args: args_list}
+  end
+
+  defp queued_command(%{role: :skill, skill: %{name: name}, user_text: user_text}) do
+    args_list = if user_text, do: [user_text], else: nil
+    %{name: name, args: args_list}
+  end
+
+  @spec push_pending_command(
+          Phoenix.LiveView.Socket.t(),
+          String.t(),
+          %{name: String.t(), args: String.t() | nil},
+          String.t() | nil
+        ) :: Phoenix.LiveView.Socket.t()
+  defp push_pending_command(socket, id, command, body) do
+    entry = ChatEntries.new_pending_command_entry(id, command, body)
+    assign(socket, :pending_entries, socket.assigns.pending_entries ++ [entry])
+  end
+
+  @spec push_pending_message(Phoenix.LiveView.Socket.t(), String.t(), [tuple()]) ::
+          Phoenix.LiveView.Socket.t()
+  defp push_pending_message(socket, id, content) do
     text = ChatEntries.extract_text(content)
     pending = socket.assigns.pending_entries
 
@@ -267,14 +344,6 @@ defmodule Planck.Web.Live.ChatComponent do
 
     assign(socket, :pending_entries, new_pending)
   end
-
-  defp handle_agent_event(socket, {:agent_event, :messages_flushed, _}) do
-    socket
-    |> assign(:pending_entries, [])
-    |> load_entries(socket.assigns.session_id)
-  end
-
-  defp handle_agent_event(socket, _event), do: socket
 
   # ---------------------------------------------------------------------------
   # tool_end helpers

@@ -839,4 +839,151 @@ defmodule Planck.Web.Live.ChatEntriesTest do
       assert result =~ "val"
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # new_command_entry/4
+  # ---------------------------------------------------------------------------
+
+  describe "new_command_entry/4" do
+    test "author: :user → right side, :user author" do
+      entry =
+        ChatEntries.new_command_entry(
+          "m1",
+          %{name: "review-checklist", args: ["src/auth"]},
+          :user,
+          "body"
+        )
+
+      assert entry.type == :command
+      assert entry.side == :right
+      assert entry.author == :user
+      assert entry.command.name == "review-checklist"
+      assert entry.command.args == ["src/auth"]
+      assert entry.text == "body"
+      assert entry.expanded == false
+    end
+
+    test "agent author → left side" do
+      entry =
+        ChatEntries.new_command_entry(
+          "m1",
+          %{name: "review-checklist", args: nil},
+          {:agent, "w1", "worker"},
+          "body"
+        )
+
+      assert entry.type == :command
+      assert entry.side == :left
+      assert entry.author == {:agent, "w1", "worker"}
+    end
+
+    test "nil args and nil body" do
+      entry = ChatEntries.new_command_entry("m1", %{name: "clear", args: nil}, :user, "")
+
+      assert entry.command.args == nil
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # new_pending_command_entry/3
+  # ---------------------------------------------------------------------------
+
+  describe "new_pending_command_entry/3" do
+    test "pending: true, deletable: true, not editable" do
+      entry =
+        ChatEntries.new_pending_command_entry(
+          "m1",
+          %{name: "review-checklist", args: ["src/auth"]},
+          "body"
+        )
+
+      assert entry.type == :command
+      assert entry.pending == true
+      assert entry.deletable == true
+      assert entry[:editable] == nil
+      assert entry.command.name == "review-checklist"
+      assert entry.command.args == ["src/auth"]
+      assert entry.text == "body"
+    end
+
+    test "nil body for /clear and /compact" do
+      entry = ChatEntries.new_pending_command_entry("m1", %{name: "clear", args: nil}, nil)
+
+      assert entry.text == nil
+      assert entry.command.name == "clear"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # classify_row {:custom, :command}
+  # ---------------------------------------------------------------------------
+
+  describe "{:custom, :command} classification" do
+    test "invoked_by: :user → :command entry, right side" do
+      entries =
+        build(
+          [
+            row_with_meta(
+              "orch",
+              {:custom, :command},
+              [{:text, "rendered body"}],
+              %{command: %{name: "review-checklist", args: ["src/auth"]}, invoked_by: :user}
+            )
+          ],
+          "orch",
+          @orch_agents
+        )
+
+      assert [
+               %{
+                 type: :command,
+                 side: :right,
+                 author: :user,
+                 command: %{name: "review-checklist", args: ["src/auth"]},
+                 text: "rendered body"
+               }
+             ] = entries
+    end
+
+    test "invoked_by: :agent → :command entry, left side" do
+      entries =
+        build(
+          [
+            row_with_meta(
+              "orch",
+              {:custom, :command},
+              [{:text, "rendered body"}],
+              %{command: %{name: "review-checklist", args: nil}, invoked_by: :agent}
+            )
+          ],
+          "orch",
+          @orch_agents
+        )
+
+      assert [%{type: :command, side: :left, author: {:agent, "orch", "orchestrator"}}] = entries
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # {:custom, :clear} classification
+  # ---------------------------------------------------------------------------
+
+  describe "{:custom, :clear} classification" do
+    test "clear row → :clear entry (divider)" do
+      entries =
+        build(
+          [
+            row(
+              "orch",
+              {:custom, :clear},
+              [{:text, "Previous conversation cleared — ignored going forward."}]
+            )
+          ],
+          "orch",
+          @orch_agents
+        )
+
+      assert [%{type: :clear, side: :left}] = entries
+    end
+  end
 end

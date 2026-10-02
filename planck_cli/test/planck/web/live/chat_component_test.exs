@@ -167,4 +167,223 @@ defmodule Planck.Web.Live.ChatComponentTest do
       assert [%{tool_result: "output", tool_error: false}] = updated.assigns.entries
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # :message_queued role split
+  # ---------------------------------------------------------------------------
+
+  describe ":message_queued role split" do
+    defp socket_for_queued do
+      %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, pending_entries: [], session_id: "test-session"}
+      }
+    end
+
+    test "role: :command → pending command entry (deletable, not editable)" do
+      socket = socket_for_queued()
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event:
+              {:agent_event, :message_queued,
+               %{
+                 id: "m1",
+                 content: [{:text, "rendered body"}],
+                 role: :command,
+                 command_meta: %{
+                   command: %{name: "review-checklist", args: ["src/auth"]},
+                   invoked_by: :user
+                 }
+               }}
+          },
+          socket
+        )
+
+      [entry] = updated.assigns.pending_entries
+
+      assert entry.type == :command
+      assert entry.command.name == "review-checklist"
+      assert entry.command.args == ["src/auth"]
+      assert entry.deletable == true
+      assert entry.text == "rendered body"
+    end
+
+    test "role: :clear → pending command chip 'clear', no body" do
+      socket = socket_for_queued()
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event: {:agent_event, :message_queued, %{id: "m1", content: [], role: :clear}}
+          },
+          socket
+        )
+
+      [entry] = updated.assigns.pending_entries
+
+      assert entry.type == :command
+      assert entry.command.name == "clear"
+      assert entry.command.args == nil
+      assert entry.text == nil
+    end
+
+    test "role: :compact with args → pending command chip 'compact' with args" do
+      socket = socket_for_queued()
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event:
+              {:agent_event, :message_queued,
+               %{id: "m1", content: [], role: :compact, args: %{prompt: "focus on API"}}}
+          },
+          socket
+        )
+
+      [entry] = updated.assigns.pending_entries
+
+      assert entry.type == :command
+      assert entry.command.name == "compact"
+      assert entry.command.args == ["focus on API"]
+    end
+
+    test "no role → existing editable user pending entry (regression guard)" do
+      socket = socket_for_queued()
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{
+            action: :event,
+            event: {:agent_event, :message_queued, %{id: "m1", content: [{:text, "hello"}]}}
+          },
+          socket
+        )
+
+      [entry] = updated.assigns.pending_entries
+
+      assert entry.type == :user
+      assert entry.editable == true
+      assert entry.text == "hello"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # delete_pending_command — removes from pending_entries immediately
+  # ---------------------------------------------------------------------------
+
+  describe ~s(handle_event/3 "delete_pending_command") do
+    defp socket_with_pending(entries) do
+      %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, pending_entries: entries, session_id: "test-session"}
+      }
+    end
+
+    test "removes the matching entry from pending_entries" do
+      entries = [
+        %{
+          id: "m1",
+          type: :command,
+          command: %{name: "clear", args: nil},
+          text: nil,
+          deletable: true
+        }
+      ]
+
+      socket = socket_with_pending(entries)
+
+      assert {:noreply, updated} =
+               ChatComponent.handle_event("delete_pending_command", %{"id" => "m1"}, socket)
+
+      assert updated.assigns.pending_entries == []
+    end
+
+    test "no session_id → still removes from pending_entries" do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, pending_entries: [], session_id: nil}
+      }
+
+      assert {:noreply, _} =
+               ChatComponent.handle_event("delete_pending_command", %{"id" => "m1"}, socket)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # :message_cancelled
+  # ---------------------------------------------------------------------------
+
+  describe ":message_cancelled event" do
+    test "removes the matching pending entry" do
+      entries = [
+        %{
+          id: "m1",
+          type: :command,
+          command: %{name: "clear", args: nil},
+          text: nil,
+          deletable: true
+        },
+        %{
+          id: "m2",
+          type: :command,
+          command: %{name: "compact", args: nil},
+          text: nil,
+          deletable: true
+        }
+      ]
+
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, pending_entries: entries, session_id: "test-session"}
+      }
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{action: :event, event: {:agent_event, :message_cancelled, %{id: "m1"}}},
+          socket
+        )
+
+      assert length(updated.assigns.pending_entries) == 1
+      assert hd(updated.assigns.pending_entries).id == "m2"
+    end
+
+    test "no matching id → unchanged" do
+      entries = [
+        %{
+          id: "m1",
+          type: :command,
+          command: %{name: "clear", args: nil},
+          text: nil,
+          deletable: true
+        }
+      ]
+
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, pending_entries: entries, session_id: "test-session"}
+      }
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{action: :event, event: {:agent_event, :message_cancelled, %{id: "nope"}}},
+          socket
+        )
+
+      assert updated.assigns.pending_entries == entries
+    end
+
+    test "empty pending_entries → no-op" do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, pending_entries: [], session_id: "test-session"}
+      }
+
+      {:ok, updated} =
+        ChatComponent.update(
+          %{action: :event, event: {:agent_event, :message_cancelled, %{id: "m1"}}},
+          socket
+        )
+
+      assert updated.assigns.pending_entries == []
+    end
+  end
 end

@@ -20,6 +20,8 @@ when you need details on a specific topic — read it fully before implementing.
   discover available models, register and start the team
 - `references/skills.md` — SKILL.md format, file layout, injecting reusable
   context into agent prompts, global vs project-local skill directories
+- `references/commands.md` — COMMAND.md format, EEx templates, slash-command
+  dispatch precedence, global vs project-local command directories
 - `references/sidecar.md` — custom tools and compactors via a separate OTP
   application, external service integrations, PubSub event subscriptions,
   hooks (Compactor, Prompt, TurnEnd, Persistence), scaffold

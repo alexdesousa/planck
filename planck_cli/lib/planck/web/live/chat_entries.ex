@@ -76,6 +76,9 @@ defmodule Planck.Web.Live.ChatEntries do
     LLM, no widget involved; has `:text`
   - `:ui_widget` — a UI-only button attached to a tool result, invisible to
     the LLM, opens a sidecar widget when clicked; has `:label`, `:widget`, `:widget_data`
+  - `:command` — a dispatched slash command; has `:command` (`%{name:, args:}`),
+    `:text` (rendered body), `:expanded`
+  - `:clear` — a conversation clear checkpoint; rendered as a divider
   """
   @type entry_type ::
           :user
@@ -88,6 +91,8 @@ defmodule Planck.Web.Live.ChatEntries do
           | :agent_response
           | :ui_text
           | :ui_widget
+          | :command
+          | :clear
 
   @typedoc """
   A display-ready map consumed by the chat template.
@@ -114,7 +119,9 @@ defmodule Planck.Web.Live.ChatEntries do
           optional(:widget_data) => term(),
           optional(:timestamp) => DateTime.t() | nil,
           optional(:pending) => boolean(),
-          optional(:editable) => boolean()
+          optional(:editable) => boolean(),
+          optional(:command) => %{name: String.t(), args: [String.t()] | nil},
+          optional(:deletable) => boolean()
         }
 
   # Internal marker produced by content_to_entries/tool_result_markers and
@@ -248,6 +255,60 @@ defmodule Planck.Web.Live.ChatEntries do
       author: author,
       text: reason,
       expanded: false,
+      timestamp: DateTime.utc_now()
+    }
+  end
+
+  @doc """
+  Build a persisted command entry from a `{:custom, :command}` message.
+
+  `author: :user` → right side.
+  Any agent author → left side (muted styling).
+  """
+  @spec new_command_entry(
+          String.t(),
+          %{name: String.t(), args: [String.t()] | nil},
+          author(),
+          String.t()
+        ) ::
+          entry()
+  def new_command_entry(id, command, author, body) do
+    %{
+      id: id,
+      type: :command,
+      side: if(author == :user, do: :right, else: :left),
+      author: author,
+      command: command,
+      text: body,
+      expanded: false,
+      streaming: false,
+      timestamp: DateTime.utc_now()
+    }
+  end
+
+  @doc """
+  Build a pending (queued) command entry — not yet persisted, deletable.
+
+  `body` is `nil` for `/clear` and `/compact` (no rendered body to show).
+  """
+  @spec new_pending_command_entry(
+          String.t(),
+          %{name: String.t(), args: [String.t()] | nil},
+          String.t() | nil
+        ) ::
+          entry()
+  def new_pending_command_entry(id, command, body) do
+    %{
+      id: id,
+      type: :command,
+      side: :right,
+      author: :user,
+      command: command,
+      text: body,
+      expanded: false,
+      streaming: false,
+      pending: true,
+      deletable: true,
       timestamp: DateTime.utc_now()
     }
   end
@@ -462,6 +523,80 @@ defmodule Planck.Web.Live.ChatEntries do
   # Row classification
   # ---------------------------------------------------------------------------
 
+  @spec summary_entry(Planck.Agent.Message.t(), author()) :: entry()
+  defp summary_entry(msg, author) do
+    %{
+      id: msg.id,
+      type: :summary,
+      side: :left,
+      author: author,
+      text: extract_text(msg.content),
+      streaming: false,
+      timestamp: msg.timestamp
+    }
+  end
+
+  @spec clear_entry(Planck.Agent.Message.t(), author()) :: entry()
+  defp clear_entry(msg, author) do
+    %{
+      id: msg.id,
+      type: :clear,
+      side: :left,
+      author: author,
+      text: extract_text(msg.content),
+      streaming: false,
+      timestamp: msg.timestamp
+    }
+  end
+
+  @spec ui_row_entries(Planck.Agent.Message.t(), author()) :: [ui_marker()]
+  defp ui_row_entries(msg, author) do
+    %{tool_call_id: tool_id, ui: content} = msg.metadata
+
+    [
+      %{
+        __ui__: true,
+        tool_id: tool_id,
+        entry: ui_entry(content, tool_id, author, msg.timestamp)
+      }
+    ]
+  end
+
+  @spec command_row_entry(Planck.Agent.Message.t(), author()) :: entry()
+  defp command_row_entry(msg, agent_author) do
+    meta = msg.metadata
+    body = extract_text(msg.content)
+    author = if meta[:invoked_by] == :user, do: :user, else: agent_author
+    new_command_entry(msg.id, meta[:command], author, body)
+  end
+
+  @spec user_entry_from_row(Planck.Agent.Message.t()) :: entry()
+  defp user_entry_from_row(msg) do
+    %{
+      id: msg.id,
+      type: :user,
+      side: :right,
+      author: :user,
+      text: extract_text(msg.content),
+      streaming: false,
+      timestamp: msg.timestamp
+    }
+  end
+
+  @spec custom_role_entries(atom() | tuple(), Planck.Agent.Message.t(), author()) ::
+          [entry() | ui_marker()]
+  defp custom_role_entries({:custom, :summary}, msg, author), do: [summary_entry(msg, author)]
+
+  defp custom_role_entries({:custom, :agent_response}, msg, _author),
+    do: [agent_response_entry(msg)]
+
+  defp custom_role_entries({:custom, :ui}, msg, author), do: ui_row_entries(msg, author)
+  defp custom_role_entries({:custom, :command}, msg, author), do: [command_row_entry(msg, author)]
+
+  defp custom_role_entries({:custom, :clear}, msg, author), do: [clear_entry(msg, author)]
+
+  defp custom_role_entries(_, _, _), do: []
+
   @spec classify_row(row(), String.t() | nil, agents(), boolean()) :: [entry()]
   defp classify_row(row, perspective_id, agents, is_orch)
 
@@ -470,20 +605,9 @@ defmodule Planck.Web.Live.ChatEntries do
 
     case msg.role do
       :user when is_orch ->
-        [
-          %{
-            id: msg.id,
-            type: :user,
-            side: :right,
-            author: :user,
-            text: extract_text(msg.content),
-            streaming: false,
-            timestamp: msg.timestamp
-          }
-        ]
+        [user_entry_from_row(msg)]
 
       :user ->
-        # Delegated task — skip; already shown as :inter_agent_in from the sender's row
         []
 
       :assistant ->
@@ -492,32 +616,8 @@ defmodule Planck.Web.Live.ChatEntries do
       :tool_result ->
         tool_result_markers(msg.content)
 
-      {:custom, :summary} ->
-        [
-          %{
-            id: msg.id,
-            type: :summary,
-            side: :left,
-            author: author,
-            text: extract_text(msg.content),
-            streaming: false,
-            timestamp: msg.timestamp
-          }
-        ]
-
-      {:custom, :agent_response} ->
-        [agent_response_entry(msg)]
-
-      {:custom, :ui} ->
-        %{tool_call_id: tool_id, ui: content} = msg.metadata
-
-        [
-          %{
-            __ui__: true,
-            tool_id: tool_id,
-            entry: ui_entry(content, tool_id, author, msg.timestamp)
-          }
-        ]
+      {:custom, _} = role ->
+        custom_role_entries(role, msg, author)
 
       _ ->
         []
@@ -532,7 +632,6 @@ defmodule Planck.Web.Live.ChatEntries do
          _is_orch
        ) do
     sender_author = agent_author(sender_id, agents)
-    # Ensure :id is always present — the map key IS the agent's ID
     worker_info = agents |> Map.get(perspective_id, %{}) |> Map.put_new(:id, perspective_id)
     inter_agent_entries(msg.content, sender_author, worker_info, msg.timestamp)
   end

@@ -24,6 +24,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:right_open, false)
       |> assign(:edit_message, nil)
       |> assign(:teams, [])
+      |> assign(:commands, [])
       |> assign(:setup_visible, false)
       |> assign(:model_selector, nil)
       |> assign(:available_models, [])
@@ -37,6 +38,7 @@ defmodule Planck.Web.SessionLive do
       if locale, do: Gettext.put_locale(Planck.Web.Gettext, locale)
 
       Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:resources")
 
       sessions = Headless.list_sessions()
 
@@ -47,6 +49,7 @@ defmodule Planck.Web.SessionLive do
         end
 
       teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+      commands = build_command_list()
       config = Headless.config()
       first_run = config.providers == %{} and config.models == []
 
@@ -54,6 +57,7 @@ defmodule Planck.Web.SessionLive do
        socket
        |> assign(:sessions, Headless.list_sessions())
        |> assign(:teams, teams)
+       |> assign(:commands, commands)
        |> assign(:first_run, first_run)
        |> assign(:setup_visible, first_run)
        |> assign(:available_models, Headless.available_models())}
@@ -120,7 +124,12 @@ defmodule Planck.Web.SessionLive do
 
   def handle_info({:agent_event, :compacted, %{agent_id: agent_id}} = event, socket) do
     send_to_chats(socket, agent_id, event)
-    {:noreply, socket}
+
+    if orchestrator_event?(agent_id, socket) do
+      {:noreply, socket |> assign(:streaming, false) |> assign(:waiting, false)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:agent_event, :message_queued, %{agent_id: agent_id}} = event, socket) do
@@ -139,6 +148,16 @@ defmodule Planck.Web.SessionLive do
 
   def handle_info({:agent_event, :worker_exit, _}, socket) do
     {:noreply, do_refresh_agents(socket)}
+  end
+
+  def handle_info({:agent_event, :cleared, %{agent_id: agent_id}} = event, socket) do
+    send_to_chats(socket, agent_id, event)
+
+    if orchestrator_event?(agent_id, socket) do
+      {:noreply, socket |> assign(:streaming, false) |> assign(:waiting, false)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
@@ -170,6 +189,15 @@ defmodule Planck.Web.SessionLive do
     send_to_sidebar(event)
     send_to_status_bar(event)
     {:noreply, socket}
+  end
+
+  def handle_info(:reload, socket) do
+    teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+
+    {:noreply,
+     socket
+     |> assign(:teams, teams)
+     |> assign(:commands, build_command_list())}
   end
 
   # ---------------------------------------------------------------------------
@@ -283,6 +311,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:setup_visible, false)
       |> assign(:first_run, first_run)
       |> assign(:teams, teams)
+      |> assign(:commands, build_command_list())
       |> assign(:available_models, Headless.available_models())
 
     case Headless.start_session() do
@@ -457,11 +486,13 @@ defmodule Planck.Web.SessionLive do
   defp do_send_prompt(socket, text) do
     session_id = socket.assigns.active_session
 
-    send_update(ChatComponent,
-      id: "chat-main",
-      action: :event,
-      event: {:agent_event, :user_message, %{text: text, agent_id: nil}}
-    )
+    unless String.starts_with?(text, "/") do
+      send_update(ChatComponent,
+        id: "chat-main",
+        action: :event,
+        event: {:agent_event, :user_message, %{text: text, agent_id: nil}}
+      )
+    end
 
     if session_id, do: Headless.prompt(session_id, text)
 
@@ -922,5 +953,55 @@ defmodule Planck.Web.SessionLive do
         cost: acc.cost + agent.cost
       }
     end)
+  end
+
+  @builtin_commands [
+    %{
+      name: "clear",
+      description: "Delete all messages in the session.",
+      kind: :builtin,
+      disable_model_invocation: true,
+      help: "/clear"
+    },
+    %{
+      name: "compact",
+      description: "Compact the session using the compactor.",
+      kind: :builtin,
+      disable_model_invocation: true,
+      help: "/compact [prompt]"
+    }
+  ]
+
+  @spec build_command_list() :: [map()]
+  defp build_command_list do
+    store = Planck.Headless.ResourceStore.get()
+
+    commands =
+      store.commands
+      |> Enum.map(
+        &%{
+          name: &1.name,
+          description: &1.description,
+          kind: :command,
+          disable_model_invocation: &1.disable_model_invocation,
+          help: &1.help
+        }
+      )
+      |> Enum.sort_by(& &1.name)
+
+    skills =
+      store.skills
+      |> Enum.map(
+        &%{
+          name: &1.name,
+          description: &1.description,
+          kind: :skill,
+          disable_model_invocation: &1.disable_model_invocation,
+          help: nil
+        }
+      )
+      |> Enum.sort_by(& &1.name)
+
+    @builtin_commands ++ commands ++ skills
   end
 end

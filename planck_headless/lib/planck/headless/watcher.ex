@@ -79,6 +79,7 @@ defmodule Planck.Headless.Watcher do
     end
 
     ResourceStore.reload()
+    Phoenix.PubSub.broadcast(Planck.Agent.PubSub, "planck:resources", :reload)
     {:noreply, %{state | timer: nil}}
   end
 

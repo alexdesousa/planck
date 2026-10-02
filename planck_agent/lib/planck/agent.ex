@@ -31,6 +31,7 @@ defmodule Planck.Agent do
   | `:worker_spawned` | — |
   | `:worker_exit` | `pid`, `reason` |
   | `:error` | `reason` |
+  | `:message_cancelled` | `id` |
 
   ## Example
 
@@ -53,6 +54,8 @@ defmodule Planck.Agent do
 
   alias Planck.Agent.{
     AIBehaviour,
+    Command,
+    EExRenderer,
     Message,
     MessageBuilder,
     Skill,
@@ -229,15 +232,15 @@ defmodule Planck.Agent do
   immediately; when busy, the message stacks in `state.messages` (broadcast
   as `:message_queued` with `role: :command`) and starts a turn at the next
   turn boundary.
-
-  `command_meta` should carry `command`, `args`, and `invoked_by`
-  (`:user` or `:agent`). The `invoked_by: :user` path is mapped to a `:user`
-  AI message for the LLM by `Message.to_ai_messages/1`.
   """
-  @spec command(agent(), map(), String.t() | [Planck.AI.Message.content_part()]) ::
-          :ok | {:error, :already_sent}
-  def command(agent, command_meta, content) do
-    GenServer.call(agent, {:command, command_meta, content})
+  @spec command(agent(), Command.t(), String.t() | nil) ::
+          :ok
+          | {:error, :already_sent}
+  def command(agent, %Command{} = command, args) do
+    args = Regex.split(~r/\s/, args || "", trim: true)
+    rendered = EExRenderer.render(command.template, args: args)
+    meta = %{command: %{name: command.name, args: args}, invoked_by: :user}
+    GenServer.call(agent, {:command, meta, rendered})
   end
 
   @doc """
@@ -650,6 +653,13 @@ defmodule Planck.Agent do
 
   def handle_call({:compact, args}, _from, state) do
     if state.status == :idle do
+      broadcast(state, :message_queued, %{
+        id: "compact-#{:erlang.unique_integer([:positive])}",
+        content: [],
+        role: :compact,
+        args: args
+      })
+
       {:reply, :ok, state, {:continue, {:compact, args}}}
     else
       msg = Message.new({:custom, :compact}, [], args)
@@ -857,14 +867,22 @@ defmodule Planck.Agent do
   defp add_skill(skill, content, user_text, state)
 
   defp add_skill(skill, content, nil, %{status: :idle} = state) do
-    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
-    skill_msg = persist_message(state, skill_msg)
+    call_id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    tool_call_msg =
+      persist_message(
+        state,
+        Message.new(:assistant, [{:tool_call, call_id, "load_skill", %{"name" => skill.name}}])
+      )
+
+    tool_result_msg =
+      persist_message(state, Message.new(:tool_result, [{:tool_result, call_id, content}]))
 
     checkpoint = length(state.messages)
 
     new_state = %{
       state
-      | messages: state.messages ++ [skill_msg],
+      | messages: state.messages ++ [tool_call_msg, tool_result_msg],
         turn_state: TurnState.push_checkpoint(state.turn_state, checkpoint)
     }
 
@@ -874,18 +892,25 @@ defmodule Planck.Agent do
 
   defp add_skill(skill, content, user_text, %{status: :idle} = state)
        when is_binary(user_text) do
-    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
-    skill_msg = persist_message(state, skill_msg)
+    call_id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    tool_call_msg =
+      persist_message(
+        state,
+        Message.new(:assistant, [{:tool_call, call_id, "load_skill", %{"name" => skill.name}}])
+      )
+
+    tool_result_msg =
+      persist_message(state, Message.new(:tool_result, [{:tool_result, call_id, content}]))
 
     user_parts = MessageBuilder.normalize_content(user_text)
-    user_msg = Message.new(:user, user_parts)
-    user_msg = persist_message(state, user_msg)
+    user_msg = persist_message(state, Message.new(:user, user_parts))
 
     checkpoint = length(state.messages)
 
     new_state = %{
       state
-      | messages: state.messages ++ [skill_msg, user_msg],
+      | messages: state.messages ++ [tool_call_msg, tool_result_msg, user_msg],
         turn_state: TurnState.push_checkpoint(state.turn_state, checkpoint)
     }
 
@@ -894,19 +919,52 @@ defmodule Planck.Agent do
   end
 
   defp add_skill(skill, content, nil, state) do
-    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
-    {:reply, :ok, %{state | messages: state.messages ++ [skill_msg]}}
+    call_id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    tool_call_msg =
+      Message.new(:assistant, [{:tool_call, call_id, "load_skill", %{"name" => skill.name}}], %{
+        invoked_by: :user
+      })
+
+    tool_result_msg =
+      Message.new(:tool_result, [{:tool_result, call_id, content}])
+
+    broadcast(state, :message_queued, %{
+      id: tool_call_msg.id,
+      content: [],
+      role: :skill,
+      skill: %{name: skill.name},
+      user_text: nil
+    })
+
+    {:reply, :ok, %{state | messages: state.messages ++ [tool_call_msg, tool_result_msg]}}
   end
 
   defp add_skill(skill, content, user_text, state)
        when is_binary(user_text) do
-    skill_msg = Message.new({:custom, :skill}, [], %{skill: skill, skill_content: content})
+    call_id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    tool_call_msg =
+      Message.new(:assistant, [{:tool_call, call_id, "load_skill", %{"name" => skill.name}}], %{
+        invoked_by: :user
+      })
+
+    tool_result_msg =
+      Message.new(:tool_result, [{:tool_result, call_id, content}])
 
     user_parts = MessageBuilder.normalize_content(user_text)
     user_msg = Message.new(:user, user_parts)
 
-    broadcast(state, :message_queued, %{id: user_msg.id, content: user_parts})
-    {:reply, :ok, %{state | messages: state.messages ++ [skill_msg, user_msg]}}
+    broadcast(state, :message_queued, %{
+      id: tool_call_msg.id,
+      content: [],
+      role: :skill,
+      skill: %{name: skill.name},
+      user_text: user_text
+    })
+
+    {:reply, :ok,
+     %{state | messages: state.messages ++ [tool_call_msg, tool_result_msg, user_msg]}}
   end
 
   @spec do_edit_queued(String.t(), String.t() | [Planck.AI.Message.content_part()], t()) ::
@@ -945,18 +1003,17 @@ defmodule Planck.Agent do
 
   @spec do_clear(t()) :: {:reply, :ok, t()}
   defp do_clear(state) do
-    {:reply, :ok, clear_state(state)}
-  end
+    clear_msg =
+      persist_message(
+        state,
+        Message.new({:custom, :clear}, [
+          {:text, "Previous conversation cleared — ignored going forward."}
+        ])
+      )
 
-  @spec clear_state(t()) :: t()
-  defp clear_state(state) do
-    if state.session_id do
-      Planck.Agent.Session.clear(state.session_id)
-    end
-
-    new_state = %{state | messages: [], turn_state: %TurnState{}}
+    new_state = %{state | messages: [clear_msg], turn_state: %TurnState{}}
     broadcast(new_state, :cleared, %{})
-    new_state
+    {:reply, :ok, new_state}
   end
 
   defp do_run_llm(state, turn_type) do
@@ -1395,7 +1452,17 @@ defmodule Planck.Agent do
 
     cond do
       Enum.any?(markers, &(&1.role == {:custom, :clear})) ->
-        {:clear, clear_state(state)}
+        clear_msg =
+          persist_message(
+            state,
+            Message.new({:custom, :clear}, [
+              {:text, "Previous conversation cleared — ignored going forward."}
+            ])
+          )
+
+        cleared = %{state | messages: [clear_msg], turn_state: %TurnState{}}
+        broadcast(cleared, :cleared, %{})
+        {:clear, cleared}
 
       compact = Enum.find(Enum.reverse(markers), &(&1.role == {:custom, :compact})) ->
         prompt = Map.get(compact.metadata, :prompt)
@@ -1408,8 +1475,8 @@ defmodule Planck.Agent do
   end
 
   @spec control_marker?(Message.t()) :: boolean()
-  defp control_marker?(%Message{role: {:custom, :clear}}), do: true
-  defp control_marker?(%Message{role: {:custom, :compact}}), do: true
+  defp control_marker?(%Message{role: {:custom, :clear}, id: id}) when is_binary(id), do: true
+  defp control_marker?(%Message{role: {:custom, :compact}, id: id}) when is_binary(id), do: true
   defp control_marker?(_), do: false
 
   @spec do_abort(t()) ::
@@ -1442,7 +1509,9 @@ defmodule Planck.Agent do
   defp do_cancel_queued(id, state) do
     with {:ok, idx} <- find_message_index(state.messages, id),
          {:ok, _msg} <- ensure_unpersisted(Enum.at(state.messages, idx)) do
-      {:reply, :ok, %{state | messages: List.delete_at(state.messages, idx)}}
+      new_state = %{state | messages: List.delete_at(state.messages, idx)}
+      broadcast(new_state, :message_cancelled, %{id: id})
+      {:reply, :ok, new_state}
     else
       {:error, :not_found} -> {:reply, {:error, :not_found}, state}
       {:error, :already_sent} -> {:reply, {:error, :already_sent}, state}

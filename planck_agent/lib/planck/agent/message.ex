@@ -49,14 +49,14 @@ defmodule Planck.Agent.Message do
       %__MODULE__{role: {:custom, :summary}, content: content} ->
         [%Planck.AI.Message{role: :user, content: content}]
 
+      %__MODULE__{role: {:custom, :clear}, content: content} ->
+        [%Planck.AI.Message{role: :user, content: content}]
+
       %__MODULE__{role: {:custom, :agent_response}, content: content, metadata: metadata} ->
         [%Planck.AI.Message{role: :user, content: agent_response(content, metadata)}]
 
       %__MODULE__{role: {:custom, :command}, content: content, metadata: %{invoked_by: :user}} ->
         [%Planck.AI.Message{role: :user, content: content}]
-
-      %__MODULE__{role: {:custom, :skill}, metadata: %{skill_content: skill_content}} ->
-        [%Planck.AI.Message{role: :user, content: [{:text, skill_content}]}]
 
       %__MODULE__{role: {:custom, _}} ->
         []
