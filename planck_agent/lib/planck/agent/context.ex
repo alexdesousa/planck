@@ -66,7 +66,7 @@ defmodule Planck.Agent.Context do
       cwd: opts[:cwd] || "",
       system_prompt: opts[:system_prompt] || "",
       tools: tool_map,
-      opts: opts,
+      opts: opts[:opts] || [],
       usage: Usage.from_opts(opts),
       skills_pool: opts[:skill_pool] || [],
       skills_ranked: opts[:ranked_skill_names] || [],

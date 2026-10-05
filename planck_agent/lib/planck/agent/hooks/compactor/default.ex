@@ -24,6 +24,12 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   relevance judgment still has a natural home — a fast classifier-style
   model whose native output already is one answer per item — just not here.
 
+  When invoked forced (the `/compact` slash command, `args.force == true`)
+  with nothing outside the keep budget, the whole history except the last
+  message is summarized instead of skipping, so the command always takes
+  visible effect. A lone message is summarized on its own; an empty history
+  still skips.
+
   The delegate agent has no `team_id` (invisible to `list_team`, which only
   enumerates registered team members), no `session_id` (nothing is persisted
   for it), and no tools — a pure text-in/text-out summarization call. It is
@@ -53,6 +59,7 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   require Logger
 
   alias Planck.Agent
+  alias Planck.Agent.Hooks.Compactor
   alias Planck.Agent.{EExRenderer, Identity, Message}
   alias Planck.AI.Context, as: AIContext
 
@@ -80,18 +87,57 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   end
 
   @impl true
+  def compact(identity, ai_context, recent, args)
+
   def compact(%Identity{model: model} = identity, %AIContext{} = _ai_context, recent, args) do
     keep_budget = trunc(model.context_window * @keep_ratio)
     {old, kept} = split_by_token_budget(recent, keep_budget)
 
-    with [_ | _] = to_summarize <-
-           Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1)),
-         {:ok, text} <- spawn_delegate(identity, to_summarize, args) do
-      summary_msg = Message.new({:custom, :summary}, [{:text, text}])
-      {:compact, summary_msg, kept}
-    else
+    case Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1)) do
       [] ->
-        :skip
+        recent = Enum.reject(recent, &match?(%Message{role: {:custom, :summary}}, &1))
+        maybe_force_compact(identity, recent, args)
+
+      [_ | _] = to_summarize ->
+        summarize(identity, to_summarize, kept, args)
+    end
+  end
+
+  @spec maybe_force_compact(Identity.t(), [Message.t()], map()) :: Compactor.compact_result()
+  defp maybe_force_compact(identity, recent, args)
+
+  defp maybe_force_compact(%Identity{} = identity, [_ | _] = recent, %{force: true} = args) do
+    force_compact(identity, recent, args)
+  end
+
+  defp maybe_force_compact(_identity, _recent, _args) do
+    :skip
+  end
+
+  # A forced `/compact` with nothing outside the keep budget still compacts:
+  # summarize everything but the last message so the command always does
+  # something visible. A lone message is summarized on its own, keeping
+  # nothing back.
+  @spec force_compact(Identity.t(), [Message.t()], map()) :: Compactor.compact_result()
+  defp force_compact(identity, recent, args)
+
+  defp force_compact(%Identity{} = identity, [_, _ | _] = recent, args) do
+    {to_summarize, [last]} = Enum.split(recent, length(recent) - 1)
+    summarize(identity, to_summarize, [last], args)
+  end
+
+  defp force_compact(%Identity{} = identity, recent, args)
+       when is_list(recent) do
+    summarize(identity, recent, [], args)
+  end
+
+  @spec summarize(Identity.t(), [Message.t()], [Message.t()], map()) ::
+          Compactor.compact_result()
+  defp summarize(identity, to_summarize, kept, args) do
+    case spawn_delegate(identity, to_summarize, args) do
+      {:ok, text} ->
+        summary_msg = Message.new({:custom, :summary}, [{:text, text}])
+        {:compact, summary_msg, kept}
 
       {:error, reason} ->
         Logger.warning("[#{__MODULE__}] delegate failed: #{inspect(reason)}")
@@ -103,7 +149,7 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   # Delegate agent
   # ---------------------------------------------------------------------------
 
-  @spec spawn_delegate(Identity.t(), [Message.t()], %{prompt: String.t() | nil}) ::
+  @spec spawn_delegate(Identity.t(), [Message.t()], map()) ::
           {:ok, String.t()}
           | {:error, term()}
   defp spawn_delegate(identity, to_summarize, args)
