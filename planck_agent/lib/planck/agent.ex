@@ -314,6 +314,23 @@ defmodule Planck.Agent do
   end
 
   @doc """
+  Appends an assistant message containing a `{:tool_call, id, name, %{}}` content
+  part followed by a `:tool_result` message with `result`. Both are persisted.
+  No new turn is triggered.
+
+  The `name` does not need to be in the agent's callable tool list — it appears
+  only as a history entry. Used by the sidecar SkillReflector to signal skill
+  creation/update back to the parent agent so the LLM and UI see it passively.
+  """
+  @spec inject_tool_result(agent(), String.t(), String.t()) :: :ok
+  def inject_tool_result(agent, name, result)
+
+  def inject_tool_result(agent, name, result)
+      when is_binary(name) and is_binary(result) do
+    GenServer.call(agent, {:inject_tool_result, name, result})
+  end
+
+  @doc """
   Delete all messages in the session and reset the agent's in-memory history.
 
   The session process itself stays alive and its metadata is preserved. No
@@ -593,6 +610,10 @@ defmodule Planck.Agent do
 
   def handle_call({:checkpoint, summary_text}, _from, state) do
     do_checkpoint(state, summary_text)
+  end
+
+  def handle_call({:inject_tool_result, name, result}, _from, state) do
+    {:reply, :ok, do_inject_tool_result(state, name, result)}
   end
 
   def handle_call(:clear, _from, state) do
@@ -1519,6 +1540,19 @@ defmodule Planck.Agent do
     message = Message.new({:custom, :summary}, [{:text, summary_text}])
     state = append_messages(state, [message], persist: true)
     {:reply, :ok, state}
+  end
+
+  @spec do_inject_tool_result(t(), String.t(), String.t()) :: t()
+  defp do_inject_tool_result(state, name, result)
+
+  defp do_inject_tool_result(%__MODULE__{} = state, name, result)
+       when is_binary(name) and is_binary(result) do
+    call_id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    tool_call_msg = Message.new(:assistant, [{:tool_call, call_id, name, %{}}])
+    tool_result_msg = Message.new(:tool_result, [{:tool_result, call_id, result}])
+
+    append_messages(state, [tool_call_msg, tool_result_msg], persist: true)
   end
 
   @spec do_cancel_queued(String.t() | non_neg_integer(), t()) ::

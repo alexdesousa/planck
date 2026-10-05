@@ -635,6 +635,31 @@ defmodule Planck.Agent.AgentTest do
 
   # --- inject_tool_result ---
 
+  describe "inject_tool_result/3" do
+    test "appends a persisted tool_call + tool_result pair without starting a turn" do
+      stream_events([{:text_delta, "hi"}, {:done, %{}}])
+      agent = start_agent(system_prompt: "hi")
+      Agent.subscribe(agent)
+
+      Agent.prompt(agent, "hello")
+      assert_receive {:agent_event, :turn_start, _}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 1_000
+
+      :ok = Agent.inject_tool_result(agent, "create_skill", "my-skill")
+
+      refute_received {:agent_event, :turn_start, _}
+
+      state = Agent.get_state(agent)
+      assert state.turn.status == :idle
+
+      [call_msg, result_msg] = Enum.take(state.context.messages, -2)
+      assert call_msg.role == :assistant
+      assert [{:tool_call, call_id, "create_skill", %{}}] = call_msg.content
+      assert result_msg.role == :tool_result
+      assert [{:tool_result, ^call_id, "my-skill"}] = result_msg.content
+    end
+  end
+
   # --- planck:sessions global broadcast ---
 
   describe "planck:sessions broadcast" do

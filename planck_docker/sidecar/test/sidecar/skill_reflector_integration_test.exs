@@ -118,7 +118,7 @@ defmodule Sidecar.SkillReflectorIntegrationTest do
       # create_skill was injected into the parent's message history
       state = Agent.get_state(parent_pid)
 
-      assert Enum.any?(state.messages, fn msg ->
+      assert Enum.any?(state.context.messages, fn msg ->
                msg.role == :assistant and
                  Enum.any?(msg.content, fn
                    {:tool_call, _, "create_skill", _} -> true
@@ -158,7 +158,7 @@ defmodule Sidecar.SkillReflectorIntegrationTest do
       # No tool_call injection in parent
       state = Agent.get_state(parent_pid)
 
-      refute Enum.any?(state.messages, fn msg ->
+      refute Enum.any?(state.context.messages, fn msg ->
                msg.role == :assistant and
                  Enum.any?(msg.content, fn
                    {:tool_call, _, action, _} -> action in ["create_skill", "update_skill"]
@@ -213,7 +213,7 @@ defmodule Sidecar.SkillReflectorIntegrationTest do
 
       state = Agent.get_state(parent_pid)
 
-      assert Enum.any?(state.messages, fn msg ->
+      assert Enum.any?(state.context.messages, fn msg ->
                msg.role == :assistant and
                  Enum.any?(msg.content, fn
                    {:tool_call, _, "create_skill", _} -> true

@@ -100,8 +100,8 @@ defmodule Sidecar.Tools.UpdateMemory do
     case Planck.Agent.whereis(agent_id) do
       {:ok, pid} ->
         state = Planck.Agent.get_state(pid)
-        agent_key = "#{state.team_name}:#{state.name}"
-        {agent_key, state.session_id}
+        agent_key = "#{state.identity.team_name}:#{state.identity.name}"
+        {agent_key, state.identity.session_id}
 
       _ ->
         {agent_id, nil}

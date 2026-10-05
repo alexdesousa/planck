@@ -141,14 +141,14 @@ defmodule Sidecar.SkillReflector.Runner do
     system_prompt =
       Sidecar.SkillReflector.Prompt.build(
         turn_messages,
-        parent_state.name || "agent"
+        parent_state.identity.name || "agent"
       )
 
     mini_id = "reflector-" <> Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
     opts = [
       id: mini_id,
-      model: parent_state.model,
+      model: parent_state.identity.model,
       system_prompt: system_prompt,
       tools: tools
     ]

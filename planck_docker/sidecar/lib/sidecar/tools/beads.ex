@@ -38,7 +38,7 @@ defmodule Sidecar.Tools.Beads do
     case Planck.Agent.whereis(agent_id) do
       {:ok, pid} ->
         state = Planck.Agent.get_state(pid)
-        "#{state.team_name}:#{state.name}"
+        "#{state.identity.team_name}:#{state.identity.name}"
 
       {:error, :not_found} ->
         nil
