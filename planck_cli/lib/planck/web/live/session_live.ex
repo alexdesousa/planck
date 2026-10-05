@@ -561,7 +561,7 @@ defmodule Planck.Web.SessionLive do
   @spec agent_active?(String.t()) :: boolean()
   defp agent_active?(agent_id) do
     case Agent.whereis(agent_id) do
-      {:ok, pid} -> Agent.get_state(pid).status in [:streaming, :executing_tools]
+      {:ok, pid} -> Agent.get_state(pid).turn.status in [:streaming, :executing_tools]
       _ -> false
     end
   end
@@ -655,7 +655,16 @@ defmodule Planck.Web.SessionLive do
           {map(), [String.t()], String.t() | nil}
   defp build_agent_entry({pid, meta}, {acc, ord, orch}) do
     state = Agent.get_state(pid)
-    {model_cost, model_display, model_id, context_window} = agent_model_info(state)
+
+    model = state.identity.model
+    model_costs = model.cost || %{input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0}
+    model_id = model.id || "unknown"
+    model_display = if model.name not in [nil, ""], do: model.name, else: model_id
+    context_window = model.context_window || 4_096
+
+    usage = state.context.usage || %{input_tokens: 0, output_tokens: 0}
+    cost = usage.cost || 0.0
+
     color_index = length(ord)
 
     entry = %{
@@ -664,27 +673,18 @@ defmodule Planck.Web.SessionLive do
       type: meta.type,
       model: model_display,
       model_id: model_id,
-      status: state.status,
-      usage: state.usage || %{input_tokens: 0, output_tokens: 0},
-      cost: Map.get(state, :cost, 0.0),
+      status: state.turn.status,
+      usage: usage,
+      cost: cost,
       model_cost: model_cost,
       context_window: context_window,
-      context_tokens: state.context_tokens,
+      context_tokens: state.context.context_tokens,
       color_index: color_index
     }
 
     new_orch = if meta.type == "orchestrator", do: meta.id, else: orch
     {Map.put(acc, meta.id, entry), ord ++ [meta.id], new_orch}
   end
-
-  @spec agent_model_info(map()) :: {map(), String.t(), String.t(), pos_integer()}
-  defp agent_model_info(%{
-         model: %Planck.AI.Model{cost: cost, name: name, id: id, context_window: cw}
-       }) do
-    {cost, if(name != "", do: name, else: id), id, cw}
-  end
-
-  defp agent_model_info(_), do: {%{input: 0.0, output: 0.0}, "unknown", "unknown", 4_096}
 
   @spec load_session(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   defp load_session(socket, session_id) do

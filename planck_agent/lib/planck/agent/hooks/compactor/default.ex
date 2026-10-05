@@ -2,7 +2,7 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   @moduledoc """
   Built-in `Planck.Agent.Hooks.Compactor` implementation.
 
-  Used whenever `state.compactor` is `nil` — see `Planck.Agent.Hooks.Compactor`'s
+  Used whenever `hooks.compactor` is `nil` — see `Planck.Agent.Hooks.Compactor`'s
   own moduledoc for the dispatch rules. Not special-cased by the dispatcher in
   any other way: this module satisfies the same behaviour a sidecar-hosted
   custom compactor would, and could be named explicitly via `AgentSpec.compactor`
@@ -53,8 +53,8 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   require Logger
 
   alias Planck.Agent
-  alias Planck.Agent.{EExRenderer, Message}
-  alias Planck.AI.Context
+  alias Planck.Agent.{EExRenderer, Identity, Message}
+  alias Planck.AI.Context, as: AIContext
 
   @default_ratio 0.8
   @keep_ratio 0.1
@@ -74,19 +74,19 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   """
 
   @impl true
-  def compact?(%Agent{} = state, %Context{} = context, _recent) do
-    threshold = trunc(state.model.context_window * @default_ratio)
-    Context.estimate_tokens(context) >= threshold
+  def compact?(%Identity{} = identity, %AIContext{} = ai_context, _recent) do
+    threshold = trunc(identity.model.context_window * @default_ratio)
+    AIContext.estimate_tokens(ai_context) >= threshold
   end
 
   @impl true
-  def compact(%Agent{model: model} = state, %Context{} = _context, recent, args) do
+  def compact(%Identity{model: model} = identity, %AIContext{} = _ai_context, recent, args) do
     keep_budget = trunc(model.context_window * @keep_ratio)
     {old, kept} = split_by_token_budget(recent, keep_budget)
 
     with [_ | _] = to_summarize <-
            Enum.reject(old, &match?(%Message{role: {:custom, :summary}}, &1)),
-         {:ok, text} <- spawn_delegate(state, to_summarize, args) do
+         {:ok, text} <- spawn_delegate(identity, to_summarize, args) do
       summary_msg = Message.new({:custom, :summary}, [{:text, text}])
       {:compact, summary_msg, kept}
     else
@@ -94,8 +94,7 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
         :skip
 
       {:error, reason} ->
-        message = "[Planck.Agent.Hooks.Compactor.Default] delegate failed: #{inspect(reason)}"
-        Logger.warning(message)
+        Logger.warning("[#{__MODULE__}] delegate failed: #{inspect(reason)}")
         :skip
     end
   end
@@ -104,11 +103,12 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
   # Delegate agent
   # ---------------------------------------------------------------------------
 
-  @spec spawn_delegate(Agent.t(), [Message.t()], %{prompt: String.t() | nil}) ::
-          {:ok, String.t()} | {:error, term()}
-  defp spawn_delegate(state, to_summarize, args)
+  @spec spawn_delegate(Identity.t(), [Message.t()], %{prompt: String.t() | nil}) ::
+          {:ok, String.t()}
+          | {:error, term()}
+  defp spawn_delegate(identity, to_summarize, args)
 
-  defp spawn_delegate(%Agent{model: model}, to_summarize, args) do
+  defp spawn_delegate(%Identity{model: model}, to_summarize, args) do
     prompt = Map.get(args, :prompt)
     system_prompt = EExRenderer.render(@delegate_system_prompt, prompt: prompt)
 
@@ -270,6 +270,6 @@ defmodule Planck.Agent.Hooks.Compactor.Default do
 
   @spec messages_tokens([Message.t()]) :: non_neg_integer()
   defp messages_tokens(messages) do
-    Context.estimate_tokens(%Context{messages: Message.to_ai_messages(messages)})
+    AIContext.estimate_tokens(%AIContext{messages: Message.to_ai_messages(messages)})
   end
 end

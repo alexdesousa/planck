@@ -29,8 +29,8 @@ defmodule Planck.Agent.Hooks.Prompt do
   `Planck.Agent` stores the resolved hook module atom in state and calls
   `before_prompt/3` and `after_prompt/3` before every LLM turn:
 
-      Hooks.Prompt.before_prompt(state.prompt_hook, state.session_id, state.sidecar_node)
-      Hooks.Prompt.after_prompt(state.prompt_hook, state.session_id, state.sidecar_node)
+      Hooks.Prompt.before_prompt(state.hooks.prompt, state.identity.session_id, state.hooks.sidecar_node)
+      Hooks.Prompt.after_prompt(state.hooks.prompt, state.identity.session_id, state.hooks.sidecar_node)
 
   - `module: nil` — returns `nil` (no injection).
   - `sidecar_node: nil` — calls `module.prepend/1` / `module.append/1` in-process.

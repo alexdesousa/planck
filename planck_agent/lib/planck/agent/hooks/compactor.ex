@@ -12,12 +12,12 @@ defmodule Planck.Agent.Hooks.Compactor do
         use Planck.Agent.Hooks.Compactor
 
         @impl true
-        def compact?(state, context, _recent) do
-          Planck.AI.Context.estimate_tokens(context) >= state.model.context_window * 0.8
+        def compact?(identity, ai_context, _recent) do
+          Planck.AI.Context.estimate_tokens(ai_context) >= identity.model.context_window * 0.8
         end
 
         @impl true
-        def compact(_state, _context, recent, _args) do
+        def compact(_identity, _ai_context, recent, _args) do
           summary = Message.new({:custom, :summary}, [{:text, summarise(recent)}])
           kept    = Enum.take(recent, -5)
           {:compact, summary, kept}
@@ -38,16 +38,17 @@ defmodule Planck.Agent.Hooks.Compactor do
 
   `Planck.Agent` calls `compact/4` before every LLM turn:
 
-      Hooks.Compactor.compact(state, context, recent, opts)
+      Hooks.Compactor.compact(identity, hooks, ai_context, recent, opts)
 
-  - `state` — the full agent state (model, compactor, sidecar_node, ...).
+  - `identity` — the identity of the agent.
+  - `hooks` — the hooks with the compactor.
   - `context` — the `Planck.AI.Context.t()` built for `recent` (system prompt,
     tool schemas, and `recent` itself, already estimated as one whole — see
     `Planck.AI.Context.estimate_tokens/1`). Passed through rather than just
     `recent` alone so a *custom* compactor (typically running on a sidecar
     node, which has no other way to see the agent's system prompt or tool
     list) can make an informed decision too, not only the built-in one.
-  - `recent` — `state.messages` since the last `{:custom, :summary}`
+  - `recent` — `agent.context.messages` since the last `{:custom, :summary}`
     checkpoint (or all of them, if there isn't one yet).
   - `opts` — `:on_compacting` and `:on_compacted`, both zero-arity functions,
     both optional. `:args` — a map (default `%{prompt: nil}`) forwarded to
@@ -59,12 +60,9 @@ defmodule Planck.Agent.Hooks.Compactor do
     progress without any compactor needing to know anything about
     `Planck.Agent`'s own PubSub topics or event shapes.
 
-  - `state.compactor: nil` — uses `Planck.Agent.Hooks.Compactor.Default`, the
-    built-in strategy (see its own moduledoc). Not special-cased beyond this:
-    `Default` satisfies the same behaviour a custom module would.
-  - `state.compactor` set, `state.sidecar_node: nil` — calls `module.compact?/3`,
+  - `hooks.compactor` set, `hooks.sidecar_node: nil` — calls `module.compact?/3`,
     then, only if that's `true`, `module.compact/3`, in-process.
-  - `state.compactor` set, `state.sidecar_node` set — calls the module on the
+  - `hooks.compactor` set, `hooks.sidecar_node` set — calls the module on the
     remote node via RPC (same two-call shape); falls back to `Default` on
     `:badrpc` from either call.
 
@@ -88,10 +86,10 @@ defmodule Planck.Agent.Hooks.Compactor do
 
   require Logger
 
-  alias Planck.Agent
+  alias Planck.Agent.{Hooks, Identity}
   alias Planck.Agent.Hooks.Compactor.Default
   alias Planck.Agent.Message
-  alias Planck.AI.Context
+  alias Planck.AI.Context, as: AIContext
 
   # Local model prefill can take a long time, especially for a large
   # summarization prompt — 120s was too tight for real self-hosted use, not
@@ -126,7 +124,11 @@ defmodule Planck.Agent.Hooks.Compactor do
   Cheap decision: would `compact/3` actually do anything right now? Must not
   itself do anything slow (no LLM call) — see the moduledoc for why.
   """
-  @callback compact?(state :: Agent.t(), context :: Context.t(), recent :: [Message.t()]) ::
+  @callback compact?(
+              identity :: Identity.t(),
+              ai_context :: AIContext.t(),
+              recent :: [Message.t()]
+            ) ::
               boolean()
 
   @doc """
@@ -144,8 +146,8 @@ defmodule Planck.Agent.Hooks.Compactor do
   `compact?/3` (e.g. nothing old enough left worth summarizing).
   """
   @callback compact(
-              state :: Agent.t(),
-              context :: Context.t(),
+              identity :: Identity.t(),
+              ai_context :: AIContext.t(),
               recent :: [Message.t()],
               args :: compact_args()
             ) :: compact_result()
@@ -174,40 +176,42 @@ defmodule Planck.Agent.Hooks.Compactor do
   def default_compact_timeout, do: @default_compact_timeout_ms
 
   @doc """
-  Dispatch compaction for the given agent state, its built request context,
-  and the messages since the last summary — see this module's own moduledoc.
+  Dispatch compaction for the given agent the agent identity and hooks, its built
+  request context, and the messages since the last summary — see this module's
+  own moduledoc.
 
   Returns `:skip` or `{:compact, summary_msg, kept}`.
   """
-  @spec compact(Agent.t(), Context.t(), [Message.t()], compact_opts()) :: compact_result()
-  def compact(state, context, recent, opts \\ [])
-
-  def compact(%Agent{compactor: nil} = state, %Context{} = context, recent, opts) do
-    compact(%{state | compactor: Default}, context, recent, opts)
-  end
+  @spec compact(Identity.t(), Hooks.t(), AIContext.t(), [Message.t()], compact_opts()) ::
+          compact_result()
+  def compact(identity, hooks, ai_context, recent, opts \\ [])
 
   def compact(
-        %Agent{compactor: module, sidecar_node: nil} = state,
-        %Context{} = context,
+        %Identity{} = identity,
+        %Hooks{compactor: module, sidecar_node: nil},
+        %AIContext{} = ai_context,
         recent,
         opts
-      ) do
+      )
+      when is_atom(module) do
     args = Keyword.get(opts, :args, %{prompt: nil})
     force = Keyword.get(opts, :force, false)
 
-    if force or module.compact?(state, context, recent) do
-      with_notice(opts, fn -> module.compact(state, context, recent, args) end)
+    if force or module.compact?(identity, ai_context, recent) do
+      with_notice(opts, fn -> module.compact(identity, ai_context, recent, args) end)
     else
       :skip
     end
   end
 
   def compact(
-        %Agent{compactor: module, sidecar_node: sidecar_node} = state,
-        %Context{} = context,
+        %Identity{} = identity,
+        %Hooks{compactor: module, sidecar_node: sidecar_node} = hooks,
+        %AIContext{} = ai_context,
         recent,
         opts
-      ) do
+      )
+      when is_atom(module) do
     :rpc.call(sidecar_node, :code, :ensure_loaded, [module], 5_000)
 
     opts = add_remote_timeout(opts, module, sidecar_node)
@@ -218,36 +222,45 @@ defmodule Planck.Agent.Hooks.Compactor do
 
     if force do
       with_notice(opts, fn ->
-        do_compact_remote(state, context, recent, args, timeout)
+        do_compact_remote(identity, hooks, ai_context, recent, args, timeout)
       end)
     else
-      compact_remote(state, context, recent, opts)
+      compact_remote(identity, hooks, ai_context, recent, opts)
     end
   end
 
-  @spec compact_remote(Agent.t(), Context.t(), [Message.t()], compact_opts()) :: compact_result()
-  defp compact_remote(state, context, recent, opts)
+  @spec compact_remote(Identity.t(), Hooks.t(), AIContext.t(), [Message.t()], compact_opts()) ::
+          compact_result()
+  defp compact_remote(identity, hooks, ai_context, recent, opts)
 
   defp compact_remote(
-         %Agent{compactor: module, sidecar_node: sidecar_node} = state,
-         %Context{} = context,
+         %Identity{} = identity,
+         %Hooks{compactor: module, sidecar_node: sidecar_node} = hooks,
+         %AIContext{} = ai_context,
          recent,
          opts
-       ) do
+       )
+       when is_atom(module) do
     timeout = opts[:timeout]
     args = opts[:args] || %{prompt: nil}
 
-    case :rpc.call(sidecar_node, module, :compact?, [state, context, recent], timeout) do
+    case :rpc.call(sidecar_node, module, :compact?, [identity, ai_context, recent], timeout) do
       {:badrpc, reason} ->
         Logger.warning(
-          "[Planck.Agent.Hooks.Compactor] RPC failed (#{module}): #{inspect(reason)}, falling back to local"
+          "[#{__MODULE__}] RPC failed (#{module}): #{inspect(reason)}, falling back to local"
         )
 
-        compact(%{state | sidecar_node: nil, compactor: nil}, context, recent, opts)
+        compact(
+          identity,
+          %{hooks | sidecar_node: nil, compactor: Default},
+          ai_context,
+          recent,
+          opts
+        )
 
       true ->
         with_notice(opts, fn ->
-          do_compact_remote(state, context, recent, args, timeout)
+          do_compact_remote(identity, hooks, ai_context, recent, args, timeout)
         end)
 
       false ->
@@ -276,22 +289,30 @@ defmodule Planck.Agent.Hooks.Compactor do
   # we already have a `true` from it — re-deciding via a different
   # compactor's rules here would be a confusing outcome after already
   # committing to compacting.
-  @spec do_compact_remote(Agent.t(), Context.t(), [Message.t()], compact_args(), pos_integer()) ::
+  @spec do_compact_remote(
+          Identity.t(),
+          Hooks.t(),
+          AIContext.t(),
+          [Message.t()],
+          compact_args(),
+          pos_integer()
+        ) ::
           compact_result()
   defp do_compact_remote(
-         %Agent{sidecar_node: sidecar_node, compactor: module} = state,
-         %Context{} = context,
+         %Identity{} = identity,
+         %Hooks{sidecar_node: sidecar_node, compactor: module},
+         %AIContext{} = ai_context,
          recent,
          args,
          timeout
        ) do
-    case :rpc.call(sidecar_node, module, :compact, [state, context, recent, args], timeout) do
+    case :rpc.call(sidecar_node, module, :compact, [identity, ai_context, recent, args], timeout) do
       {:badrpc, reason} ->
         Logger.warning(
-          "[Planck.Agent.Hooks.Compactor] RPC failed (#{module}): #{inspect(reason)}, falling back to local"
+          "[#{__MODULE__}] RPC failed (#{module}): #{inspect(reason)}, falling back to local"
         )
 
-        Default.compact(state, context, recent, args)
+        Default.compact(identity, ai_context, recent, args)
 
       result ->
         result

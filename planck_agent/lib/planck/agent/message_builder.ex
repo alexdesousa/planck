@@ -7,7 +7,7 @@ defmodule Planck.Agent.MessageBuilder do
   during the LLM loop.
   """
 
-  alias Planck.Agent.{Message, StreamBuffer}
+  alias Planck.Agent.{Message, Turn}
 
   @max_tool_output_lines 2_000
   @max_tool_output_bytes 50_000
@@ -30,10 +30,10 @@ defmodule Planck.Agent.MessageBuilder do
   Content order: thinking → text → tool calls. Fields that are empty strings
   or empty lists are omitted from the message content.
   """
-  @spec build_assistant(StreamBuffer.t()) :: Message.t()
-  def build_assistant(stream_buffer)
+  @spec build_assistant(Turn.t()) :: Message.t()
+  def build_assistant(turn)
 
-  def build_assistant(%StreamBuffer{text: text, thinking: thinking, calls: calls}) do
+  def build_assistant(%Turn{buffer_text: text, buffer_thinking: thinking, buffer_calls: calls}) do
     content =
       Enum.map(calls, fn %{id: id, name: name, args: args} -> {:tool_call, id, name, args} end)
       |> prepend_if(text != "", {:text, text})
@@ -45,10 +45,14 @@ defmodule Planck.Agent.MessageBuilder do
   @doc """
   Build a tool-result message from a list of `{call_id, result}` pairs.
 
-  Results must be in `{:ok, string} | {:error, reason}` form. Each value is
-  truncated to #{@max_tool_output_lines} lines / #{@max_tool_output_bytes} bytes.
+  Results must be in `{:ok, string} | {:ok, string, _} | {:error, reason}` form.
+  Each value is truncated to #{@max_tool_output_lines} lines / 
+  #{@max_tool_output_bytes} bytes.
   """
-  @spec build_tool_result([{String.t(), {:ok, String.t()} | {:error, term()}}]) :: Message.t()
+  @spec build_tool_result([tool_result]) :: Message.t()
+        when call_id: String.t(),
+             result: {:ok, term()} | {:ok, term(), map()} | {:error, term()},
+             tool_result: {call_id, result}
   def build_tool_result(results)
 
   def build_tool_result(results) when is_list(results) do
@@ -58,6 +62,8 @@ defmodule Planck.Agent.MessageBuilder do
           case result do
             {:ok, v} when is_binary(v) -> v
             {:ok, v} -> inspect(v)
+            {:ok, v, _} when is_binary(v) -> v
+            {:ok, v, _} -> inspect(v)
             {:error, reason} when is_binary(reason) -> "Error: #{reason}"
             {:error, reason} -> "Error: #{inspect(reason)}"
           end

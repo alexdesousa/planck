@@ -270,7 +270,12 @@ defmodule Planck.Agent.AgentSpec do
       skill_refresh_fn: Keyword.get(overrides, :skill_refresh_fn),
       team_id: Keyword.get(overrides, :team_id),
       session_id: Keyword.get(overrides, :session_id),
-      available_models: Keyword.get(overrides, :available_models, [])
+      available_models: available_models,
+      compactor: resolve_hook_module(spec.compactor),
+      prompt_hook: resolve_hook_module(spec.prompt_hook),
+      turn_end_hook: resolve_hook_module(spec.turn_end_hook),
+      persistence: resolve_hook_module(spec.persistence),
+      sidecar_node: Keyword.get(overrides, :sidecar_node)
     ]
   end
 
@@ -406,6 +411,10 @@ defmodule Planck.Agent.AgentSpec do
         raise ArgumentError, "model not found: #{model_info}"
     end
   end
+
+  @spec resolve_hook_module(String.t() | nil) :: module() | nil
+  defp resolve_hook_module(nil), do: nil
+  defp resolve_hook_module(name), do: :"Elixir.#{name}"
 
   @spec generate_id() :: String.t()
   defp generate_id do

@@ -30,7 +30,7 @@ defmodule Planck.Agent.Hooks.TurnEnd do
   `Planck.Agent` fires `reflect/4` in a background `Task` after every `:turn_end`
   broadcast:
 
-      Hooks.TurnEnd.reflect(state.turn_end_hook, state.id, turn_messages, state.sidecar_node)
+      Hooks.TurnEnd.reflect(state.hooks.turn_end_hook, state.identity.id, turn_messages, state.hooks.sidecar_node)
 
   - `module: nil` — no-op.
   - `sidecar_node: nil` — calls `module.reflect/2` in-process.

@@ -888,7 +888,8 @@ defmodule Planck.Headless do
         on_skill_use: skill_opts[:on_skill_use],
         team_id: team_id,
         session_id: session_id,
-        available_models: store.available_models
+        available_models: store.available_models,
+        sidecar_node: SidecarManager.node()
       )
 
     resolved = base_opts[:tools]
@@ -909,11 +910,6 @@ defmodule Planck.Headless do
       |> Keyword.put(:cwd, cwd)
       |> Keyword.put(:tools, full_tools)
       |> Keyword.put(:system_prompt, system_prompt)
-      |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
-      |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
-      |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
-      |> Keyword.put(:persistence, resolve_hook_module(spec.persistence))
-      |> Keyword.put(:sidecar_node, SidecarManager.node())
       |> Keyword.put(:team_name, ctx.team_name)
       |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
       |> Keyword.put(:top_skills, skill_opts[:top_skills])
@@ -952,7 +948,8 @@ defmodule Planck.Headless do
           skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
           team_id: team_id,
           session_id: session_id,
-          available_models: store.available_models
+          available_models: store.available_models,
+          sidecar_node: SidecarManager.node()
         )
 
       resolved = base_opts[:tools]
@@ -975,11 +972,6 @@ defmodule Planck.Headless do
         )
         |> Keyword.put(:system_prompt, system_prompt)
         |> Keyword.put(:delegator_id, orchestrator_id)
-        |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
-        |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
-        |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
-        |> Keyword.put(:persistence, resolve_hook_module(spec.persistence))
-        |> Keyword.put(:sidecar_node, SidecarManager.node())
         |> Keyword.put(:team_name, ctx.team_name)
         |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
         |> Keyword.put(:top_skills, skill_opts[:top_skills])
@@ -1185,7 +1177,8 @@ defmodule Planck.Headless do
             skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
             team_id: team_id,
             session_id: session_id,
-            available_models: store.available_models
+            available_models: store.available_models,
+            sidecar_node: SidecarManager.node()
           )
 
         base_opts =
@@ -1202,11 +1195,6 @@ defmodule Planck.Headless do
               base_opts[:tools]
           )
           |> Keyword.put(:delegator_id, orchestrator_id)
-          |> Keyword.put(:compactor, resolve_hook_module(spec.compactor))
-          |> Keyword.put(:prompt_hook, resolve_hook_module(spec.prompt_hook))
-          |> Keyword.put(:turn_end_hook, resolve_hook_module(spec.turn_end_hook))
-          |> Keyword.put(:persistence, resolve_hook_module(spec.persistence))
-          |> Keyword.put(:sidecar_node, SidecarManager.node())
           |> Keyword.put(:team_name, nil)
 
         case start_agent(opts) do

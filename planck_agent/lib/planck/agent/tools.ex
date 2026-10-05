@@ -481,7 +481,7 @@ defmodule Planck.Agent.Tools do
       execute_fn: fn agent_id, _id, _args ->
         current_model_id =
           case Agent.whereis(agent_id) do
-            {:ok, pid} -> Agent.get_state(pid).model.id
+            {:ok, pid} -> Agent.get_state(pid).identity.model.id
             _ -> nil
           end
 
@@ -693,8 +693,10 @@ defmodule Planck.Agent.Tools do
               extra =
                 if state do
                   %{
-                    tools: state.tools |> Map.keys() |> Enum.sort(),
-                    model: state.model && (state.model.name || state.model.id)
+                    tools: state.context.tools |> Map.keys() |> Enum.sort(),
+                    model:
+                      state.identity.model &&
+                        (state.identity.model.name || state.identity.model.id)
                   }
                 else
                   %{}

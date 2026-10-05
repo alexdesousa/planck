@@ -51,7 +51,13 @@ defmodule Planck.Agent.Hooks.Persistence do
   `Planck.Agent.Session`/`SessionStore` modules directly) anywhere it needs to
   touch storage:
 
-      Hooks.Persistence.persist_message(state.persistence, state.session_id, state.id, msg, state.sidecar_node)
+      Hooks.Persistence.persist_message(
+        state.hooks.persistence,
+        state.identity.session_id,
+        state.identity.id,
+        msg,
+        state.hooks.sidecar_node
+      )
 
   `load_session_messages/2` is never called by `Planck.Agent` itself — it
   exists for a caller like `planck_headless` (which knows a session's
@@ -310,7 +316,7 @@ defmodule Planck.Agent.Hooks.Persistence do
   Truncate the session, dispatching to `module` (or `Default` when `nil`),
   locally or via `sidecar_node`.
   """
-  @spec truncate_after(module() | nil, String.t(), pos_integer(), atom() | nil) ::
+  @spec truncate_after(module() | nil, String.t(), non_neg_integer(), atom() | nil) ::
           :ok | {:error, term()}
   def truncate_after(module, session_id, message_id, sidecar_node)
 
