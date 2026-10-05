@@ -59,7 +59,7 @@ manually unless you want the skill to be treated as agent-managed.
 ## Assigning skills in TEAM.json
 
 Add a `"skills"` array to any agent spec. The skill names are stored in the
-agent's `SkillIndex` and used to build the system prompt index at session start:
+agent's `Context` skill fields and used to build the system prompt index at session start:
 
 ```json
 {

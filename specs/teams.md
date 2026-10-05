@@ -337,8 +337,8 @@ now accepts an alias in addition to a path.
 - `Team.load/1` — happy path for a valid directory; rejects missing TEAM.json;
   skips malformed member entries with warnings; resolves `system_prompt`
   paths; parses member `skills` and `tools` arrays.
-- `AgentSpec.to_start_opts/2` — resolves `spec.skills` against `skills:` (`%SkillIndex{}`);
-  builds the system prompt skill index via `system_prompt_section/3` when non-empty;
+- `AgentSpec.to_start_opts/2` — resolves `spec.skills` against `skill_pool:`
+  start opts; builds the system prompt skill index via `system_prompt_section/3` when non-empty;
   passes through unchanged when empty.
 - `ResourceStore` — scans both roots at boot; project-local overrides global
   on collision; reload picks up new/removed teams; in-flight sessions keep
@@ -353,4 +353,4 @@ now accepts an alias in addition to a path.
 - Dynamic team growth — orchestrator spawns a worker via `spawn_agent`;
   `list_team` includes the new member under the same `team_id`.
 - `spawn_agent` skills — granted skills are included in the spawned agent's
-  `SkillIndex` and shown in its system prompt index; unknown names are silently ignored.
+  `Context` skill fields and shown in its system prompt index; unknown names are silently ignored.

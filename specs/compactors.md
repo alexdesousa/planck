@@ -8,13 +8,13 @@ older messages into a single checkpoint, keeping only recent messages verbatim.
 
 ```elixir
 @callback compact?(
-            state   :: Planck.Agent.t(),
+            identity   :: Planck.Agent.Identity.t(),
             context :: Planck.AI.Context.t(),
             recent  :: [Planck.Agent.Message.t()]
           ) :: boolean()
 
 @callback compact(
-            state :: Planck.Agent.t(),
+            identity :: Planck.Agent.Identity.t(),
             context :: Planck.AI.Context.t(),
             recent :: [Planck.Agent.Message.t()],
             args   :: %{prompt: String.t() | nil}
@@ -31,7 +31,7 @@ older messages into a single checkpoint, keeping only recent messages verbatim.
 > fourth `args` parameter (`%{prompt: String.t() | nil}`). This lets the
 > `/compact [prompt]` slash command thread a user-supplied prompt into the
 > summarization. Custom compactor modules must add a fourth parameter; the
-> simplest migration is `def compact(state, context, recent, _args)` to
+> simplest migration is `def compact(identity, context, recent, _args)` to
 > preserve existing behavior. `compact?/3` arity is unchanged.
 
 > Breaking change from the single-callback shape: `compact/3` used to be the
@@ -44,13 +44,13 @@ older messages into a single checkpoint, keeping only recent messages verbatim.
 > custom compactor, `compact?/3` can just re-run whatever check `compact/3`
 > used to do up front, returning a boolean instead of `:skip`.
 
-- **Input**: `state` (the agent's full state — model, messages, etc., for
+- **Input**: `identity` (the agent identity — model, etc., for
   anything a custom strategy might need beyond the two below), `context` (the
   request Planck is about to send if it doesn't compact), and `recent` (the
   messages since the last summary checkpoint — the "active window").
-- **`compact?/3`**: `true`/`false` — whether `compact/3` would actually do
+- **`compact?/3`**: `true`/`false` — whether `compact/4` would actually do
   anything right now.
-- **`:skip`** (from `compact/3`): leave messages unchanged and proceed. A
+- **`:skip`** (from `compact/4`): leave messages unchanged and proceed. A
   compactor is free to still return `:skip` here even after saying `true` to
   `compact?/3` (e.g. nothing old enough left worth summarizing).
 - **`{:compact, summary_msg, kept}`**: replace the active window with `summary_msg`
@@ -63,10 +63,10 @@ for a large summarization prompt.
 
 ## Dispatch
 
-`Hooks.Compactor.compact/4` is the single dispatch entry point:
+`Hooks.Compactor.compact/5` is the single dispatch entry point:
 
 ```elixir
-Planck.Agent.Hooks.Compactor.compact(state, context, recent, opts)
+Planck.Agent.Hooks.Compactor.compact(identity, hooks, context, recent, opts)
 ```
 
 `opts` is `[on_compacting: (-> any()), on_compacted: (-> any()), args: %{prompt: String.t() | nil}, force: boolean()]` — both
@@ -82,16 +82,16 @@ any compactor implementation needing to know about PubSub topics or event
 shapes at all. `:args` is forwarded to the compactor's `compact/4` callback
 as its 4th parameter; defaults to `%{prompt: nil}` (auto-compaction).
 
-- `state.compactor: nil` → runs the built-in LLM-based compactor locally.
-- `state.compactor: MyMod` + `state.sidecar_node: nil` → calls `MyMod.compact?/3`,
+- `hooks.compactor: nil` → runs the built-in LLM-based compactor locally.
+- `hooks.compactor: MyMod` + `hooks.sidecar_node: nil` → calls `MyMod.compact?/3`,
   then, only if `true`, `MyMod.compact/4`, locally.
-- `state.compactor: MyMod` + `state.sidecar_node: node` → `:rpc.call` to the
+- `hooks.compactor: MyMod` + `hooks.sidecar_node: node` → `:rpc.call` to the
   sidecar node for both calls (same two-call shape); falls back to the
   built-in compactor if either RPC fails (`:badrpc`).
 
 ## Built-in compactor
 
-When `state.compactor` is `nil`, the built-in strategy runs:
+When `hooks.compactor` is `nil`, the built-in strategy runs:
 
 **Trigger** — estimates token count via `Planck.AI.Context.estimate_tokens/1`
 (system prompt + tool schemas + messages, `chars ÷ 4` per part); fires when
@@ -126,12 +126,12 @@ defmodule MySidecar.Compactors.Builder do
   use Planck.Agent.Hooks.Compactor
 
   @impl true
-  def compact?(state, context, _recent) do
-    Planck.AI.Context.estimate_tokens(context) >= state.model.context_window * 0.8
+  def compact?(identity, context, _recent) do
+    Planck.AI.Context.estimate_tokens(context) >= identity.model.context_window * 0.8
   end
 
   @impl true
-  def compact(_state, _context, recent) do
+  def compact(_identity, _context, recent, _args) do
     case summarise(recent) do
       {:ok, text} ->
         summary_msg = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
@@ -189,12 +189,12 @@ Planck.Agent.start_link(
 ```elixir
 # Behaviour callbacks — implement in your custom compactor module.
 @callback compact?(
-            state :: Planck.Agent.t(),
+            identity :: Planck.Agent.Identity.t(),
             context :: Planck.AI.Context.t(),
             recent :: [Message.t()]
           ) :: boolean()
 @callback compact(
-            state :: Planck.Agent.t(),
+            identity :: Planck.Agent.Identity.t(),
             context :: Planck.AI.Context.t(),
             recent :: [Message.t()],
             args :: %{prompt: String.t() | nil}
@@ -203,7 +203,8 @@ Planck.Agent.start_link(
 
 # Dispatch — called by the agent runtime; not called directly by user code.
 @spec Planck.Agent.Hooks.Compactor.compact(
-        state :: Planck.Agent.t(),
+        identity :: Planck.Agent.Identity.t(),
+        hooks :: Planck.Agent.Hooks.t(),
         context :: Planck.AI.Context.t(),
         recent :: [Message.t()],
         opts :: [

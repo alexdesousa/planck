@@ -187,9 +187,9 @@ per-session filesystem scanning.
 1. Resolve the team:
    - `template: alias_string` → `ResourceStore.teams[alias]`
    - `template: path` → `Team.load(path)` on the fly
-   - `template: nil` → build a dynamic team of one from config
-     (`default_model`, default system prompt; full `tool_pool` and a
-     `%SkillIndex{}` attached to the lone orchestrator)
+    - `template: nil` → build a dynamic team of one from config
+      (`default_model`, default system prompt; full `tool_pool` and
+      `Context` skill fields attached to the lone orchestrator)
 2. Generate a `session_id` (random hex) and resolve the session name:
    - Use `opts[:name]` if provided, sanitized to `[a-z0-9-]+`.
    - Otherwise auto-generate via `Planck.Headless.SessionName.generate/1`,
@@ -208,13 +208,13 @@ per-session filesystem scanning.
    - `agent_ids` — JSON map of `display_name → agent_id` for all team members,
      used to preserve agent IDs across subsequent resumes.
 5. For each member in the team, call `AgentSpec.to_start_opts/2` with:
-   - `tool_pool:` from `ResourceStore.tools`
-   - `skills:` — a `%Planck.Agent.SkillIndex{}` built per-agent:
-     - `pool` frozen from `ResourceStore.skills` at this moment
-     - `ranked` from `SkillUsage.ranked_names/5` (SQLite ranking with mtime cold-start fallback)
-     - `top_n` from `Config.top_skills!()` (default `5`)
-     - `refresh_fn: fn -> ResourceStore.get().skills end` (live pool for tools)
-     - `index_refresh_fn` for pool+ranked rebuild after compaction
+    - `tool_pool:` from `ResourceStore.tools`
+    - skill start opts built per-agent:
+      - `skill_pool` frozen from `ResourceStore.skills` at this moment
+      - `ranked_skill_names` from `SkillUsage.ranked_names/5` (SQLite ranking with mtime cold-start fallback)
+      - `top_skills` from `Config.top_skills!()` (default `5`)
+      - `skill_refresh_fn: fn -> ResourceStore.get().skills end` (live pool for tools)
+      - `skill_index_refresh_fn` for pool+ranked rebuild after compaction
    - `team_id:` and `session_id:` for this session
    - `available_models:` from `ResourceStore`
    - `compactor:`, `prompt_hook:`, `turn_end_hook:`, and `persistence:` from
@@ -225,9 +225,9 @@ per-session filesystem scanning.
 
 The system-prompt assembly has two layers:
 
-1. **Skills** — `planck_headless` builds a `%SkillIndex{}` per agent and passes
-   it as `skills:` to `AgentSpec.to_start_opts/2`. The index contains a frozen
-   pool (used for the system prompt section) and a live `refresh_fn` (used by
+1. **Skills** — `planck_headless` passes skill start opts per agent to
+   `AgentSpec.to_start_opts/2`. The `Context` holds a frozen
+   `skills_pool` (used for the system prompt section) and a live `skills_refresh_fn` (used by
    tools). SQLite usage history (`SkillUsage`) drives the ranking of the last-used
    skills shown in each agent's system prompt.
 2. **AGENTS.md** — `planck_headless` calls `Tools.prepend_agents_md/2` for both

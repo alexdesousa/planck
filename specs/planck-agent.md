@@ -136,7 +136,7 @@ TEAM.json. The caller merges tools in before spawning.
   system_prompt: String.t(),            # already resolved from file path if applicable
   opts:          keyword(),
   tools:         [String.t()],          # tool names resolved from tool_pool: at start time
-  skills:        [String.t()],          # skill names resolved from the SkillIndex at start time;
+  skills:        [String.t()],          # skill names resolved from skill_pool: at start time;
                                         # used to build the system prompt index via system_prompt_section/3
   compactor:     String.t() | nil,      # sidecar module name for per-agent compaction,
                                         # e.g. "MySidecar.Compactors.Builder"; nil = default
@@ -154,40 +154,50 @@ Dynamic context (e.g. memory) is injected via `prompt_hook`. planck_headless pas
 
 ### Agent state
 
-Internal GenServer state — not part of the public API.
+Internal GenServer state — not part of the public API. Nested into
+`identity` (`Planck.Agent.Identity`), `hooks` (`Planck.Agent.Hooks`),
+`context` (`Planck.Agent.Context`), and `turn` (`Planck.Agent.Turn`).
 
 ```elixir
 %Planck.Agent{
-  id:                        String.t(),
-  name:                      String.t() | nil,
-  description:               String.t() | nil,
-  type:                      String.t() | nil,
-  team_id:                   String.t() | nil,
-  team_name:                 String.t() | nil,
-  session_id:                String.t() | nil,
-  delegator_id:              String.t() | nil,
-  role:                      :orchestrator | :worker,
-  model:                     Planck.AI.Model.t(),
-  available_models:          [Planck.AI.Model.t()],
-  system_prompt:             String.t(),
-  messages:                  [Planck.Agent.Message.t()],
-  tools:                     %{String.t() => Planck.Agent.Tool.t()},
-  opts:                      keyword(),
-  status:                    :idle | :streaming | :executing_tools,
-  stream_task:               Task.t() | nil,
-  stream_ref:                reference() | nil,
-  turn_index:                non_neg_integer(),
-  turn_checkpoints:          [non_neg_integer()],
-  pending_tool_calls:        [map()],
-  text_buffer:               String.t(),
-  thinking_buffer:           String.t(),
-  usage:                     Planck.Agent.Usage.t(),
-  skills:                    Planck.Agent.SkillIndex.t(),
-  compactor:                 module() | nil,
-  prompt_hook:               module() | nil,
-  turn_end_hook:             module() | nil,
-  persistence:               module() | nil,
-  sidecar_node:              atom() | nil
+  identity: %Planck.Agent.Identity{
+    id:             String.t(),
+    name:           String.t() | nil,
+    description:    String.t() | nil,
+    type:           String.t() | nil,
+    team_id:        String.t() | nil,
+    team_name:      String.t() | nil,
+    session_id:     String.t() | nil,
+    delegator_id:   String.t() | nil,
+    role:           :orchestrator | :worker,
+    model:          Planck.AI.Model.t()
+  },
+  hooks: %Planck.Agent.Hooks{
+    compactor:      module() | nil,
+    persistence:    module() | nil,
+    prompt:         module() | nil,
+    turn_end:       module() | nil,
+    sidecar_node:   atom() | nil
+  },
+  context: %Planck.Agent.Context{
+    system_prompt:  String.t(),
+    cwd:            String.t(),
+    messages:       [Planck.Agent.Message.t()],
+    tools:          %{String.t() => Planck.Agent.Tool.t()},
+    opts:           keyword(),
+    usage:          Planck.Agent.Usage.t(),
+    context_tokens: non_neg_integer(),
+    skills_pool:    [Planck.Agent.Skill.t()],
+    skills_ranked:  [String.t()],
+    skills_top_n:   pos_integer(),
+    skills_names:   [String.t()]
+  },
+  turn: %Planck.Agent.Turn{
+    status:         :idle | :streaming | :executing_tools,
+    index:          non_neg_integer(),
+    checkpoints:    [non_neg_integer()]
+  },
+  available_models: [Planck.AI.Model.t()]
 }
 ```
 
@@ -201,13 +211,15 @@ as the memory key in Typesense).
 `turn_checkpoints` is a stack of message-list lengths at the start of each user turn,
 used internally for context management.
 `usage` is a `%Planck.Agent.Usage{}` struct with `input_tokens`, `output_tokens`, and
-`cost` fields. `state.usage.cost` replaces the former top-level `state.cost` field.
-`skills` is a `%Planck.Agent.SkillIndex{}` struct that consolidates all skill-related
-state (pool, ranked names, top_n limit, declared names, and refresh functions). The
-`pool` is frozen at session start and rebuilt only after compaction; `refresh_fn` is
+`cost` fields. `state.context.usage.cost` replaces the former top-level `state.cost` field.
+Skill fields live on `state.context` (`skills_pool`, `skills_ranked`,
+`skills_top_n`, `skills_names`, plus `skills_refresh_fn` /
+`skills_index_refresh_fn`) — the former `%Planck.Agent.SkillIndex{}` struct
+was dissolved into `Context`. The `pool` is frozen at session start and
+rebuilt only after compaction; `skills_refresh_fn` is
 used exclusively by the `load_skill` / `list_skills` tools to access a live pool.
-`compactor` / `prompt_hook` / `turn_end_hook` / `persistence` hold module atoms
-dispatched via `Planck.Agent.Hooks.*`. `sidecar_node` is the distributed Erlang
+`hooks.compactor` / `hooks.prompt` / `hooks.turn_end` / `hooks.persistence` hold module atoms
+dispatched via `Planck.Agent.Hooks.*`. `hooks.sidecar_node` is the distributed Erlang
 node to RPC into when a hook module is set; `nil` means local dispatch only.
 
 ## Public API
@@ -436,7 +448,7 @@ in `planck_headless`. Callers pass the resolved dirs explicitly to `load_all/1`.
 Conversation storage is pluggable via `Planck.Agent.Hooks.Persistence` —
 `Planck.Agent` never calls `Planck.Agent.Session`/`SessionStore` directly, only
 the six `Hooks.Persistence.*` dispatcher functions, which resolve
-`state.persistence` (`nil` = `Hooks.Persistence.Default`) and dispatch locally
+`state.hooks.persistence` (`nil` = `Hooks.Persistence.Default`) and dispatch locally
 or via `sidecar_node` RPC, same shape as the compactor/prompt/turn-end hooks.
 The rest of this section describes `Default`'s built-in strategy — what every
 agent uses unless a custom `AgentSpec.persistence` module is declared. See
@@ -484,10 +496,10 @@ Additional Session API:
 
 ## Compaction
 
-`Planck.Agent.Hooks.Compactor.compact/4` dispatches context compaction. The
+`Planck.Agent.Hooks.Compactor.compact/5` dispatches context compaction. The
 behaviour splits the decision from the work across two callbacks:
 `compact?/3` (cheap — no LLM call) decides whether compaction would do
-anything right now; `compact/3` (potentially slow) does the actual work, and
+anything right now; `compact/4` (potentially slow) does the actual work, and
 is only ever called when `compact?/3` already returned `true`. The built-in
 `compact?/3` estimates token usage from the full request context — system
 prompt, tool schemas, and messages (chars ÷ 4 per part; see
@@ -496,8 +508,8 @@ prompt, tool schemas, and messages (chars ÷ 4 per part; see
 context rather than messages alone matters: a sizeable system prompt or tool
 list can itself account for a large share of the window.
 
-Signature: `Hooks.Compactor.compact(state, context, recent, opts)` — `state`
-is the agent's full state, `context` is the `Planck.AI.Context.t()` built for
+Signature: `Hooks.Compactor.compact(identity, hooks, context, recent, opts)` — `identity`
+is the agent identity, `hooks` carries the compactor module, `context` is the `Planck.AI.Context.t()` built for
 `recent`, `recent` is the messages since the last summary checkpoint, and
 `opts` is `[on_compacting: (-> any()), on_compacted: (-> any())]` (both
 zero-arity, both optional). `context` is passed through (not just `recent`)
@@ -506,7 +518,7 @@ visibility into the agent's system prompt or tool list — can make an
 informed decision too.
 
 `Planck.Agent` supplies `opts` with closures that broadcast `:compacting`
-before and `:compacted` after the dispatcher's call to `compact/3` — never
+before and `:compacted` after the dispatcher's call to `compact/4` — never
 called by a compactor implementation itself, and never fired at all when
 `compact?/3` returns `false`. This is why the split exists: `Planck.Agent`
 calls the dispatcher on every turn and can't know in advance whether a given
@@ -519,22 +531,22 @@ summarization LLM call is synchronous and blocks the agent's `GenServer` for
 its duration (same as any other turn) — `:compacting`/`:compacted` exist so
 the UI reflects that blocking instead of appearing to hang.
 
-When `state.compactor` is `nil`, the built-in LLM-based compactor runs locally.
+When `hooks.compactor` is `nil`, the built-in LLM-based compactor runs locally.
 When a module is set, dispatch goes to the sidecar node via RPC (`compact?/3`
-then, only if `true`, `compact/3` — same two-call shape as the local path),
+then, only if `true`, `compact/4` — same two-call shape as the local path),
 with the built-in compactor as fallback if the sidecar is unavailable.
 
-When triggered, `compact/3` summarises older messages via an LLM call using a
+When triggered, `compact/4` summarises older messages via an LLM call using a
 prompt that prioritises the active goal and recent requests. Returns
 `{:compact, summary_msg, kept}` on success or `:skip` on failure (original
 messages unchanged).
 
-The agent inserts the summary as a `{:custom, :summary}` checkpoint in `state.messages`
+The agent inserts the summary as a `{:custom, :summary}` checkpoint in `state.context.messages`
 and persists it to the session. Future LLM calls are built from the latest checkpoint
 onward — full history is retained in the session for audit and UI pagination.
 
 Custom compactors implement the `Planck.Agent.Hooks.Compactor` behaviour
-(`compact?/3`, `compact/3`, `compact_timeout/0`) and are referenced by module
+(`compact?/3`, `compact/4`, `compact_timeout/0`) and are referenced by module
 name in `AgentSpec.compactor`; the module lives in the sidecar application
 (see `specs/sidecar.md`).
 

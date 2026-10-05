@@ -282,18 +282,18 @@ Pass `agent_id:` to either function to filter to a specific agent.
 `Planck.Agent.Hooks.Compactor` dispatches context compaction. When the estimated
 token count of the message history exceeds the threshold, it calls the LLM to
 produce a summary that preserves the active goal and recent context. Dispatch
-signature: `Hooks.Compactor.compact(state, context, recent, opts \\ [])`.
+signature: `Hooks.Compactor.compact(identity, hooks, context, recent, opts \\ [])`.
 
 The behaviour splits the decision from the work: `compact?/3` (cheap — no LLM
-call) decides whether compaction would do anything right now; `compact/3`
+call) decides whether compaction would do anything right now; `compact/4`
 (potentially slow) does the actual work, and is only called when `compact?/3`
 already returned `true`. `opts` — `on_compacting`/`on_compacted`, both
 zero-arity closures, both optional — are invoked by the dispatcher itself
-(never by a compactor implementation) around the call to `compact/3`, so
+(never by a compactor implementation) around the call to `compact/4`, so
 `Planck.Agent` can broadcast `:compacting`/`:compacted` accurately for any
 compactor without predicting the outcome ahead of time.
 
-When `state.compactor` is `nil`, the built-in LLM-based compactor runs locally.
+When `hooks.compactor` is `nil`, the built-in LLM-based compactor runs locally.
 Pass a module atom to delegate to a sidecar compactor:
 
 ```elixir
@@ -319,12 +319,12 @@ defmodule MySidecar.Compactors.Builder do
   use Planck.Agent.Hooks.Compactor
 
   @impl true
-  def compact?(state, context, _recent) do
-    Planck.AI.Context.estimate_tokens(context) >= state.model.context_window * 0.8
+  def compact?(identity, context, _recent) do
+    Planck.AI.Context.estimate_tokens(context) >= identity.model.context_window * 0.8
   end
 
   @impl true
-  def compact(_state, _context, recent) do
+  def compact(_identity, _context, recent, _args) do
     summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, summarise(recent)}])
     kept    = Enum.take(recent, -5)
     {:compact, summary, kept}
@@ -339,10 +339,10 @@ Reference it by name in TEAM.json (`"compactor": "MySidecar.Compactors.Builder"`
 planck_headless resolves the string to a module atom and passes `compactor: module`
 at agent start time. The sidecar fallbacks to the built-in compactor if unavailable.
 
-The compactor receives the agent's full state, the `Planck.AI.Context.t()` built
+The compactor receives the agent identity and hooks, the `Planck.AI.Context.t()` built
 for the messages since the last summary checkpoint (system prompt, tool schemas,
 and those messages — a sidecar-hosted compactor has no other way to see the
-agent's system prompt or tool list), and that message list itself. `compact/3`
+agent's system prompt or tool list), and that message list itself. `compact/4`
 must return either `{:compact, summary_msg, kept_messages}` or `:skip`.
 
 ## Sidecars

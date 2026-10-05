@@ -89,7 +89,7 @@ PubSub and routes events to the right component via `send_update/3`.
 - One card per agent (orchestrator neutral card, workers colored by spawn order)
 - Each card: name, type, model, `↓input ↑output` tokens, cost, `ctx X%`
 - `ctx X%` — current context window usage, read directly from the agent's own
-  live `state.context_tokens` (the same figure `Planck.Agent.Hooks.Compactor`
+  live `state.context.context_tokens` (the same figure `Planck.Agent.Hooks.Compactor`
   checks against its own threshold — see `specs/compactors.md`), not a
   separately recomputed estimate. An earlier version recomputed a
   messages-only estimate on every sidebar reload, which silently disagreed

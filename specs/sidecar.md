@@ -203,7 +203,7 @@ planck_headless performs the `String.to_existing_atom/1` conversion after ensuri
 module is loaded via `:rpc.call(sidecar_node, :code, :ensure_loaded, [module])`.
 
 The module must implement `Planck.Agent.Hooks.Compactor` — both `compact?/3`
-(cheap decision, checked first by the dispatcher) and `compact/3` (the
+(cheap decision, checked first by the dispatcher) and `compact/4` (the
 potentially slow work, only called when `compact?/3` returns `true`):
 
 ```elixir
@@ -211,12 +211,12 @@ defmodule MySidecar.Compactors.Builder do
   use Planck.Agent.Hooks.Compactor
 
   @impl true
-  def compact?(state, context, _recent) do
-    Planck.AI.Context.estimate_tokens(context) >= state.model.context_window * 0.8
+  def compact?(identity, context, _recent) do
+    Planck.AI.Context.estimate_tokens(context) >= identity.model.context_window * 0.8
   end
 
   @impl true
-  def compact(_state, _context, recent) do
+  def compact(_identity, _context, recent, _args) do
     summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, summarise(recent)}])
     kept    = Enum.take(recent, -5)
     {:compact, summary, kept}
@@ -227,17 +227,17 @@ defmodule MySidecar.Compactors.Builder do
 end
 ```
 
-Remote dispatch calls `compact?/3` then, only if `true`, `compact/3` — two
+Remote dispatch calls `compact?/3` then, only if `true`, `compact/4` — two
 separate RPC round-trips, since the decision must be checked before
 committing to the (potentially slow) work. If the sidecar node is
-unavailable, `Hooks.Compactor.compact/4` falls back to the local LLM-based
+unavailable, `Hooks.Compactor.compact/5` falls back to the local LLM-based
 compactor automatically on `:badrpc` from either call. See
 `specs/compactors.md` for why the callbacks receive `context` (the full
 request — system prompt, tool schemas, and `recent`), not just `recent`
 alone: a sidecar-hosted compactor has no other way to see the agent's system
 prompt or tool list — and for why the dispatcher, not the compactor
 implementation, owns broadcasting `:compacting`/`:compacted` progress events
-around the call to `compact/3`.
+around the call to `compact/4`.
 
 ## Unified Typesense client
 
@@ -596,8 +596,8 @@ and Mix must be installed on the system for sidecar support.
   `AgentSpec.compactor` (module name string in TEAM.json).
 - `AgentSpec` gains `compactor: String.t() | nil`, `prompt_hook: String.t() | nil`,
   `turn_end_hook: String.t() | nil`, and `persistence: String.t() | nil`.
-- The built-in LLM-based compactor (`Hooks.Compactor.compact/4` with
-  `state.compactor: nil`) remains as the fallback when no sidecar compactor
+- The built-in LLM-based compactor (`Hooks.Compactor.compact/5` with
+  `hooks.compactor: nil`) remains as the fallback when no sidecar compactor
   is configured.
 - Conversation storage is now pluggable via `AgentSpec.persistence`; the
   built-in SQLite-backed store (`Planck.Agent.Session`/`SessionStore`) remains

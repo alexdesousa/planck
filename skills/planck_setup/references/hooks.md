@@ -38,13 +38,13 @@ capacity. Called before every LLM turn.
 
 ```elixir
 @callback compact?(
-            state   :: Planck.Agent.t(),
+            identity   :: Planck.Agent.Identity.t(),
             context :: Planck.AI.Context.t(),
             recent  :: [Planck.Agent.Message.t()]
           ) :: boolean()
 
 @callback compact(
-            state :: Planck.Agent.t(),
+            identity :: Planck.Agent.Identity.t(),
             context :: Planck.AI.Context.t(),
             recent :: [Planck.Agent.Message.t()]
           ) ::
@@ -55,13 +55,13 @@ capacity. Called before every LLM turn.
 ```
 
 Two callbacks are required. `compact?/3` is a cheap decision — must not do
-anything slow (no LLM call) — and is checked first; `compact/3`, the
+anything slow (no LLM call) — and is checked first; `compact/4`, the
 potentially slow part, is only ever called when `compact?/3` returns `true`.
 Splitting the decision from the work lets Planck announce "compacting" to the
 UI accurately for any compactor (see "Progress notification" below), without
 needing to predict the outcome itself.
 
-Return `{:compact, summary_msg, kept}` from `compact/3` to replace older
+Return `{:compact, summary_msg, kept}` from `compact/4` to replace older
 messages with a summary checkpoint, or `:skip` to leave the history
 unchanged — a compactor is free to still decide against compacting here even
 after saying `true` to `compact?/3` (e.g. nothing old enough left worth
@@ -73,7 +73,7 @@ It's passed alongside `recent` (not just `recent` alone) because a custom
 compactor typically runs on the sidecar node, which has no other way to see
 the agent's system prompt or tool list — judging how close to the model's
 real context window the conversation is requires all three, not just the
-message count. `state` is the agent's full state (model, messages, etc.), for
+message count. `identity` is the agent identity (model, etc.), for
 anything else a custom strategy might need.
 
 > Breaking change: earlier versions had a single `compact/3` callback with no
@@ -88,7 +88,7 @@ that triggers at 80% of `model.context_window` (estimated from the full
 ### Progress notification
 
 Planck's own dispatcher — not any compactor implementation — wraps the call
-to `compact/3` with `on_compacting`/`on_compacted` callbacks so the UI can
+to `compact/4` with `on_compacting`/`on_compacted` callbacks so the UI can
 show a "compacting" indicator for the (potentially slow, blocking) duration
 of the call. This is internal to `Planck.Agent`; a custom compactor
 implementation never sees or needs to call these itself.
@@ -100,12 +100,12 @@ defmodule MySidecar.Compactors.Summary do
   use Planck.Agent.Hooks.Compactor
 
   @impl true
-  def compact?(state, context, _recent) do
-    Planck.AI.Context.estimate_tokens(context) >= state.model.context_window * 0.8
+  def compact?(identity, context, _recent) do
+    Planck.AI.Context.estimate_tokens(context) >= identity.model.context_window * 0.8
   end
 
   @impl true
-  def compact(_state, _context, recent) do
+  def compact(_identity, _context, recent, _args) do
     text    = summarise(recent)
     summary = Planck.Agent.Message.new({:custom, :summary}, [{:text, text}])
     kept    = Enum.take(recent, -5)
@@ -484,6 +484,6 @@ hook returns `nil` (no injection); the turn-end hook logs a warning and returns
 raises or crashes the agent.
 
 The compactor's remote dispatch makes two RPC calls when it decides to
-compact — `compact?/3` then `compact/3` — since the decision must be checked
+compact — `compact?/3` then `compact/4` — since the decision must be checked
 before committing to the (potentially slow) work. A `:badrpc` from either
 call falls back to the built-in local strategy.

@@ -57,12 +57,12 @@ are required. Windows line endings (CRLF) are normalized before parsing.
 ### Declared skills (predictable, pre-configured)
 
 Skills can be declared per-agent in TEAM.json. Skill names are stored in
-`AgentSpec` and resolved into a `SkillIndex` at session start.
+`AgentSpec` and resolved into `Context` skill fields at session start.
 
-The system prompt skill section is built from a **frozen** `SkillIndex.pool`
+The system prompt skill section is built from a **frozen** `skills_pool`
 captured when the session starts. It is rebuilt only after context compaction
-(via `index_refresh_fn`) — keeping token counts stable and predictable across
-turns. The live `skill_refresh_fn` is used exclusively by the `load_skill` and
+(via `skills_index_refresh_fn`) — keeping token counts stable and predictable across
+turns. The live `skills_refresh_fn` is used exclusively by the `load_skill` and
 `list_skills` tools so agents can access the current pool on demand.
 
 The section appended to the system prompt has three parts:
@@ -151,28 +151,24 @@ In this setup:
 
 ## Typical usage (via `AgentSpec.to_start_opts/2`)
 
-`planck_headless` builds a `%SkillIndex{}` per agent and passes it as `skills:`:
+`planck_headless` builds `Context` skill fields per agent and passes them as start opts:
 
 ```elixir
 all_skills = Planck.Agent.Skill.load_all(["~/.planck/skills", ".planck/skills"])
 
-skill_index = %Planck.Agent.SkillIndex{
-  pool:      all_skills,   # frozen at session start
-  ranked:    SkillUsage.ranked_names(project_dir, team_name, agent_name, all_skills, top_n),
-  top_n:     top_n,
-  names:     spec.skills,
-  refresh_fn: fn -> ResourceStore.get().skills end
-}
-
 start_opts = AgentSpec.to_start_opts(spec,
   tool_pool: builtins ++ custom_tools,
-  skills:    skill_index,
-  team_id:   team_id
+  skill_pool: all_skills,
+  ranked_skill_names: SkillUsage.ranked_names(project_dir, team_name, agent_name, all_skills, top_n),
+  top_skills: top_n,
+  skill_names: spec.skills,
+  skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
+  team_id: team_id
 )
 ```
 
 `load_skill` is **not** resolved from `tool_pool` — it is injected directly by
-`AgentSpec.resolve_tools/2` whenever a `skills:` index is present.
+`AgentSpec.resolve_tools/2` whenever a non-empty `skill_pool:` is present.
 Every agent gets it automatically regardless of what it declares.
 
 `list_skills` is added to `tool_pool` by `planck_headless` when skills exist.
@@ -255,17 +251,14 @@ config :planck_agent, :skills_dirs, [".planck/skills", "~/.planck/skills"]
 @spec list_skills_tool([Skill.t()]) :: Tool.t()
 ```
 
-### `Planck.Agent.SkillIndex`
+### `Context` skill fields (formerly `Planck.Agent.SkillIndex`)
 
-```elixir
-# Build an empty SkillIndex.
-@spec new() :: SkillIndex.t()
+Skill state lives on `Planck.Agent.Context`:
 
-# Build a SkillIndex from agent start opts.
-@spec from_opts(keyword()) :: SkillIndex.t()
-
-# Rebuild pool and ranked from index_refresh_fn (called after compaction).
-@spec refresh(SkillIndex.t()) :: SkillIndex.t()
+- `skills_pool` — frozen list for the system prompt index, rebuilt after compaction
+- `skills_ranked` / `skills_top_n` / `skills_names` — ranking, limit, declared names
+- `skills_refresh_fn` — live pool for `load_skill` / `list_skills` tool dispatch
+- `skills_index_refresh_fn` — rebuilds pool + ranked after compaction
 ```
 
 ### `Planck.Agent.SkillUsage`

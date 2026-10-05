@@ -101,14 +101,14 @@ defmodule Planck.Agent do
     `Planck.AI.Context.estimate_tokens/1`
   - `opts` — pass-through keyword options (e.g. `tool_timeout`)
 
-  Turn fields:
+  Turn fields (grouped in `turn`):
   - `status` — `:idle`, `:streaming`, or `:executing_tools`
-  - `turn_state` — monotonically increasing turn counter and checkpoint stack
+  - `index` / `checkpoints` — monotonically increasing turn counter and checkpoint stack
   - `stream_task` / `stream_ref` — in-flight async LLM stream
-  - `stream_start` — length of `messages` when the current stream began; used to
+  - `stream_start` — length of `context.messages` when the current stream began; used to
     detect messages appended *during* streaming that the LLM did not see
-  - `stream_buffer` — accumulates text/thinking/tool-call deltas during streaming
-  - `tool_runner` — tracks in-flight tool tasks and their accumulated results
+  - `buffer_text` / `buffer_thinking` / `buffer_calls` — accumulated deltas during streaming
+  - `running` / `results` / `loop_counts` — in-flight tool tasks, accumulated results, loop detection
 
   Hook fields (grouped in `hooks`):
   - `compactor` — resolved module atom for context compaction; `nil` uses the
@@ -186,7 +186,7 @@ defmodule Planck.Agent do
 
   Enqueues a `{:custom, :command}` message carrying `command_meta` and the
   rendered command body. When the agent is idle, a new turn starts
-  immediately; when busy, the message stacks in `state.messages` (broadcast
+  immediately; when busy, the message stacks in `state.context.messages` (broadcast
   as `:message_queued` with `role: :command`) and starts a turn at the next
   turn boundary.
   """
@@ -378,7 +378,7 @@ defmodule Planck.Agent do
   Estimate the number of tokens currently in the agent's context window —
   system prompt, tool schemas, and conversation, not just the conversation.
   Reflects the request built for the most recently started LLM call (see
-  `state.context_tokens`'s own doc), not a fresh recomputation.
+  `state.context.context_tokens`'s own doc), not a fresh recomputation.
   """
   @spec estimate_tokens(agent()) :: non_neg_integer()
   def estimate_tokens(agent)

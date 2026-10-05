@@ -25,7 +25,7 @@ defmodule Planck.Agent.MessageBuilder do
   def normalize_content(parts) when is_list(parts), do: parts
 
   @doc """
-  Build an assistant message from a `StreamBuffer`.
+  Build an assistant message from a `Turn`'s buffers.
 
   Content order: thinking → text → tool calls. Fields that are empty strings
   or empty lists are omitted from the message content.
