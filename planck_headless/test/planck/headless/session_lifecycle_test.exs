@@ -176,7 +176,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).context.system_prompt
       assert String.starts_with?(system_prompt, "Project conventions go here.")
       assert system_prompt =~ "You coordinate."
     end
@@ -191,7 +191,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).context.system_prompt
       refute system_prompt =~ "Should not be loaded."
     end
 
@@ -206,7 +206,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).context.system_prompt
       assert String.starts_with?(system_prompt, "Root conventions.")
     end
 
@@ -218,7 +218,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      system_prompt = Agent.get_state(orch_pid).system_prompt
+      system_prompt = Agent.get_state(orch_pid).context.system_prompt
       assert system_prompt =~ "You coordinate."
     end
 
@@ -230,7 +230,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, worker_pid} = find_worker(meta["team_id"])
 
-      system_prompt = Agent.get_state(worker_pid).system_prompt
+      system_prompt = Agent.get_state(worker_pid).context.system_prompt
       assert String.starts_with?(system_prompt, "Project conventions go here.")
       assert system_prompt =~ "You implement."
     end
@@ -242,7 +242,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, worker_pid} = find_worker(meta["team_id"])
 
-      assert Agent.get_state(worker_pid).cwd == dir
+      assert Agent.get_state(worker_pid).context.cwd == dir
     end
 
     test "orchestrator has built-in tools and inter-agent tools", %{tmp_dir: dir} do
@@ -252,7 +252,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
 
       # Built-in file tools
       assert "read" in tool_names
@@ -292,7 +292,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       assert "load_skill" in tool_names
     end
 
@@ -312,7 +312,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       refute "load_skill" in tool_names
     end
 
@@ -342,7 +342,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, sid1} = Headless.start_session(template: team_without)
       {:ok, meta1} = Session.get_metadata(sid1)
       {:ok, pid1} = find_orchestrator(meta1["team_id"])
-      assert "list_skills" in (Agent.get_state(pid1).tools |> Map.keys())
+      assert "list_skills" in (Agent.get_state(pid1).context.tools |> Map.keys())
 
       # Team with list_skills declared
       team_with = Path.join(dir, "with-list-skills-team")
@@ -367,7 +367,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, sid2} = Headless.start_session(template: team_with)
       {:ok, meta2} = Session.get_metadata(sid2)
       {:ok, pid2} = find_orchestrator(meta2["team_id"])
-      assert "list_skills" in (Agent.get_state(pid2).tools |> Map.keys())
+      assert "list_skills" in (Agent.get_state(pid2).context.tools |> Map.keys())
     end
 
     test "orchestrator has the classify tool when an rlcd model is configured", %{tmp_dir: dir} do
@@ -379,7 +379,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       assert "classify" in tool_names
     end
 
@@ -391,7 +391,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       refute "classify" in tool_names
     end
 
@@ -408,7 +408,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
 
       assert "read" in tool_names
       assert "write" in tool_names
@@ -483,7 +483,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       assert "echo" in tool_names
     end
 
@@ -505,7 +505,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       assert "notify" in tool_names
     end
 
@@ -527,7 +527,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       refute "echo" in tool_names
     end
 
@@ -550,7 +550,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       refute "temp_tool" in tool_names
     end
 
@@ -652,7 +652,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool = Agent.get_state(orch_pid).tools["load_skill"]
+      tool = Agent.get_state(orch_pid).context.tools["load_skill"]
 
       assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "gated-skill"})
       assert msg =~ "Unknown skill"
@@ -672,16 +672,16 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       prompt =
         Planck.Agent.SystemPrompt.build(%{
-          system_prompt: state.system_prompt,
-          name: state.name,
-          type: state.type,
-          tools: state.tools,
-          skill_pool: state.skills.pool,
-          ranked_skill_names: state.skills.ranked,
-          top_skills: state.skills.top_n,
-          prompt_hook: state.prompt_hook,
-          session_id: state.session_id,
-          sidecar_node: state.sidecar_node
+          system_prompt: state.context.system_prompt,
+          name: state.identity.name,
+          type: state.identity.type,
+          tools: state.context.tools,
+          skill_pool: state.context.skills_pool,
+          ranked_skill_names: state.context.skills_ranked,
+          top_skills: state.context.skills_top_n,
+          prompt_hook: state.hooks.prompt,
+          session_id: state.identity.session_id,
+          sidecar_node: state.hooks.sidecar_node
         })
 
       assert prompt =~ "self-skill"
@@ -694,7 +694,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, worker_pid} = find_worker(meta["team_id"])
 
-      tool = Agent.get_state(worker_pid).tools["load_skill"]
+      tool = Agent.get_state(worker_pid).context.tools["load_skill"]
 
       assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "gated-skill"})
       assert msg =~ "Unknown skill"
@@ -707,16 +707,16 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       prompt =
         Planck.Agent.SystemPrompt.build(%{
-          system_prompt: state.system_prompt,
-          name: state.name,
-          type: state.type,
-          tools: state.tools,
-          skill_pool: state.skills.pool,
-          ranked_skill_names: state.skills.ranked,
-          top_skills: state.skills.top_n,
-          prompt_hook: state.prompt_hook,
-          session_id: state.session_id,
-          sidecar_node: state.sidecar_node
+          system_prompt: state.context.system_prompt,
+          name: state.identity.name,
+          type: state.identity.type,
+          tools: state.context.tools,
+          skill_pool: state.context.skills_pool,
+          ranked_skill_names: state.context.skills_ranked,
+          top_skills: state.context.skills_top_n,
+          prompt_hook: state.hooks.prompt,
+          session_id: state.identity.session_id,
+          sidecar_node: state.hooks.sidecar_node
         })
 
       assert prompt =~ "self-skill"
@@ -746,7 +746,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool = Agent.get_state(orch_pid).tools["list_skills"]
+      tool = Agent.get_state(orch_pid).context.tools["list_skills"]
       {:ok, result} = tool.execute_fn.("agent", "id", %{})
       assert result =~ "self-skill"
       refute result =~ "gated-skill"
@@ -793,7 +793,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
       assert [{reviewer_pid, _} | _] = Registry.lookup(Agent.Registry, {team_id, "reviewer"})
 
-      tool = Agent.get_state(reviewer_pid).tools["load_skill"]
+      tool = Agent.get_state(reviewer_pid).context.tools["load_skill"]
 
       assert {:error, msg} = tool.execute_fn.("agent", "id", %{"name" => "gated-skill"})
       assert msg =~ "Unknown skill"
@@ -826,7 +826,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool = Agent.get_state(orch_pid).tools["load_skill"]
+      tool = Agent.get_state(orch_pid).context.tools["load_skill"]
       assert {:ok, _} = tool.execute_fn.("agent", "id", %{"name" => "flip-skill"})
 
       write_skill_fm(skills_dir, "flip-skill", "Flippable.",
@@ -1393,7 +1393,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      clear_msg = Enum.find(state.messages, &(&1.role == {:custom, :clear}))
+      clear_msg = Enum.find(state.context.messages, &(&1.role == {:custom, :clear}))
       assert clear_msg != nil
     end
 
@@ -1468,7 +1468,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      command_msg = Enum.find(state.context.messages, &(&1.role == {:custom, :command}))
       assert command_msg != nil
       assert command_msg.metadata.command == %{name: "review-checklist", args: ["src/auth"]}
       assert command_msg.metadata.invoked_by == :user
@@ -1499,7 +1499,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      command_msg = Enum.find(state.messages, &(&1.role == {:custom, :command}))
+      command_msg = Enum.find(state.context.messages, &(&1.role == {:custom, :command}))
       assert command_msg != nil
       assert command_msg.metadata.command.args == []
     end
@@ -1529,14 +1529,14 @@ defmodule Planck.Headless.SessionLifecycleTest do
       state = Agent.get_state(orch_pid)
 
       tool_call_msg =
-        Enum.find(state.messages, fn msg ->
+        Enum.find(state.context.messages, fn msg ->
           match?({:tool_call, _, "load_skill", %{"name" => "grill-me"}}, hd(msg.content))
         end)
 
       assert tool_call_msg != nil
 
       user_msg =
-        Enum.find(state.messages, fn msg ->
+        Enum.find(state.context.messages, fn msg ->
           msg.role == :user and
             Enum.any?(msg.content, fn {:text, t} -> t =~ "give me five questions" end)
         end)
@@ -1560,7 +1560,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      user_msg = Enum.find(state.messages, &(&1.role == :user))
+      user_msg = Enum.find(state.context.messages, &(&1.role == :user))
       assert user_msg != nil
       {:text, text} = Enum.find(user_msg.content, &match?({:text, _}, &1))
       assert text == "/not-a-command hello there"
@@ -1582,7 +1582,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      user_msg = Enum.find(state.messages, &(&1.role == :user))
+      user_msg = Enum.find(state.context.messages, &(&1.role == :user))
       assert user_msg != nil
       {:text, text} = Enum.find(user_msg.content, &match?({:text, _}, &1))
       assert text == "hello there"
@@ -1615,7 +1615,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       [{orch_pid, _} | _] = Registry.lookup(Agent.Registry, {meta["team_id"], "orchestrator"})
       state = Agent.get_state(orch_pid)
 
-      refute Enum.any?(state.messages, &(&1.role == {:custom, :command}))
+      refute Enum.any?(state.context.messages, &(&1.role == {:custom, :command}))
     end
   end
 
@@ -1638,7 +1638,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, solo_pid} = find_solo(meta["team_id"])
 
-      tool_names = Agent.get_state(solo_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(solo_pid).context.tools |> Map.keys()
 
       assert "read" in tool_names
       refute "write" in tool_names
@@ -2255,9 +2255,9 @@ defmodule Planck.Headless.SessionLifecycleTest do
       state = Agent.get_state(orch_pid)
 
       # (100 * 2.5 + 50 * 10.0) / 1_000_000 = 0.00075
-      assert state.usage.input_tokens == 100
-      assert state.usage.output_tokens == 50
-      assert_in_delta state.usage.cost, 0.00075, 1.0e-10
+      assert state.context.usage.input_tokens == 100
+      assert state.context.usage.output_tokens == 50
+      assert_in_delta state.context.usage.cost, 0.00075, 1.0e-10
     end
 
     test "accumulated usage and cost survive multiple resumes", %{tmp_dir: dir} do
@@ -2301,9 +2301,9 @@ defmodule Planck.Headless.SessionLifecycleTest do
       # Turn 2: (60*2.5 + 20*10.0)/1M = 0.00035
       # Total cost: 0.00110
       # Total tokens: input 160, output 70
-      assert state.usage.input_tokens == 160
-      assert state.usage.output_tokens == 70
-      assert_in_delta state.usage.cost, 0.00110, 1.0e-10
+      assert state.context.usage.input_tokens == 160
+      assert state.context.usage.output_tokens == 70
+      assert_in_delta state.context.usage.cost, 0.00110, 1.0e-10
     end
   end
 
@@ -2439,7 +2439,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       assert "custom_hello" in tool_names
     end
 
@@ -2461,7 +2461,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool = Map.get(Agent.get_state(orch_pid).tools, "bash")
+      tool = Map.get(Agent.get_state(orch_pid).context.tools, "bash")
       assert {:error, "bash is disabled"} = tool.execute_fn.("agent", "id", %{})
     end
 
@@ -2483,7 +2483,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool_names = Agent.get_state(orch_pid).tools |> Map.keys()
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
       refute "temp_tool" in tool_names
     end
   end
@@ -2508,8 +2508,8 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, orch1} = find_orchestrator(meta1["team_id"])
       {:ok, orch2} = find_orchestrator(meta2["team_id"])
 
-      assert "session_only" in Map.keys(Agent.get_state(orch1).tools)
-      refute "session_only" in Map.keys(Agent.get_state(orch2).tools)
+      assert "session_only" in Map.keys(Agent.get_state(orch1).context.tools)
+      refute "session_only" in Map.keys(Agent.get_state(orch2).context.tools)
     end
 
     test "per-session tool shadows a registered tool of the same name", %{tmp_dir: dir} do
@@ -2538,7 +2538,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, meta} = Session.get_metadata(session_id)
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
-      tool = Map.get(Agent.get_state(orch_pid).tools, "read")
+      tool = Map.get(Agent.get_state(orch_pid).context.tools, "read")
       assert {:ok, "session_override"} = tool.execute_fn.("agent", "id", %{})
     end
   end

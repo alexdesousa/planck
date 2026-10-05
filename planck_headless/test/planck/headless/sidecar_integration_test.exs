@@ -212,7 +212,7 @@ defmodule Planck.Headless.SidecarIntegrationTest do
       context = %Context{messages: Message.to_ai_messages(messages)}
 
       assert {:compact, %Message{content: [{:text, "Test summary."}]}, kept} =
-               Compactor.compact(state, context, messages)
+               Compactor.compact(state.identity, state.hooks, context, messages)
 
       assert length(kept) == 3
     end

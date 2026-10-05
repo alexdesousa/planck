@@ -657,9 +657,9 @@ defmodule Planck.Web.SessionLive do
     state = Agent.get_state(pid)
 
     model = state.identity.model
-    model_costs = model.cost || %{input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0}
+    model_cost = model.cost || %{input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0}
     model_id = model.id || "unknown"
-    model_display = if model.name not in [nil, ""], do: model.name, else: model_id
+    model_display = if model.name in [nil, ""], do: model_id, else: model.name
     context_window = model.context_window || 4_096
 
     usage = state.context.usage || %{input_tokens: 0, output_tokens: 0}
