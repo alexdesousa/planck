@@ -22,9 +22,11 @@ defmodule Planck.Agent.EExRendererTest do
     test "raises on truly unbound variables" do
       template = "Value: <%= missing %>"
 
-      assert_raise CompileError, fn ->
-        EExRenderer.render(template, [])
-      end
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        assert_raise CompileError, fn ->
+          EExRenderer.render(template, [])
+        end
+      end)
     end
 
     test "renders a multi-line command body template" do

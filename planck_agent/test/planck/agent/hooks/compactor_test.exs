@@ -30,11 +30,17 @@ defmodule Planck.Agent.Hooks.CompactorTest do
 
   defp build_state(opts) do
     %Agent{
-      id: "test",
-      model: Keyword.get(opts, :model, @model),
-      compactor: Keyword.get(opts, :compactor),
-      sidecar_node: Keyword.get(opts, :sidecar_node),
-      messages: Keyword.get(opts, :messages, [])
+      identity: %Planck.Agent.Identity{
+        id: "test",
+        model: Keyword.get(opts, :model, @model)
+      },
+      hooks: %Planck.Agent.Hooks{
+        compactor: Keyword.get(opts, :compactor, Compactor.Default),
+        sidecar_node: Keyword.get(opts, :sidecar_node)
+      },
+      context: %Planck.Agent.Context{
+        messages: Keyword.get(opts, :messages, [])
+      }
     }
   end
 
@@ -93,7 +99,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages) == :skip
     end
 
     test "returns {:compact, summary_msg, kept} when tokens exceed threshold" do
@@ -105,7 +111,9 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert {:compact, summary_msg, kept} = Compactor.compact(state, context, messages)
+      assert {:compact, summary_msg, kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
+
       assert summary_msg.role == {:custom, :summary}
       assert [{:text, "Summary of old messages."}] = summary_msg.content
       # keep_budget = trunc(1_000 * 0.1) = 100 tokens; each message costs ~100 tokens → 1 kept
@@ -121,7 +129,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages) == :skip
     end
 
     test "returns :skip on empty LLM response" do
@@ -133,7 +141,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages) == :skip
     end
 
     test "filters summary checkpoints from messages sent to LLM" do
@@ -153,7 +161,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert {:compact, _, _} = Compactor.compact(state, context, messages)
+      assert {:compact, _, _} = Compactor.compact(state.identity, state.hooks, context, messages)
 
       assert_received {:summarize_input, history}
       refute history =~ "First summary."
@@ -177,7 +185,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
 
       bare_context = build_context(messages)
-      assert Compactor.compact(state, bare_context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, bare_context, messages) == :skip
 
       stub(MockAI, :stream, fn _model, _context, _opts ->
         [{:text_delta, "Summary."}, {:done, %{}}]
@@ -185,7 +193,9 @@ defmodule Planck.Agent.Hooks.CompactorTest do
 
       # ~1_200 chars of system prompt ≈ 300 extra tokens, pushing ~600 + 300 over 800.
       padded_context = build_context(messages, system: String.duplicate("s", 1_200))
-      assert {:compact, _summary, _kept} = Compactor.compact(state, padded_context, messages)
+
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, padded_context, messages)
     end
 
     test "thinking blocks are excluded from the summarization input" do
@@ -207,7 +217,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      Compactor.compact(state, context, messages)
+      Compactor.compact(state.identity, state.hooks, context, messages)
 
       assert_received {:summarize_input, history}
       refute history =~ "Internal reasoning"
@@ -252,7 +262,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: LocalSkipCompactor)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages) == :skip
     end
 
     test "returns module's compact result" do
@@ -260,7 +270,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: LocalCompactCompactor)
       context = build_context(messages)
 
-      assert {:compact, summary, kept} = Compactor.compact(state, context, messages)
+      assert {:compact, summary, kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
 
       assert summary.role == {:custom, :summary}
       assert length(kept) == 1
@@ -285,7 +296,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: __MODULE__.LocalCompactCompactor)
       context = build_context(messages)
 
-      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages, opts)
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages, opts)
 
       assert_received :on_compacting
       assert_received :on_compacted
@@ -303,7 +315,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages, opts) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages, opts) == :skip
       refute_received :on_compacting
       refute_received :on_compacted
     end
@@ -324,7 +336,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: __MODULE__.LocalSkipCompactor)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages, opts) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages, opts) == :skip
       assert_received :on_compacting
       assert_received :on_compacted
     end
@@ -334,7 +346,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: __MODULE__.LocalCompactCompactor)
       context = build_context(messages)
 
-      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages)
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
     end
   end
 
@@ -363,7 +376,9 @@ defmodule Planck.Agent.Hooks.CompactorTest do
 
       opts = [args: %{prompt: "focus on API design"}]
 
-      assert {:compact, summary, _kept} = Compactor.compact(state, context, messages, opts)
+      assert {:compact, summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages, opts)
+
       assert summary.content == [{:text, "args: %{prompt: \"focus on API design\"}"}]
     end
 
@@ -372,7 +387,9 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: ArgsRecordingCompactor)
       context = build_context(messages)
 
-      assert {:compact, summary, _kept} = Compactor.compact(state, context, messages)
+      assert {:compact, summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
+
       assert summary.content == [{:text, "args: %{prompt: nil}"}]
     end
 
@@ -381,7 +398,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: ArgsRecordingCompactor)
       context = build_context(messages)
 
-      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages)
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
     end
   end
 
@@ -400,7 +418,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
 
       opts = [args: %{prompt: "focus on the API design discussion"}]
 
-      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages, opts)
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages, opts)
 
       assert_received {:delegate_system_prompt, system}
       assert system =~ "Additional instruction from the user: focus on the API design discussion"
@@ -418,7 +437,8 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages)
       context = build_context(messages)
 
-      assert {:compact, _summary, _kept} = Compactor.compact(state, context, messages)
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
 
       assert_received {:delegate_system_prompt, system}
       refute system =~ "Additional instruction from the user"
@@ -452,7 +472,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       state = build_state(messages: messages, compactor: RemoteSkipCompactor)
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages) == :skip
     end
 
     test "dispatches via RPC on the same node" do
@@ -463,7 +483,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
 
       context = build_context(messages)
 
-      assert Compactor.compact(state, context, messages) == :skip
+      assert Compactor.compact(state.identity, state.hooks, context, messages) == :skip
     end
 
     test "falls back to local LLM compactor when RPC fails" do
@@ -482,7 +502,9 @@ defmodule Planck.Agent.Hooks.CompactorTest do
 
       context = build_context(messages)
 
-      assert {:compact, summary, _kept} = Compactor.compact(state, context, messages)
+      assert {:compact, summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages)
+
       assert [{:text, "fallback summary"}] = summary.content
     end
   end
@@ -535,7 +557,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       )
 
     messages = Enum.map(1..5, fn i -> text_message(:user, "message #{i}") end)
-    :sys.replace_state(agent, fn s -> %{s | messages: messages} end)
+    :sys.replace_state(agent, fn s -> %{s | context: %{s.context | messages: messages}} end)
     agent
   end
 
@@ -604,7 +626,7 @@ defmodule Planck.Agent.Hooks.CompactorTest do
       Agent.subscribe(agent)
 
       messages = Enum.map(1..5, fn i -> Message.new(:user, [{:text, "message #{i}"}]) end)
-      :sys.replace_state(agent, fn s -> %{s | messages: messages} end)
+      :sys.replace_state(agent, fn s -> %{s | context: %{s.context | messages: messages}} end)
 
       Agent.prompt(agent, "go")
       # IntegrationCompactor keeps last 1 message + summary → LLM sees 2 messages

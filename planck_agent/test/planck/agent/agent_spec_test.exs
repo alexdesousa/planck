@@ -102,14 +102,28 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:model] == @model
     end
 
-    test "does not include hook fields (set by headless, not AgentSpec)" do
+    test "includes resolved hook fields (nil by default)" do
       expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
       opts = AgentSpec.to_start_opts(@base_spec)
-      refute Keyword.has_key?(opts, :compactor)
-      refute Keyword.has_key?(opts, :prompt_hook)
-      refute Keyword.has_key?(opts, :turn_end_hook)
-      refute Keyword.has_key?(opts, :persistence)
-      refute Keyword.has_key?(opts, :sidecar_node)
+      assert opts[:compactor] == nil
+      assert opts[:prompt_hook] == nil
+      assert opts[:turn_end_hook] == nil
+      assert opts[:persistence] == nil
+      assert opts[:sidecar_node] == nil
+    end
+
+    test "resolves hook module strings to atoms" do
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      spec = %AgentSpec{@base_spec | compactor: "MySidecar.Compactors.Builder"}
+      opts = AgentSpec.to_start_opts(spec)
+      assert opts[:compactor] == MySidecar.Compactors.Builder
+    end
+
+    test "passes sidecar_node from overrides" do
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+      opts = AgentSpec.to_start_opts(@base_spec, sidecar_node: :sidecar@localhost)
+      assert opts[:sidecar_node] == :sidecar@localhost
     end
 
     test "resolves tools by name from tool_pool when spec.tools is set" do

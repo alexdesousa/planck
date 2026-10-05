@@ -166,7 +166,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       assert_receive {:agent_event, :turn_end, _}, 2_000
 
       state = Agent.get_state(orch_pid)
-      tool_msg = Enum.find(state.messages, &(&1.role == :tool_result))
+      tool_msg = Enum.find(state.context.messages, &(&1.role == :tool_result))
       assert tool_msg != nil
       [{:tool_result, _id, value}] = tool_msg.content
       assert value =~ "Agent not found"
@@ -232,7 +232,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
       # Verify the builder received a deadlock error, not a hung response
       {:ok, builder_pid} = Agent.whereis(actual_builder_id)
-      messages = Agent.get_state(builder_pid).messages
+      messages = Agent.get_state(builder_pid).context.messages
       tool_result = Enum.find(messages, &(&1.role == :tool_result))
       assert tool_result != nil
       [{:tool_result, _id, value}] = tool_result.content
@@ -394,7 +394,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       state = Agent.get_state(orch_pid)
 
       sender_msg =
-        Enum.find(state.messages, fn msg ->
+        Enum.find(state.context.messages, fn msg ->
           msg.role == {:custom, :agent_response} and
             msg.metadata[:sender_name] == "builder"
         end)
@@ -518,7 +518,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
     end)
 
-    Agent.get_state(pid).tools
+    Agent.get_state(pid).context.tools
   end
 
   # ---------------------------------------------------------------------------
@@ -707,7 +707,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
         do: DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, pid)
     end)
 
-    Agent.get_state(pid).system_prompt
+    Agent.get_state(pid).context.system_prompt
   end
 
   describe "spawn_agent grantable skills" do
@@ -799,7 +799,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   defp tool_result_value(pid) do
-    msg = Enum.find(Agent.get_state(pid).messages, &(&1.role == :tool_result))
+    msg = Enum.find(Agent.get_state(pid).context.messages, &(&1.role == :tool_result))
     [{:tool_result, _id, value}] = msg.content
     value
   end
@@ -953,7 +953,7 @@ defmodule Planck.Agent.TeamIntegrationTest do
       assert_receive {:agent_event, :turn_end, %{message: %{content: [{:text, "Interrupted."}]}}},
                      3_000
 
-      assert Agent.get_state(builder_pid).status == :idle
+      assert Agent.get_state(builder_pid).turn.status == :idle
     end
   end
 end

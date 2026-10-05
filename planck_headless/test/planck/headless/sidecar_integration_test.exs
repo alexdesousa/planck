@@ -196,11 +196,17 @@ defmodule Planck.Headless.SidecarIntegrationTest do
         Enum.map(1..20, &Message.new(:user, [{:text, String.duplicate("x", 200) <> " #{&1}"}]))
 
       state = %Agent{
-        id: "test",
-        model: @model,
-        messages: messages,
-        compactor: module,
-        sidecar_node: SidecarManager.node()
+        identity: %Planck.Agent.Identity{
+          id: "test",
+          model: @model
+        },
+        hooks: %Planck.Agent.Hooks{
+          compactor: module,
+          sidecar_node: SidecarManager.node()
+        },
+        context: %Planck.Agent.Context{
+          messages: messages
+        }
       }
 
       context = %Context{messages: Message.to_ai_messages(messages)}

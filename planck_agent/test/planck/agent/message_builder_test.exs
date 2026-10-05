@@ -1,7 +1,7 @@
 defmodule Planck.Agent.MessageBuilderTest do
   use ExUnit.Case, async: true
 
-  alias Planck.Agent.{MessageBuilder, StreamBuffer}
+  alias Planck.Agent.{MessageBuilder, Turn}
 
   describe "normalize_content/1" do
     test "wraps a string in a text tuple" do
@@ -16,14 +16,14 @@ defmodule Planck.Agent.MessageBuilderTest do
 
   describe "build_assistant/1" do
     test "produces text-only message" do
-      buf = %StreamBuffer{text: "hello"}
+      buf = %Turn{buffer_text: "hello"}
       msg = MessageBuilder.build_assistant(buf)
       assert msg.role == :assistant
       assert msg.content == [{:text, "hello"}]
     end
 
     test "produces thinking + text message" do
-      buf = %StreamBuffer{text: "reply", thinking: "chain of thought"}
+      buf = %Turn{buffer_text: "reply", buffer_thinking: "chain of thought"}
       msg = MessageBuilder.build_assistant(buf)
       assert msg.role == :assistant
       assert {:thinking, "chain of thought"} in msg.content
@@ -31,7 +31,7 @@ defmodule Planck.Agent.MessageBuilderTest do
     end
 
     test "produces tool-call-only message" do
-      buf = %StreamBuffer{calls: [%{id: "c1", name: "bash", args: %{"command" => "ls"}}]}
+      buf = %Turn{buffer_calls: [%{id: "c1", name: "bash", args: %{"command" => "ls"}}]}
       msg = MessageBuilder.build_assistant(buf)
       assert msg.role == :assistant
       assert {:tool_call, "c1", "bash", %{"command" => "ls"}} in msg.content
@@ -39,10 +39,10 @@ defmodule Planck.Agent.MessageBuilderTest do
     end
 
     test "orders content: thinking, text, tool calls" do
-      buf = %StreamBuffer{
-        text: "text",
-        thinking: "think",
-        calls: [%{id: "c1", name: "bash", args: %{}}]
+      buf = %Turn{
+        buffer_text: "text",
+        buffer_thinking: "think",
+        buffer_calls: [%{id: "c1", name: "bash", args: %{}}]
       }
 
       msg = MessageBuilder.build_assistant(buf)
