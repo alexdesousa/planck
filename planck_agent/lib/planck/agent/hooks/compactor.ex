@@ -53,7 +53,9 @@ defmodule Planck.Agent.Hooks.Compactor do
   - `opts` — `:on_compacting` and `:on_compacted`, both zero-arity functions,
     both optional. `:args` — a map (default `%{prompt: nil}`) forwarded to
     the compactor's `compact/4` callback as its 4th parameter; used by
-    `/compact [prompt]` to steer the summarization. Called by *this dispatch
+    `/compact [prompt]` to steer the summarization. The dispatcher reads the
+    bypass flag from `args.force` (`true` for `/compact`, `false` for
+    auto-compaction) before forwarding. Called by *this dispatch
     function*, around `compact/4` — never by a `compact/4` implementation
     itself, which never receives `opts` at all. `Planck.Agent` supplies
     `on_compacting`/`on_compacted` so the UI can be told compaction is in
@@ -97,25 +99,28 @@ defmodule Planck.Agent.Hooks.Compactor do
   @default_compact_timeout_ms 600_000
 
   @typedoc false
+  @type compact_args :: %{
+          :prompt => String.t() | nil,
+          optional(:force) => boolean()
+        }
+
+  @typedoc false
   @type compact_opt ::
           {:on_compacting, (-> any())}
           | {:on_compacted, (-> any())}
-          | {:args, %{prompt: String.t() | nil}}
-          | {:force, boolean()}
           | {:timeout, non_neg_integer()}
+          | {:args, compact_args()}
 
   @typedoc """
   `:on_compacting`/`:on_compacted` — both zero-arity, both optional (neither
   given just means nothing tells the UI compaction is in progress, not an
   error). `:args` — a map forwarded to the compactor's `compact/4` callback;
-  defaults to `%{prompt: nil}` when absent (auto-compaction). `:force` — when
-  `true`, bypasses `compact?/3` and calls `compact/4` directly; used by the
-  `/compact` slash command.
+  defaults to `%{prompt: nil}` when absent (auto-compaction). The dispatcher
+  reads the bypass flag from `args.force`, not from opts: `true` (set by the
+  `/compact` slash-command path) bypasses `compact?/3` and calls `compact/4`
+  directly; `false` means auto-compaction.
   """
   @type compact_opts :: [compact_opt()]
-
-  @typedoc false
-  @type compact_args :: %{prompt: String.t() | nil}
 
   @typedoc false
   @type compact_result :: :skip | {:compact, Message.t(), [Message.t()]}
@@ -136,9 +141,12 @@ defmodule Planck.Agent.Hooks.Compactor do
   the dispatcher, not called here) already returned `true`, or directly by
   the forced `/compact` slash-command path (which bypasses `compact?/3`).
 
-  `args` is a map that may contain `:prompt` — a user-supplied string (from
-  `/compact [prompt]`) that can steer the summarization. `nil` when absent
-  (auto-compaction).
+  `args` is a map with `:prompt` — a user-supplied string (from
+  `/compact [prompt]`) that can steer the summarization, `nil` when absent
+  (auto-compaction) — and `:force`, `true` when invoked via the `/compact`
+  slash command, `false` for auto-compaction. A forced call should compact
+  even a short history rather than skipping; only skip when there is
+  genuinely nothing to summarize.
 
   Return `{:compact, summary_msg, kept}` to replace older messages with a
   summary, or `:skip` to leave the list unchanged — a compactor is free to
@@ -194,8 +202,8 @@ defmodule Planck.Agent.Hooks.Compactor do
         opts
       )
       when is_atom(module) do
-    args = Keyword.get(opts, :args, %{prompt: nil})
-    force = Keyword.get(opts, :force, false)
+    args = opts[:args] || %{prompt: nil}
+    force = Map.get(args, :force, false)
 
     if force or module.compact?(identity, ai_context, recent) do
       with_notice(opts, fn -> module.compact(identity, ai_context, recent, args) end)
@@ -218,7 +226,7 @@ defmodule Planck.Agent.Hooks.Compactor do
 
     timeout = opts[:timeout]
     args = opts[:args] || %{prompt: nil}
-    force = Keyword.get(opts, :force, false)
+    force = Map.get(args, :force, false)
 
     if force do
       with_notice(opts, fn ->

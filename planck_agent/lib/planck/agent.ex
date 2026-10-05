@@ -657,8 +657,10 @@ defmodule Planck.Agent do
   end
 
   def handle_continue({:compact, args}, state) do
+    args = Map.put_new(args || %{}, :force, true)
+
     state
-    |> apply_compact(args: args, force: true)
+    |> apply_compact(args: args)
     |> maybe_turn_start()
   end
 

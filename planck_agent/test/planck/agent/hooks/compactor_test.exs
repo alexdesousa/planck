@@ -447,6 +447,107 @@ defmodule Planck.Agent.Hooks.CompactorTest do
   end
 
   # ---------------------------------------------------------------------------
+  # force in args — the /compact bypass travels in the args map
+  # ---------------------------------------------------------------------------
+
+  describe "force in args (single-source bypass)" do
+    defmodule ForceBypassCompactor do
+      use Planck.Agent.Hooks.Compactor
+
+      @impl true
+      def compact?(_state, _context, _recent), do: false
+
+      @impl true
+      def compact(_state, _context, recent, _args) do
+        summary = Message.new({:custom, :summary}, [{:text, "Forced."}])
+        {:compact, summary, Enum.take(recent, -1)}
+      end
+    end
+
+    test "args.force bypasses a false compact?/3" do
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages, compactor: ForceBypassCompactor)
+      context = build_context(messages)
+
+      assert {:compact, _summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages,
+                 args: %{prompt: nil, force: true}
+               )
+    end
+
+    test "without args.force a false compact?/3 skips without calling compact/4" do
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages, compactor: ForceBypassCompactor)
+      context = build_context(messages)
+
+      assert Compactor.compact(state.identity, state.hooks, context, messages,
+               args: %{prompt: nil}
+             ) == :skip
+    end
+
+    test "args.force passes through to the callback" do
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages, compactor: __MODULE__.ArgsRecordingCompactor)
+      context = build_context(messages)
+
+      assert {:compact, summary, _kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages,
+                 args: %{prompt: "focus", force: true}
+               )
+
+      assert summary.content == [{:text, "args: %{force: true, prompt: \"focus\"}"}]
+    end
+
+    test "Default compacts a short history when forced" do
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "Summary."}, {:done, %{}}]
+      end)
+
+      messages = make_messages(3, 10)
+      state = build_state(messages: messages)
+      context = build_context(messages)
+
+      assert {:compact, summary, kept} =
+               Compactor.compact(state.identity, state.hooks, context, messages,
+                 args: %{prompt: nil, force: true}
+               )
+
+      assert summary.role == {:custom, :summary}
+      assert kept == Enum.take(messages, -1)
+    end
+
+    test "Default summarizes even a single message when forced" do
+      stub(MockAI, :stream, fn _model, _context, _opts ->
+        [{:text_delta, "Summary."}, {:done, %{}}]
+      end)
+
+      messages = make_messages(1, 10)
+      state = build_state(messages: messages)
+      context = build_context(messages)
+
+      assert {:compact, summary, []} =
+               Compactor.compact(state.identity, state.hooks, context, messages,
+                 args: %{prompt: nil, force: true}
+               )
+
+      assert summary.role == {:custom, :summary}
+    end
+
+    test "Default still skips an empty history when forced" do
+      state = build_state(messages: [])
+      context = build_context([])
+
+      assert Compactor.compact(
+               state.identity,
+               state.hooks,
+               context,
+               [],
+               args: %{prompt: nil, force: true}
+             ) == :skip
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # compact/3 — remote dispatch (same-node simulation)
   # ---------------------------------------------------------------------------
 

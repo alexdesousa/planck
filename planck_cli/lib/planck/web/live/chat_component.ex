@@ -246,7 +246,6 @@ defmodule Planck.Web.Live.ChatComponent do
     socket
     |> assign(:compacting, false)
     |> assign(:waiting, false)
-    |> assign(:pending_entries, [])
     |> load_entries(socket.assigns.session_id)
   end
 

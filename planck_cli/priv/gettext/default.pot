@@ -124,7 +124,7 @@ msgctxt "chat label"
 msgid "thinking…"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.ex:458
+#: lib/planck/web/live/chat_component.ex:457
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"

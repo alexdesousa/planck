@@ -222,7 +222,13 @@ defmodule Planck.Headless do
   end
 
   defp dispatch_prompt(pid, "/compact" <> prompt, _opts) do
-    Agent.compact(pid, %{prompt: String.trim(prompt)})
+    case String.trim(prompt) do
+      "" ->
+        Agent.compact(pid, %{prompt: nil})
+
+      prompt ->
+        Agent.compact(pid, %{prompt: prompt})
+    end
   end
 
   defp dispatch_prompt(pid, "/" <> _ = original, opts) do
