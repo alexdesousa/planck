@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.0
+
+- Version bump to stay in sync with the monorepo release; no functional changes (dependency upgrades: `req_llm` 1.24 → 1.26, `texture` 1.2 → 2.0, `finch` 0.23 → 0.24, `mint` 1.10 → 1.11, `jsv`, `llm_db`, `zoi`).
+
 ## v0.2.5
 
 - Version bump to stay in sync with the monorepo release; no functional changes.

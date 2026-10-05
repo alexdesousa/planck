@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3.0
+
+### Slash-command dispatcher with three tiers
+
+`dispatch_prompt/3` parses `/<name> [args]` and resolves it against
+built-ins (`/clear`, `/compact`), custom commands from
+`.planck/commands/` (`Config.commands_dirs`, served through
+`ResourceStore.commands` with `Watcher` coverage), and skills — unknown
+input falls through to a verbatim prompt. New
+`cancel_queued_message/2` passthrough (backing the chat UI's delete-queued
+button) and a `POST /api/sessions/:id/cancel_queued` endpoint to go with
+it.
+
+### `disable_model_invocation` skills filtered out of the agent-facing pool
+
+Skills marked `disable_model_invocation: true` are excluded from the pool
+the model ever sees — reference-style skills that exist for agents (or
+humans) to read deliberately, never to be injected by the ranking pass.
+Covered by session-lifecycle tests for the filtered and unfiltered shapes.
+
+### Adapted to the agent internals restructure
+
+Follows `planck_agent`'s `Identity`/`Context`/`Turn`/`Hooks` split — session
+start/resume, worker start, and history loading read the new nesting. No
+behavior change intended; see that package's entry for what moved.
+
 ## v0.2.5
 
 ### `"solo"` agent type wiring

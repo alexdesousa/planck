@@ -1,5 +1,71 @@
 # Changelog
 
+## v0.3.0
+
+### Custom slash commands — `Planck.Agent.command/3`, `Planck.Agent.load_skill/3`, `Planck.Agent.cancel_queued/2`, `Planck.Agent.clear/1`, `Planck.Agent.compact/2`
+
+`Planck.Agent.prompt/3` no longer takes a `:command` opt. In its place: `Planck.Agent.command/3`
+enqueues `{:custom, :command}` messages with EEx-rendered bodies,
+`Planck.Agent.load_skill/3` enqueues skill content (replacing the old
+`inject_tool_result` + `prompt` pair for slash-command skill loading), and
+`Planck.Agent.cancel_queued/2` removes still-unpersisted messages (user, command,
+clear, compact) from the in-memory queue. `Planck.Agent.clear/1` (backed by
+`Session.clear/1`) wipes session history, and `Planck.Agent.compact/2` forces a
+compaction pass, deferring to `handle_continue({:compact, args})` so the
+caller's `GenServer.call` doesn't timeout while the delegate summarises.
+The old `PendingCommands` struct is gone — queued `/clear` and `/compact`
+are `{:custom, :clear}` / `{:custom, :compact}` messages drained at turn
+boundaries by `drain_control_markers/1` (clear > compact > input), sharing
+`do_abort/1` + `start_queued_turn/1` with the abort path. New
+`Planck.Agent.Command` module and `EExRenderer` helper round it out.
+
+Breaking for custom compactor authors: the `Hooks.Compactor` callback is now
+`compact/4` — the 4th parameter is an `args` map (`%{prompt:, force:}`) so
+future per-call options don't require another arity bump. The simplest
+migration is `def compact(identity, ai_context, recent, _args)` to preserve
+existing behavior.
+
+### `/compact` now actually compacts
+
+Forcing compaction previously only bypassed the `compact?/3` threshold —
+`Default` still returned `:skip` whenever the history fit inside the keep
+budget, so `/compact` on a short session silently did nothing. The force
+flag now travels in the compactor `args` (`args.force`, set by the
+`/compact` path, `false` for auto-compaction), and a forced call summarizes
+everything but the last message instead of skipping. Zero messages, or a
+delegate failure, still skip. Bare `/compact` sends `prompt: nil` rather
+than `""`, so the delegate prompt no longer renders a dangling
+"Additional instruction from the user:" line.
+
+### `inject_tool_result/3` restored for the sidecar SkillReflector
+
+The agent refactor dropped `Planck.Agent.inject_tool_result/3` while
+`Sidecar.SkillReflector.Runner` still calls it, breaking skill reflection
+with an undefined-function crash. Restored with identical semantics —
+appends an assistant `tool_call` + `tool_result` pair, persisted, no turn
+triggered — reimplemented on `Context.append_messages/5`, with a regression
+test. Custom compactors and sidecar authors: this is the supported way to
+passively signal an out-of-band result back into an agent's history.
+
+### `disable_model_invocation` frontmatter field on `Skill.t`
+
+Skills can declare `disable_model_invocation: true` in `SKILL.md`
+frontmatter (parsed and stored by `Skill.from_file/1`). Such skills are
+never offered to the model — see the `planck_headless` entry for the pool
+filtering and the `planck_docker` entry for `write_skill` preservation.
+
+### Agent internals restructured around `Identity`/`Context`/`Turn`/`Hooks`
+
+The monolithic agent state is split up: `Identity` (id, name, model, team,
+session), `Context` (messages, tools, skills, usage), `Turn` (streaming and
+tool-execution state), and `Hooks` (compactor, persistence, prompt, turn
+end). Removed the `SkillIndex`, `StreamBuffer`, `ToolRunner`, and
+`TurnState` modules; `state.messages` is now `state.context.messages`
+throughout. Behavior-preserving by design — no public API changed shape —
+but anything reaching into agent internals (custom hooks, sidecar code
+reading `get_state/1` results) must follow the new nesting (`identity.*`,
+`context.messages`).
+
 ## v0.2.5
 
 ### `"solo"` agent type — promptable, zero delegation tools

@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.3.0
+
+### Chat UI for slash commands
+
+The prompt input gains a slash-command autocomplete dropdown (keyboard and
+mouse), and the chat renders dispatched commands as cards: persisted
+`/command` entries with expandable bodies, queued-command chips for input
+sent while the agent is busy (deletable, wired to the new cancel-queued
+API), and the `conversation cleared` / `context compacted` dividers for
+`/clear` and `/compact`. `SessionLive` routes the new PubSub events through
+to per-agent chats. Covered by new `ChatComponent`, `ChatEntries`, and
+`PromptInput` LiveView tests.
+
+### `:compacted` no longer wipes queued input
+
+The chat cleared its whole pending queue on every `:compacted` event, so a
+`/compact` queued while the agent was busy could be wiped by an unrelated
+auto-compaction from the running turn before its marker ever executed.
+Pending entries are now only cleared once `:messages_flushed` confirms they
+actually persisted.
+
 ## v0.2.5
 
 ### Chat history now goes through the pluggable persistence hook

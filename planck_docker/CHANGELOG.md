@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.3.0
+
+### `write_skill` preserves `disable_model_invocation`
+
+Skills created or updated through the sidecar `write_skill` tool keep
+their `disable_model_invocation` frontmatter flag instead of dropping it,
+so reflector-captured reference skills stay out of the agent-facing pool
+after a rewrite. Regression tests added.
+
+### Fixed against the agent internals restructure
+
+The refactor moved agent fields under `identity`/`context`, breaking three
+sidecar call sites at runtime: `SkillReflector.Runner` read
+`parent_state.name`/`parent_state.model` (crashed skill reflection on
+start), and `Beads.resolve_actor/1` + `UpdateMemory` read
+`state.team_name`/`state.name`/`state.session_id` (same latent crash in
+every mutating beads call and memory write). All now read the `identity`
+nesting. The runner's other half — `Planck.Agent.inject_tool_result/3`,
+removed by the same refactor — is restored in `planck_agent`; see that
+package's entry.
+
 ## v0.2.5
 
 - Version bump to stay in sync with the monorepo release; no functional changes.
