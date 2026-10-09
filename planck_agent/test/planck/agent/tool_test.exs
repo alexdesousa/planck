@@ -163,9 +163,9 @@ defmodule Planck.Agent.ToolTest do
     end
   end
 
-  describe "validate_args/2 with oneOf schemas (classify's questions)" do
+  describe "validate_args/2 with oneOf schemas (ask's questions)" do
     setup do
-      %{tool: Tools.classify([])}
+      %{tool: Tools.ask([])}
     end
 
     test "valid choice question passes", %{tool: tool} do
@@ -295,7 +295,7 @@ defmodule Planck.Agent.ToolTest do
     end
   end
 
-  describe "Tools.classify/1" do
+  describe "Tools.ask/1" do
     test "resolves model_id against available_models and forwards state/questions unchanged" do
       questions = %{urgent: %{type: :boolean, instructions: "Is this urgent?"}}
 
@@ -306,7 +306,7 @@ defmodule Planck.Agent.ToolTest do
         {:ok, %{object: %{"urgent" => %{"type" => "boolean", "probability" => 0.9}}}}
       end)
 
-      tool = Tools.classify([@rlcd_model])
+      tool = Tools.ask([@rlcd_model])
 
       assert {:ok, json} =
                tool.execute_fn.("agent-1", "tc-1", %{
@@ -327,7 +327,7 @@ defmodule Planck.Agent.ToolTest do
       # also doesn't find it.
       stub(MockAI, :get_model, fn _provider, _model_id -> {:error, :not_found} end)
 
-      tool = Tools.classify([@rlcd_model])
+      tool = Tools.ask([@rlcd_model])
 
       assert {:error, message} =
                tool.execute_fn.("agent-1", "tc-1", %{
@@ -350,7 +350,7 @@ defmodule Planck.Agent.ToolTest do
       # actually prove the :rlcd filter is what's doing the work.
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @llm_model} end)
 
-      tool = Tools.classify([@llm_model])
+      tool = Tools.ask([@llm_model])
 
       assert {:error, _message} =
                tool.execute_fn.("agent-1", "tc-1", %{
@@ -370,7 +370,7 @@ defmodule Planck.Agent.ToolTest do
         {:ok, %{object: %{}}}
       end)
 
-      tool = Tools.classify([])
+      tool = Tools.ask([])
 
       assert {:ok, _json} =
                tool.execute_fn.("agent-1", "tc-1", %{
@@ -391,7 +391,7 @@ defmodule Planck.Agent.ToolTest do
         {:ok, %{object: %{}}}
       end)
 
-      tool = Tools.classify([])
+      tool = Tools.ask([])
 
       assert {:ok, _json} =
                tool.execute_fn.("agent-1", "tc-1", %{
@@ -406,7 +406,7 @@ defmodule Planck.Agent.ToolTest do
     test "propagates an error from evaluate/4" do
       expect(MockAI, :evaluate, fn _model, _state, _qs, _opts -> {:error, :unauthorized} end)
 
-      tool = Tools.classify([@rlcd_model])
+      tool = Tools.ask([@rlcd_model])
 
       assert {:error, :unauthorized} =
                tool.execute_fn.("agent-1", "tc-1", %{

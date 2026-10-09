@@ -31,7 +31,7 @@ defmodule Planck.Agent.Tools do
   | `destroy_agent` | orchestrator only | no |
   | `interrupt_agent` | orchestrator only | no |
   | `list_models` | orchestrator only | no |
-  | `classify` | orchestrator only when there's a :rlcd model configured | no |
+  | `ask` | orchestrator only when there's a :rlcd model configured | no |
   """
 
   alias Planck.Agent
@@ -60,7 +60,7 @@ defmodule Planck.Agent.Tools do
 
   @doc """
   Returns the orchestrator-only tools: `spawn_agent`, `destroy_agent`,
-  `interrupt_agent`, `list_models`, plus `classify` when at least one
+  `interrupt_agent`, `list_models`, plus `ask` when at least one
   configured model has `type: :rlcd`.
 
   These tools, combined with `worker_tools/2`, make up the full orchestrator set.
@@ -95,7 +95,7 @@ defmodule Planck.Agent.Tools do
     ]
 
     if Enum.any?(available_models, &(&1.type == :rlcd)) do
-      base ++ [classify(available_models)]
+      base ++ [ask(available_models)]
     else
       base
     end
@@ -505,17 +505,17 @@ defmodule Planck.Agent.Tools do
   end
 
   @doc """
-  Build the `classify` tool from a pre-filtered list of available models.
+  Build the `ask` tool from a pre-filtered list of available models.
 
   Automatic for the orchestrator when at least one available model has
   `type: :rlcd` — see `orchestrator_tools/6`. Not automatic for workers:
   a worker only gets it if granted like any other tool, via `TEAM.json`'s
   `tools` list or `spawn_agent`'s `tools:` param.
   """
-  @spec classify([Model.t()]) :: Tool.t()
-  def classify(available_models) do
+  @spec ask([Model.t()]) :: Tool.t()
+  def ask(available_models) do
     Tool.new(
-      name: "classify",
+      name: "ask",
       description:
         "Use to get a fast, calibrated decision (routing, extraction, " <>
           "yes/no confidence) from an RLCD model instead of asking a general " <>
@@ -631,7 +631,7 @@ defmodule Planck.Agent.Tools do
         questions = Map.get(args, "questions")
 
         with {:ok, model} <-
-               resolve_classify_model(provider, model_id, base_url, available_models),
+                resolve_ask_model(provider, model_id, base_url, available_models),
              {:ok, response} <-
                AIBehaviour.client().evaluate(model, state, questions, []) do
           {:ok, Jason.encode!(response.object)}
@@ -733,12 +733,12 @@ defmodule Planck.Agent.Tools do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
   end
 
-  @spec resolve_classify_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::
+  @spec resolve_ask_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::
           {:ok, Model.t(:rlcd)}
           | {:error, String.t()}
-  defp resolve_classify_model(provider, model_id, base_url, available_models)
+  defp resolve_ask_model(provider, model_id, base_url, available_models)
 
-  defp resolve_classify_model(provider, model_id, base_url, available_models)
+  defp resolve_ask_model(provider, model_id, base_url, available_models)
        when is_atom(provider) and is_binary(model_id) do
     with {:error, _} <- find_model(provider, model_id, available_models, :rlcd) do
       find_model_live(provider, model_id, base_url, :rlcd)

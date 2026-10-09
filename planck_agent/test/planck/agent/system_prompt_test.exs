@@ -106,7 +106,7 @@ defmodule Planck.Agent.SystemPromptTest do
 
     test "each known tool renders its own section" do
       for tool <-
-            ~w(list_team list_skills load_skill list_models classify spawn_agent call_agent send_agent respond_agent interrupt_agent destroy_agent) do
+            ~w(list_team list_skills load_skill list_models ask spawn_agent call_agent send_agent respond_agent interrupt_agent destroy_agent) do
         prompt = with_tools([tool]) |> SystemPrompt.build()
         assert prompt =~ "### #{tool}", "expected a section for #{tool}"
       end
@@ -124,16 +124,16 @@ defmodule Planck.Agent.SystemPromptTest do
       assert positions == Enum.sort(positions)
     end
 
-    test "classify's section only appears when classify is in the agent's tools" do
-      without_classify = with_tools(~w(list_models)) |> SystemPrompt.build()
-      with_classify = with_tools(~w(list_models classify)) |> SystemPrompt.build()
+    test "ask's section only appears when ask is in the agent's tools" do
+      without_ask = with_tools(~w(list_models)) |> SystemPrompt.build()
+      with_ask = with_tools(~w(list_models ask)) |> SystemPrompt.build()
 
-      refute without_classify =~ "### classify"
-      assert with_classify =~ "### classify"
+      refute without_ask =~ "### ask"
+      assert with_ask =~ "### ask"
     end
 
-    test "classify's section teaches the discriminated question types" do
-      prompt = with_tools(~w(classify)) |> SystemPrompt.build() |> String.downcase()
+    test "ask's section teaches the discriminated question types" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build() |> String.downcase()
 
       assert prompt =~ "choice"
       assert prompt =~ "score"
@@ -141,8 +141,8 @@ defmodule Planck.Agent.SystemPromptTest do
       assert prompt =~ "rlcd"
     end
 
-    test "classify's section has an H4 subsection per question type with when-to-use guidance" do
-      prompt = with_tools(~w(classify)) |> SystemPrompt.build()
+    test "ask's section has an H4 subsection per question type with when-to-use guidance" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build()
 
       assert prompt =~ "#### Choice"
       assert prompt =~ "#### Score"
@@ -164,15 +164,15 @@ defmodule Planck.Agent.SystemPromptTest do
       assert prompt =~ "\"rlcd\""
     end
 
-    test "section ordering places classify immediately after list_models and before spawn_agent" do
-      prompt = with_tools(~w(list_models classify spawn_agent)) |> SystemPrompt.build()
+    test "section ordering places ask immediately after list_models and before spawn_agent" do
+      prompt = with_tools(~w(list_models ask spawn_agent)) |> SystemPrompt.build()
 
       list_models_at = :binary.match(prompt, "### list_models") |> elem(0)
-      classify_at = :binary.match(prompt, "### classify") |> elem(0)
+      ask_at = :binary.match(prompt, "### ask") |> elem(0)
       spawn_agent_at = :binary.match(prompt, "### spawn_agent") |> elem(0)
 
-      assert list_models_at < classify_at
-      assert classify_at < spawn_agent_at
+      assert list_models_at < ask_at
+      assert ask_at < spawn_agent_at
     end
   end
 

@@ -74,7 +74,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
   # Configures an rlcd model (alongside the "openai"/"llama3.2" model every
   # `write_team` orchestrator declares) so ResourceStore.get().available_models
-  # includes a :typesafe/:rlcd entry — the precondition for classify gating.
+  # includes a :typesafe/:rlcd entry — the precondition for ask gating.
   defp configure_rlcd_model do
     Application.put_env(:planck, :providers, %{
       "openai" => %{"type" => "openai", "has_api_key" => false},
@@ -370,7 +370,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert "list_skills" in (Agent.get_state(pid2).context.tools |> Map.keys())
     end
 
-    test "orchestrator has the classify tool when an rlcd model is configured", %{tmp_dir: dir} do
+    test "orchestrator has the ask tool when an rlcd model is configured", %{tmp_dir: dir} do
       configure_rlcd_model()
       on_exit(fn -> clear_rlcd_model() end)
 
@@ -380,10 +380,10 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
       tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
-      assert "classify" in tool_names
+      assert "ask" in tool_names
     end
 
-    test "classify is absent from the orchestrator when no rlcd model is configured", %{
+    test "ask is absent from the orchestrator when no rlcd model is configured", %{
       tmp_dir: dir
     } do
       team_dir = write_team(dir, "no-rlcd-team")
@@ -392,7 +392,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
       tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
-      refute "classify" in tool_names
+      refute "ask" in tool_names
     end
 
     test "returns error when no default model configured and template is nil" do

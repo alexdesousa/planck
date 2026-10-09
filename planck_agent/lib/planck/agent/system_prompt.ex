@@ -38,7 +38,7 @@ defmodule Planck.Agent.SystemPrompt do
     list_skills
     load_skill
     list_models
-    classify
+    ask
     spawn_agent
     call_agent
     send_agent
@@ -210,14 +210,14 @@ defmodule Planck.Agent.SystemPrompt do
     Use before spawning a new agent to see which models are available, their IDs,
     and the base_url required for local providers. Your current model is marked
     `current: true`. Each model's `type` is `"llm"` (spawn_agent) or `"rlcd"`
-    (classify) — check `type` before picking a model for either tool.
+    (ask) — check `type` before picking a model for either tool.
     """
     |> String.trim_trailing()
   end
 
-  defp tool_section("classify") do
+  defp tool_section("ask") do
     """
-    ### classify
+    ### ask
 
     Use when you need a fast, calibrated decision — routing, extraction, a
     yes/no confidence check — instead of reasoning it out yourself in text.
@@ -234,7 +234,7 @@ defmodule Planck.Agent.SystemPrompt do
     #### Choice
 
     Use when state fits into exactly one of a fixed set of named categories
-    — routing to the right specialist, classifying an inbound message by
+    — routing to the right specialist, sorting an inbound message by
     intent. `criteria` names the options; the answer is the winning option's
     key and its probability.
 

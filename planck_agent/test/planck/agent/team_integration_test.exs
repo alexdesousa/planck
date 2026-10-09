@@ -639,26 +639,26 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   # ---------------------------------------------------------------------------
-  # classify gating (orchestrator-automatic, worker opt-in)
+  # ask gating (orchestrator-automatic, worker opt-in)
   # ---------------------------------------------------------------------------
 
-  describe "classify gating" do
-    test "orchestrator_tools/6 includes classify when an :rlcd model is available" do
+  describe "ask gating" do
+    test "orchestrator_tools/6 includes ask when an :rlcd model is available" do
       tools = Tools.orchestrator_tools(unique_id(), unique_id(), [@model, @rlcd_model])
-      assert Enum.any?(tools, &(&1.name == "classify"))
+      assert Enum.any?(tools, &(&1.name == "ask"))
     end
 
-    test "orchestrator_tools/6 omits classify when no :rlcd model is available" do
+    test "orchestrator_tools/6 omits ask when no :rlcd model is available" do
       tools = Tools.orchestrator_tools(unique_id(), unique_id(), [@model])
-      refute Enum.any?(tools, &(&1.name == "classify"))
+      refute Enum.any?(tools, &(&1.name == "ask"))
     end
 
-    test "worker_tools/3 never includes classify, regardless of available models" do
+    test "worker_tools/3 never includes ask, regardless of available models" do
       tools = Tools.worker_tools(unique_id(), unique_id())
-      refute Enum.any?(tools, &(&1.name == "classify"))
+      refute Enum.any?(tools, &(&1.name == "ask"))
     end
 
-    test "a spawned worker does not receive classify automatically, even with an :rlcd model configured" do
+    test "a spawned worker does not receive ask automatically, even with an :rlcd model configured" do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
@@ -667,20 +667,20 @@ defmodule Planck.Agent.TeamIntegrationTest do
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [@rlcd_model], [])
       tools = call_spawn(spawn_tool, orch_id)
 
-      refute Map.has_key?(tools, "classify")
+      refute Map.has_key?(tools, "ask")
     end
 
-    test "a spawned worker receives classify when it's granted, like any other tool" do
+    test "a spawned worker receives ask when it's granted, like any other tool" do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-      classify_tool = Tools.classify([@rlcd_model])
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [classify_tool])
-      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["classify"]})
+      ask_tool = Tools.ask([@rlcd_model])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [ask_tool])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["ask"]})
 
-      assert Map.has_key?(tools, "classify")
+      assert Map.has_key?(tools, "ask")
     end
   end
 
