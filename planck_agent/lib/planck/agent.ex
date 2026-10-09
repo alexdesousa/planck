@@ -670,6 +670,7 @@ defmodule Planck.Agent do
 
   def handle_continue({:run_llm, :new_turn}, state) do
     broadcast(state, :turn_start, %{index: state.turn.index})
+    fire_turn_start_hook(state)
     {:noreply, do_run_llm(state, :new_turn)}
   end
 
@@ -1606,6 +1607,26 @@ defmodule Planck.Agent do
   end
 
   defp fire_turn_end_hook(%__MODULE__{} = state, _messages) do
+    state
+  end
+
+  @spec fire_turn_start_hook(t()) :: t()
+  defp fire_turn_start_hook(state)
+
+  defp fire_turn_start_hook(%__MODULE__{hooks: %Hooks{turn_start: module}} = state)
+       when is_atom(module) and not is_nil(module) do
+    agent_id = state.identity.id
+    session_id = state.identity.session_id
+    sidecar_node = state.hooks.sidecar_node
+
+    Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
+      Hooks.TurnStart.notify(module, agent_id, session_id, sidecar_node)
+    end)
+
+    state
+  end
+
+  defp fire_turn_start_hook(%__MODULE__{} = state) do
     state
   end
 end

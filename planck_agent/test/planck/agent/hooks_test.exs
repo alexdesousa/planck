@@ -12,6 +12,7 @@ defmodule Planck.Agent.HooksTest do
       assert hooks.persistence == nil
       assert hooks.prompt == nil
       assert hooks.turn_end == nil
+      assert hooks.turn_start == nil
       assert hooks.sidecar_node == nil
     end
 
@@ -22,6 +23,7 @@ defmodule Planck.Agent.HooksTest do
           persistence: SomePersistence,
           prompt_hook: SomePrompt,
           turn_end_hook: SomeTurnEnd,
+          turn_start_hook: SomeTurnStart,
           sidecar_node: :sidecar@localhost
         )
 
@@ -29,6 +31,7 @@ defmodule Planck.Agent.HooksTest do
       assert hooks.persistence == SomePersistence
       assert hooks.prompt == SomePrompt
       assert hooks.turn_end == SomeTurnEnd
+      assert hooks.turn_start == SomeTurnStart
       assert hooks.sidecar_node == :sidecar@localhost
     end
 

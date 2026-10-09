@@ -108,6 +108,7 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:compactor] == nil
       assert opts[:prompt_hook] == nil
       assert opts[:turn_end_hook] == nil
+      assert opts[:turn_start_hook] == nil
       assert opts[:persistence] == nil
       assert opts[:sidecar_node] == nil
     end
@@ -118,6 +119,27 @@ defmodule Planck.Agent.AgentSpecTest do
       spec = %AgentSpec{@base_spec | compactor: "MySidecar.Compactors.Builder"}
       opts = AgentSpec.to_start_opts(spec)
       assert opts[:compactor] == MySidecar.Compactors.Builder
+    end
+
+    test "resolves the turn_start_hook module strings to atoms" do
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      spec = %AgentSpec{@base_spec | turn_start_hook: "MySidecar.Hooks.Metrics"}
+
+      opts = AgentSpec.to_start_opts(spec)
+      assert opts[:turn_start_hook] == MySidecar.Hooks.Metrics
+    end
+
+    test "parses the turn_start_hook hook fields from TEAM.json entries" do
+      {:ok, spec} =
+        AgentSpec.from_map(%{
+          "type" => "builder",
+          "provider" => "openai",
+          "model_id" => "llama3.2",
+          "turn_start_hook" => "MySidecar.Hooks.Metrics"
+        })
+
+      assert spec.turn_start_hook == "MySidecar.Hooks.Metrics"
     end
 
     test "passes sidecar_node from overrides" do

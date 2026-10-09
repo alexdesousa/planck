@@ -2,7 +2,7 @@ defmodule Planck.Agent.Hooks do
   @moduledoc """
   Hook configuration for a running agent.
 
-  Holds the four resolved hook module atoms and the sidecar node used for
+  Holds the resolved hook module atoms and the sidecar node used for
   RPC dispatch.  All fields are set once in `init/1` and only read afterwards.
 
   The dispatch wrappers (`Planck.Agent.Hooks.Compactor`, `.Persistence`,
@@ -18,6 +18,7 @@ defmodule Planck.Agent.Hooks do
           persistence: module() | nil,
           prompt: module() | nil,
           turn_end: module() | nil,
+          turn_start: module() | nil,
           sidecar_node: atom() | nil
         }
 
@@ -26,6 +27,7 @@ defmodule Planck.Agent.Hooks do
             persistence: nil,
             prompt: nil,
             turn_end: nil,
+            turn_start: nil,
             sidecar_node: nil
 
   @doc "Build a `Hooks` struct from agent start opts."
@@ -38,6 +40,7 @@ defmodule Planck.Agent.Hooks do
       persistence: opts[:persistence],
       prompt: opts[:prompt_hook],
       turn_end: opts[:turn_end_hook],
+      turn_start: opts[:turn_start_hook],
       sidecar_node: opts[:sidecar_node]
     }
   end
