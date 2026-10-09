@@ -39,6 +39,7 @@ defmodule Planck.Agent.SystemPrompt do
     load_skill
     list_models
     ask
+    ask_files
     spawn_agent
     call_agent
     send_agent
@@ -250,6 +251,32 @@ defmodule Planck.Agent.SystemPrompt do
     action — "does this message clearly authorize a refund?" `criteria` is
     optional, clarifying what counts as yes/no; the answer is the
     probability the answer is yes.
+    """
+    |> String.trim_trailing()
+  end
+
+  defp tool_section("ask_files") do
+    """
+    ### ask_files
+
+    Use when you need the same fast, calibrated decision about many files
+    at once — triaging which files relate to a bug, which configs need a
+    migration — without reading them all yourself.
+
+    Pass explicit file paths only (max 255, no globs or directories) and
+    one `questions` block shaped exactly like `ask`'s. Each readable file
+    gets one evaluation; unreadable files land in `skipped` with a reason
+    instead of failing the whole call.
+
+    The result is `{results: [{path, answers}], skipped: [{path, reason}],
+    calls}` — `answers` is per-path, keyed by your own question IDs. A
+    `boolean` question here is upstream `noul`: its answer is the
+    probability the answer is yes.
+
+    Gating recipe: ask one `boolean` question per triage ("is this file
+    related to <bug>?"), then act only where that probability exceeds a
+    cutoff you choose (e.g. `noul > 0.7`) — `read` just those hits in
+    full and leave the rest unread.
     """
     |> String.trim_trailing()
   end

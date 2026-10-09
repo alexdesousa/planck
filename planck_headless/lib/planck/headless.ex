@@ -887,7 +887,9 @@ defmodule Planck.Headless do
         tool_pool:
           builtins() ++
             store.tools ++
-            store.registered_tools ++ skill_discovery_tools(store.invocable_skills),
+            store.registered_tools ++
+            rlcd_grantable_tools(store.available_models) ++
+            skill_discovery_tools(store.invocable_skills),
         tools: default_tools,
         skill_pool: store.invocable_skills,
         skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
@@ -949,7 +951,9 @@ defmodule Planck.Headless do
           tool_pool:
             builtins() ++
               store.tools ++
-              store.registered_tools ++ skill_discovery_tools(store.invocable_skills),
+              store.registered_tools ++
+              rlcd_grantable_tools(store.available_models) ++
+              skill_discovery_tools(store.invocable_skills),
           skill_pool: store.invocable_skills,
           skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
           team_id: team_id,
@@ -1178,7 +1182,9 @@ defmodule Planck.Headless do
             tool_pool:
               builtins() ++
                 store.tools ++
-                store.registered_tools ++ skill_discovery_tools(store.invocable_skills),
+                store.registered_tools ++
+                rlcd_grantable_tools(store.available_models) ++
+                skill_discovery_tools(store.invocable_skills),
             skill_pool: store.invocable_skills,
             skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
             team_id: team_id,
@@ -1411,6 +1417,14 @@ defmodule Planck.Headless do
   @spec builtins() :: [Planck.Agent.Tool.t()]
   defp builtins do
     [BuiltinTools.read(), BuiltinTools.write(), BuiltinTools.edit(), BuiltinTools.bash()]
+  end
+
+  # ask/ask_files are grantable to workers (via TEAM.json tools or
+  # spawn_agent tools:) under the same RLCD predicate that auto-includes
+  # them for the orchestrator — see Planck.Agent.Tools.rlcd_tools/1.
+  @spec rlcd_grantable_tools([Planck.AI.Model.t()]) :: [Planck.Agent.Tool.t()]
+  defp rlcd_grantable_tools(available_models) do
+    Planck.Agent.Tools.rlcd_tools(available_models)
   end
 
   @spec builtin_tool_names() :: [String.t()]

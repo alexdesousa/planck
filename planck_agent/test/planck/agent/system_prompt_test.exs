@@ -106,7 +106,7 @@ defmodule Planck.Agent.SystemPromptTest do
 
     test "each known tool renders its own section" do
       for tool <-
-            ~w(list_team list_skills load_skill list_models ask spawn_agent call_agent send_agent respond_agent interrupt_agent destroy_agent) do
+            ~w(list_team list_skills load_skill list_models ask ask_files spawn_agent call_agent send_agent respond_agent interrupt_agent destroy_agent) do
         prompt = with_tools([tool]) |> SystemPrompt.build()
         assert prompt =~ "### #{tool}", "expected a section for #{tool}"
       end
@@ -173,6 +173,35 @@ defmodule Planck.Agent.SystemPromptTest do
 
       assert list_models_at < ask_at
       assert ask_at < spawn_agent_at
+    end
+
+    test "ask_files' section only appears when ask_files is in the agent's tools" do
+      without = with_tools(~w(list_models ask)) |> SystemPrompt.build()
+      with_files = with_tools(~w(list_models ask ask_files)) |> SystemPrompt.build()
+
+      refute without =~ "### ask_files"
+      assert with_files =~ "### ask_files"
+    end
+
+    test "ask_files' section documents the envelope and the gating recipe" do
+      prompt = with_tools(~w(ask_files)) |> SystemPrompt.build() |> String.downcase()
+
+      assert prompt =~ "results"
+      assert prompt =~ "skipped"
+      assert prompt =~ "calls"
+      assert prompt =~ "noul"
+      assert prompt =~ "boolean"
+    end
+
+    test "section ordering places ask_files immediately after ask and before spawn_agent" do
+      prompt = with_tools(~w(list_models ask ask_files spawn_agent)) |> SystemPrompt.build()
+
+      ask_at = :binary.match(prompt, "### ask\n") |> elem(0)
+      ask_files_at = :binary.match(prompt, "### ask_files") |> elem(0)
+      spawn_agent_at = :binary.match(prompt, "### spawn_agent") |> elem(0)
+
+      assert ask_at < ask_files_at
+      assert ask_files_at < spawn_agent_at
     end
   end
 

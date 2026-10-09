@@ -32,6 +32,7 @@ defmodule Planck.Agent.Tools do
   | `interrupt_agent` | orchestrator only | no |
   | `list_models` | orchestrator only | no |
   | `ask` | orchestrator only when there's a :rlcd model configured | no |
+  | `ask_files` | orchestrator only when there's a :rlcd model configured | no |
   """
 
   alias Planck.Agent
@@ -60,8 +61,8 @@ defmodule Planck.Agent.Tools do
 
   @doc """
   Returns the orchestrator-only tools: `spawn_agent`, `destroy_agent`,
-  `interrupt_agent`, `list_models`, plus `ask` when at least one
-  configured model has `type: :rlcd`.
+  `interrupt_agent`, `list_models`, plus `ask` and `ask_files` when at
+  least one configured model has `type: :rlcd`.
 
   These tools, combined with `worker_tools/2`, make up the full orchestrator set.
   The presence of `spawn_agent` in the tool list is what marks an agent as an
@@ -94,10 +95,23 @@ defmodule Planck.Agent.Tools do
       list_models(available_models)
     ]
 
+    base ++ rlcd_tools(available_models)
+  end
+
+  @doc """
+  Returns the RLCD-gated tools — `ask` and `ask_files` — when at least
+  one configured model has `type: :rlcd`, otherwise `[]`.
+
+  Single shared predicate for both tools: `orchestrator_tools/6`
+  auto-includes them together, and `planck_headless` uses this to build
+  the grantable pool so workers can be granted either one.
+  """
+  @spec rlcd_tools([Model.t()]) :: [Tool.t()]
+  def rlcd_tools(available_models) do
     if Enum.any?(available_models, &(&1.type == :rlcd)) do
-      base ++ [ask(available_models)]
+      [ask(available_models), ask_files(available_models)]
     else
-      base
+      []
     end
   end
 
@@ -631,10 +645,108 @@ defmodule Planck.Agent.Tools do
         questions = Map.get(args, "questions")
 
         with {:ok, model} <-
-                resolve_ask_model(provider, model_id, base_url, available_models),
+               resolve_ask_model(provider, model_id, base_url, available_models),
              {:ok, response} <-
                AIBehaviour.client().evaluate(model, state, questions, []) do
           {:ok, Jason.encode!(response.object)}
+        end
+      end
+    )
+  end
+
+  @max_ask_files 255
+  @ask_files_concurrency 16
+  # Shared RLCD token budget for one file's content plus the question block
+  # (mirrors upstream L8/L9: 64k total tokens, 4k headroom for questions,
+  # roughly four chars per token).
+  @ask_files_max_chars (64_000 - 4_000) * 4
+
+  @doc """
+  Build the `ask_files` tool from a pre-filtered list of available models.
+
+  Same RLCD gate as `ask/1` — see `rlcd_tools/1`. Asks one shared
+  `questions` block about many files at once: explicit paths only (no
+  globs, dirs, or recursion), one `evaluate/4` call per readable file,
+  at most #{@ask_files_concurrency} in flight, results in input order.
+
+  Returns `{results: [{path, answers}], skipped: [{path, reason}],
+  calls}` JSON — `calls` counts successful RLCD calls, so a follow-up
+  `ask` choice keyed by path can pick-first.
+
+  `opts` accepts `:reader` — an injected `path -> {:ok, content} |
+  {:error, reason}` function used instead of all file IO (tests). When
+  absent, each file is read through the live `"read"` tool from the
+  resource store when one is registered (e.g. the sidecar's, once it
+  connects), falling back to local reads with identical path semantics.
+  """
+  @spec ask_files([Model.t()]) :: Tool.t()
+  @spec ask_files([Model.t()], keyword()) :: Tool.t()
+  def ask_files(available_models, opts \\ []) do
+    reader = Keyword.get(opts, :reader)
+
+    Tool.new(
+      name: "ask_files",
+      description:
+        "Use to ask the same typed questions about many files at once without " <>
+          "reading them yourself. Pass explicit file paths only (max 255, no globs " <>
+          "or directories) plus a questions block shaped exactly like ask's. " <>
+          "Makes one RLCD call per readable file and returns " <>
+          "{results: [{path, answers}], skipped: [{path, reason}], calls}. " <>
+          "Call list_models first and pass the id of a model with type \"rlcd\".",
+      parameters: %{
+        "type" => "object",
+        "properties" => %{
+          "provider" => %{
+            "type" => "string",
+            "description" => "RLCD provider",
+            "enum" => ["typesafe"]
+          },
+          "model_id" => %{
+            "type" => "string",
+            "description" =>
+              "The id of an RLCD model to use, from list_models — only a model " <>
+                "with type \"rlcd\" is valid. Call list_models first if you don't " <>
+                "already have one."
+          },
+          "base_url" => %{
+            "type" => "string",
+            "description" =>
+              "Server URL for a self-hosted or Typesafe-compatible endpoint (e.g. " <>
+                "\"http://localhost:8000\"), passed alongside \"provider\" — still " <>
+                "\"typesafe\", distinguished only by base_url. Ignored for a real " <>
+                "cloud account — pass any placeholder value."
+          },
+          "paths" => %{
+            "type" => "array",
+            "items" => %{"type" => "string"},
+            "maxItems" => @max_ask_files,
+            "description" =>
+              "Explicit file paths to evaluate (absolute or relative to the " <>
+                "workspace, same rule as read). Max #{@max_ask_files}; no globs, " <>
+                "directories, or recursion."
+          },
+          "questions" => ask(available_models).parameters["questions"]
+        },
+        "required" => ["provider", "model_id", "base_url", "paths", "questions"]
+      },
+      execute_fn: fn agent_id, call_id, args ->
+        provider = String.to_existing_atom(args["provider"])
+        model_id = Map.get(args, "model_id")
+        base_url = Map.get(args, "base_url")
+
+        paths = Map.get(args, "paths", [])
+        questions = Map.get(args, "questions")
+
+        options = [
+          agent_id: agent_id,
+          call_id: call_id,
+          reader: reader
+        ]
+
+        with {:ok, model} <-
+               resolve_ask_model(provider, model_id, base_url, available_models),
+             :ok <- check_file_cap(paths) do
+          run_ask_files(model, paths, questions, options)
         end
       end
     )
@@ -731,6 +843,191 @@ defmodule Planck.Agent.Tools do
   @spec filter_granted([String.t()], %{String.t() => term()}) :: [term()]
   defp filter_granted(names, pool_map) do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
+  end
+
+  @spec check_file_cap([Path.t()]) :: :ok | {:error, String.t()}
+  defp check_file_cap(paths)
+
+  defp check_file_cap([]) do
+    reason = "Empty paths list: got 0, maximum is #{@max_ask_files} — nothing was read."
+    {:error, reason}
+  end
+
+  defp check_file_cap([_ | _] = paths) when is_list(paths) do
+    if length(paths) > @max_ask_files do
+      reason =
+        "Too many paths: got #{length(paths)}, " <>
+          "maximum is #{@max_ask_files}. " <>
+          "Narrow the list before retrying — nothing was read."
+
+      {:error, reason}
+    else
+      :ok
+    end
+  end
+
+  @spec run_ask_files(Model.t(), [Path.t()], map(), keyword()) :: {:ok, String.t()}
+  defp run_ask_files(model, paths, questions, options)
+
+  defp run_ask_files(%Model{} = model, [_ | _] = paths, questions, options)
+       when is_map(questions) and is_list(options) do
+    read_tool = live_read_tool()
+
+    reader =
+      options[:reader] ||
+        fn path ->
+          read_tool.execute_fn.(
+            options[:agent_id],
+            options[:call_id],
+            %{"path" => path}
+          )
+        end
+
+    {files, skipped} = do_read_ask_files(paths, reader: reader)
+
+    {results, extra_skipped} =
+      files
+      |> Task.async_stream(
+        fn {path, content} -> evaluate_ask_file(model, path, content, questions) end,
+        max_concurrency: @ask_files_concurrency,
+        ordered: true
+      )
+      |> Enum.reduce({[], []}, fn
+        {:ok, {:ok, result}}, {results, skipped} ->
+          {[result | results], skipped}
+
+        {:ok, {:error, entry}}, {results, skipped} ->
+          {results, [entry | skipped]}
+
+        {:exit, reason}, {results, skipped} ->
+          {results,
+           [%{"path" => "unknown", "reason" => "call failed: #{inspect(reason)}"} | skipped]}
+      end)
+
+    results = Enum.reverse(results)
+    skipped = skipped ++ Enum.reverse(extra_skipped)
+
+    Jason.encode!(%{
+      "results" =>
+        Enum.map(results, fn {path, answers} -> %{"path" => path, "answers" => answers} end),
+      "skipped" => skipped,
+      "calls" => length(results)
+    })
+    |> then(&{:ok, &1})
+  end
+
+  @spec evaluate_ask_file(Model.t(), String.t(), String.t(), map()) ::
+          {:ok, {String.t(), map()}} | {:error, map()}
+  defp evaluate_ask_file(model, path, content, questions) do
+    case AIBehaviour.client().evaluate(model, %{path: path, content: content}, questions, []) do
+      {:ok, response} ->
+        {:ok, {path, response.object}}
+
+      {:error, reason} ->
+        {:error, %{"path" => path, "reason" => "call failed: #{format_ask_error(reason)}"}}
+    end
+  end
+
+  @spec format_ask_error(term()) :: String.t()
+  defp format_ask_error(reason)
+
+  defp format_ask_error(reason) when is_binary(reason), do: reason
+  defp format_ask_error(reason), do: inspect(reason)
+
+  @spec do_read_ask_files([Path.t()], keyword()) :: {[file], [error]}
+        when file: {Path.t(), String.t()},
+             error: map()
+  defp do_read_ask_files(paths, options)
+
+  defp do_read_ask_files([_ | _] = paths, options)
+       when is_list(options) do
+    paths
+    |> Stream.map(&read_ask_file(&1, options[:reader]))
+    |> Enum.split_with(&match?({:ok, _}, &1))
+    |> then(fn {readable, skipped} ->
+      files = Enum.map(readable, fn {:ok, file} -> file end)
+      skipped = Enum.map(skipped, fn {:error, entry} -> entry end)
+      {files, skipped}
+    end)
+  end
+
+  @spec read_ask_file(Path.t(), function()) ::
+          {:ok, {Path.t(), String.t()}}
+          | {:error, map()}
+  defp read_ask_file(path, options)
+
+  defp read_ask_file(path, reader_fn)
+       when is_binary(path) and is_function(reader_fn, 1) do
+    case reader_fn.(path) do
+      {:ok, content} when is_binary(content) ->
+        check_ask_content(path, content)
+
+      {:error, reason} ->
+        reason = format_ask_error(reason)
+        {:error, %{"path" => path, "reason" => reason}}
+    end
+  rescue
+    e ->
+      reason = "call failed: #{Exception.message(e)}"
+      {:error, %{"path" => path, "reason" => reason}}
+  catch
+    _, reason ->
+      reason = "call failed: #{inspect(reason)}"
+      {:error, %{"path" => path, "reason" => reason}}
+  end
+
+  # The live "read" wrapper is resolved per call from the resource store,
+  # which RPCs to whatever sidecar is connected *now* — so sessions that
+  # started before the sidecar landed still get sidecar reads once it
+  # arrives. Optional runtime lookup only: planck_agent must not depend
+  # on planck_headless at compile time.
+  @spec live_read_tool() :: Tool.t()
+  defp live_read_tool do
+    store = Planck.Headless.ResourceStore
+
+    with true <- Code.ensure_loaded?(store),
+         %{tools: tools} <- apply(store, :get, []),
+         %Tool{} = read <- Enum.find(tools, &(&1.name == "read")) do
+      read
+    else
+      _ ->
+        Planck.Agent.BuiltinTools.read()
+    end
+  rescue
+    _ ->
+      Planck.Agent.BuiltinTools.read()
+  catch
+    _, _ ->
+      Planck.Agent.BuiltinTools.read()
+  end
+
+  @spec check_ask_content(Path.t(), String.t()) ::
+          {:ok, {Path.t(), String.t()}}
+          | {:error, map()}
+  defp check_ask_content(path, content)
+
+  defp check_ask_content(path, content)
+       when is_binary(path) and is_binary(content) do
+    cond do
+      byte_size(content) == 0 ->
+        {:error, %{"path" => path, "reason" => "empty"}}
+
+      byte_size(content) > @ask_files_max_chars ->
+        reason = "too large, #{byte_size(content)} bytes"
+        {:error, %{"path" => path, "reason" => reason}}
+
+      binary_sniff?(content) ->
+        {:error, %{"path" => path, "reason" => "binary"}}
+
+      true ->
+        {:ok, {path, content}}
+    end
+  end
+
+  @spec binary_sniff?(String.t()) :: boolean()
+  defp binary_sniff?(content) do
+    head = binary_part(content, 0, min(byte_size(content), 8_192))
+    match?({_, _}, :binary.match(head, <<0>>))
   end
 
   @spec resolve_ask_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::

@@ -395,6 +395,131 @@ defmodule Planck.Headless.SessionLifecycleTest do
       refute "ask" in tool_names
     end
 
+    test "orchestrator has ask_files exactly when ask is present", %{tmp_dir: dir} do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_team(dir, "rlcd-files-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
+      assert "ask" in tool_names
+      assert "ask_files" in tool_names
+    end
+
+    test "ask_files is absent from the orchestrator when no rlcd model is configured", %{
+      tmp_dir: dir
+    } do
+      team_dir = write_team(dir, "no-rlcd-files-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
+      refute "ask_files" in tool_names
+    end
+
+    test "worker granted ask_files via TEAM.json receives it when rlcd is configured", %{
+      tmp_dir: dir
+    } do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_grant_team(dir, "grant-files-team", ["read", "ask_files"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool_names = Agent.get_state(worker_pid).context.tools |> Map.keys()
+      assert "ask_files" in tool_names
+    end
+
+    test "worker granted ask and ask_files receives both when rlcd is configured", %{
+      tmp_dir: dir
+    } do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_grant_team(dir, "grant-both-team", ["ask", "ask_files"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool_names = Agent.get_state(worker_pid).context.tools |> Map.keys()
+      assert "ask" in tool_names
+      assert "ask_files" in tool_names
+    end
+
+    test "worker grant of ask_files resolves to nothing when no rlcd is configured", %{
+      tmp_dir: dir
+    } do
+      team_dir = write_grant_team(dir, "grant-no-rlcd-team", ["read", "ask_files"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool_names = Agent.get_state(worker_pid).context.tools |> Map.keys()
+      assert "read" in tool_names
+      refute "ask_files" in tool_names
+    end
+
+    test "ask_files reads through the live sidecar read tool when present" do
+      rlcd = %Model{
+        id: "jev-latest",
+        name: "Jev",
+        provider: :typesafe,
+        type: :rlcd,
+        context_window: 32_768,
+        max_tokens: 2_048
+      }
+
+      sidecar_read =
+        Planck.Agent.Tool.new(
+          name: "read",
+          description: "Sidecar read (Tika-extracted).",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, %{"path" => path} ->
+            {:ok, "tika-content-of-#{path}"}
+          end
+        )
+
+      decoy =
+        Planck.Agent.Tool.new(
+          name: "ask_files",
+          description: "Decoy — must never be recursed into.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> raise "recursed into ask_files" end
+        )
+
+      ResourceStore.put_tools([sidecar_read, decoy])
+      on_exit(fn -> ResourceStore.clear_tools() end)
+
+      stub(MockAI, :evaluate, fn _model, state, _qs, _opts ->
+        {:ok, %{object: %{"saw" => state.content}}}
+      end)
+
+      tool = Planck.Agent.Tools.ask_files([rlcd])
+
+      assert {:ok, json} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["doc.pdf"],
+                 "questions" => %{}
+               })
+
+      assert %{
+               "results" => [
+                 %{"path" => "doc.pdf", "answers" => %{"saw" => "tika-content-of-doc.pdf"}}
+               ],
+               "skipped" => [],
+               "calls" => 1
+             } = Jason.decode!(json)
+    end
+
     test "returns error when no default model configured and template is nil" do
       assert {:error, {:no_default_model_configured, _}} = Headless.start_session(template: nil)
     end
@@ -2402,6 +2527,36 @@ defmodule Planck.Headless.SessionLifecycleTest do
             "model_id" => "llama3.2",
             "system_prompt" => "You implement.",
             "tools" => ["read", "write", "edit", "bash"]
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
+  defp write_grant_team(dir, alias_name, worker_tools) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read"]
+          },
+          %{
+            "type" => "worker",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You implement.",
+            "tools" => worker_tools
           }
         ]
       })

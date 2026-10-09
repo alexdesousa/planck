@@ -682,6 +682,27 @@ defmodule Planck.Agent.TeamIntegrationTest do
 
       assert Map.has_key?(tools, "ask")
     end
+
+    test "orchestrator_tools/6 includes ask_files exactly when ask is included" do
+      with_rlcd = Tools.orchestrator_tools(unique_id(), unique_id(), [@model, @rlcd_model])
+      without_rlcd = Tools.orchestrator_tools(unique_id(), unique_id(), [@model])
+
+      assert Enum.any?(with_rlcd, &(&1.name == "ask_files"))
+      refute Enum.any?(without_rlcd, &(&1.name == "ask_files"))
+    end
+
+    test "a spawned worker receives ask_files when it's granted, like any other tool" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      ask_files_tool = Tools.ask_files([@rlcd_model])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [ask_files_tool])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["ask_files"]})
+
+      assert Map.has_key?(tools, "ask_files")
+    end
   end
 
   # ---------------------------------------------------------------------------

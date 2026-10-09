@@ -419,6 +419,228 @@ defmodule Planck.Agent.ToolTest do
     end
   end
 
+  describe "Tools.ask_files/2" do
+    @tag :tmp_dir
+    test "rlcd_tools/1 returns ask and ask_files together iff an :rlcd model is present" do
+      assert [%{name: "ask"}, %{name: "ask_files"}] = Tools.rlcd_tools([@rlcd_model])
+      assert [] = Tools.rlcd_tools([@llm_model])
+      assert [] = Tools.rlcd_tools([])
+    end
+
+    test "orchestrator_tools/6 includes ask_files exactly when ask is included" do
+      with_rlcd = Tools.orchestrator_tools("s", "t", [@llm_model, @rlcd_model])
+      without_rlcd = Tools.orchestrator_tools("s", "t", [@llm_model])
+
+      assert Enum.any?(with_rlcd, &(&1.name == "ask_files"))
+      assert Enum.any?(with_rlcd, &(&1.name == "ask"))
+      refute Enum.any?(without_rlcd, &(&1.name == "ask_files"))
+    end
+
+    test "questions schema is identical to ask's" do
+      assert Tools.ask_files([@rlcd_model]).parameters["questions"] ==
+               Tools.ask([@rlcd_model]).parameters["questions"]
+    end
+
+    test "mixed ok/skipped envelope with injected reader" do
+      questions = %{"related" => %{"type" => "boolean", "instructions" => "Related to the bug?"}}
+
+      reader = fn
+        "a.ex" -> {:ok, "content a"}
+        "b.ex" -> {:ok, "content b"}
+        _path -> {:error, "not found"}
+      end
+
+      stub(MockAI, :evaluate, fn _model, _state, qs, _opts ->
+        assert qs == questions
+        {:ok, %{object: %{"related" => %{"type" => "boolean", "probability" => 0.9}}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, json} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["a.ex", "b.ex", "missing.ex"],
+                 "questions" => questions
+               })
+
+      assert %{
+               "results" => [
+                 %{"path" => "a.ex", "answers" => %{"related" => _}},
+                 %{"path" => "b.ex", "answers" => %{"related" => _}}
+               ],
+               "skipped" => [%{"path" => "missing.ex", "reason" => "not found"}],
+               "calls" => 2
+             } = Jason.decode!(json)
+    end
+
+    test "per-file state carries path and content" do
+      reader = fn _path -> {:ok, "hello"} end
+
+      expect(MockAI, :evaluate, fn _model, state, _qs, _opts ->
+        assert state == %{path: "a.ex", content: "hello"}
+        {:ok, %{object: %{}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, _} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["a.ex"],
+                 "questions" => %{}
+               })
+    end
+
+    test "oversize and binary files are skipped without consuming RLCD calls" do
+      reader = fn
+        "big.ex" -> {:ok, String.duplicate("x", 240_001)}
+        "bin.ex" -> {:ok, <<137, 80, 78, 71, 0, 1, 2, 3>>}
+        "empty.ex" -> {:ok, ""}
+      end
+
+      expect(MockAI, :evaluate, 0, fn _m, _s, _q, _o -> {:ok, %{object: %{}}} end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, json} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["big.ex", "bin.ex", "empty.ex"],
+                 "questions" => %{}
+               })
+
+      assert %{"results" => [], "skipped" => skipped, "calls" => 0} = Jason.decode!(json)
+      reasons = Map.new(skipped, &{&1["path"], &1["reason"]})
+      assert reasons["big.ex"] =~ "too large"
+      assert reasons["bin.ex"] == "binary"
+      assert reasons["empty.ex"] == "empty"
+    end
+
+    test "over the file cap returns an error before reading any file" do
+      reader = fn _path -> raise "must not read" end
+
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @rlcd_model} end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+      paths = Enum.map(1..256, &"file-#{&1}.ex")
+
+      assert {:error, message} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => paths,
+                 "questions" => %{}
+               })
+
+      assert message =~ "255"
+    end
+
+    test "results keep input order despite uneven latency" do
+      reader = fn path -> {:ok, "content of #{path}"} end
+
+      stub(MockAI, :evaluate, fn _model, %{path: path}, _qs, _opts ->
+        if path == "first.ex", do: Process.sleep(50)
+        {:ok, %{object: %{"echo" => path}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, json} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["first.ex", "second.ex", "third.ex"],
+                 "questions" => %{}
+               })
+
+      assert %{"results" => results, "calls" => 3} = Jason.decode!(json)
+      assert Enum.map(results, & &1["path"]) == ["first.ex", "second.ex", "third.ex"]
+    end
+
+    test "per-file RLCD failure lands in skipped, not a whole-call failure" do
+      reader = fn path -> {:ok, "content of #{path}"} end
+
+      stub(MockAI, :evaluate, fn
+        _model, %{path: "bad.ex"}, _qs, _opts -> {:error, :boom}
+        _model, _state, _qs, _opts -> {:ok, %{object: %{}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, json} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["good.ex", "bad.ex"],
+                 "questions" => %{}
+               })
+
+      assert %{
+               "results" => [%{"path" => "good.ex"}],
+               "skipped" => [%{"path" => "bad.ex", "reason" => reason}],
+               "calls" => 1
+             } = Jason.decode!(json)
+
+      assert reason =~ "boom"
+    end
+
+    test "rejects a non-RLCD model like ask does" do
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @llm_model} end)
+
+      tool = Tools.ask_files([@llm_model], reader: fn _ -> {:ok, "x"} end)
+
+      assert {:error, _message} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "openai",
+                 "model_id" => @llm_model.id,
+                 "base_url" => "",
+                 "paths" => ["a.ex"],
+                 "questions" => %{}
+               })
+    end
+
+    @tag :tmp_dir
+    test "builtin fallback reads real files with read-compatible path semantics", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "a.ex"), "aaa")
+      File.write!(Path.join(dir, "b.ex"), "bbb")
+
+      stub(MockAI, :evaluate, fn _model, %{path: _p, content: c}, _qs, _opts ->
+        {:ok, %{object: %{"len" => String.length(c)}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model])
+
+      assert {:ok, json} =
+               File.cd!(dir, fn ->
+                 tool.execute_fn.("agent-1", "tc-1", %{
+                   "provider" => "typesafe",
+                   "model_id" => "jev-latest",
+                   "base_url" => "",
+                   "paths" => ["a.ex", "b.ex", "missing.ex", dir],
+                   "questions" => %{}
+                 })
+               end)
+
+      assert %{"results" => results, "skipped" => skipped, "calls" => 2} =
+               Jason.decode!(json)
+
+      assert Enum.map(results, & &1["path"]) == ["a.ex", "b.ex"]
+      reasons = Map.new(skipped, &{&1["path"], &1["reason"]})
+      assert reasons["missing.ex"] =~ "no such file"
+      assert reasons[dir] =~ "directory"
+    end
+  end
+
   describe "validate_args/2 rejects a spawn_agent provider outside its enum" do
     test "rejects a provider value not in the enum" do
       tool = Tools.spawn_agent("session-1", "team-1", [])
