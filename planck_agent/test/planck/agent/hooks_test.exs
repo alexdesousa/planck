@@ -13,6 +13,8 @@ defmodule Planck.Agent.HooksTest do
       assert hooks.prompt == nil
       assert hooks.turn_end == nil
       assert hooks.turn_start == nil
+      assert hooks.tool_start == nil
+      assert hooks.tool_end == nil
       assert hooks.sidecar_node == nil
     end
 
@@ -24,6 +26,8 @@ defmodule Planck.Agent.HooksTest do
           prompt_hook: SomePrompt,
           turn_end_hook: SomeTurnEnd,
           turn_start_hook: SomeTurnStart,
+          tool_start_hook: SomeToolStart,
+          tool_end_hook: SomeToolEnd,
           sidecar_node: :sidecar@localhost
         )
 
@@ -32,6 +36,8 @@ defmodule Planck.Agent.HooksTest do
       assert hooks.prompt == SomePrompt
       assert hooks.turn_end == SomeTurnEnd
       assert hooks.turn_start == SomeTurnStart
+      assert hooks.tool_start == SomeToolStart
+      assert hooks.tool_end == SomeToolEnd
       assert hooks.sidecar_node == :sidecar@localhost
     end
 

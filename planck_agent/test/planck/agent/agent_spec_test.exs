@@ -109,6 +109,8 @@ defmodule Planck.Agent.AgentSpecTest do
       assert opts[:prompt_hook] == nil
       assert opts[:turn_end_hook] == nil
       assert opts[:turn_start_hook] == nil
+      assert opts[:tool_start_hook] == nil
+      assert opts[:tool_end_hook] == nil
       assert opts[:persistence] == nil
       assert opts[:sidecar_node] == nil
     end
@@ -128,6 +130,34 @@ defmodule Planck.Agent.AgentSpecTest do
 
       opts = AgentSpec.to_start_opts(spec)
       assert opts[:turn_start_hook] == MySidecar.Hooks.Metrics
+    end
+
+    test "resolves the tool hook module strings to atoms" do
+      expect(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      spec = %AgentSpec{
+        @base_spec
+        | tool_start_hook: "MySidecar.Hooks.BashGate",
+          tool_end_hook: "MySidecar.Hooks.ApprovalTagger"
+      }
+
+      opts = AgentSpec.to_start_opts(spec)
+      assert opts[:tool_start_hook] == MySidecar.Hooks.BashGate
+      assert opts[:tool_end_hook] == MySidecar.Hooks.ApprovalTagger
+    end
+
+    test "parses the tool hook fields from TEAM.json entries" do
+      {:ok, spec} =
+        AgentSpec.from_map(%{
+          "type" => "builder",
+          "provider" => "openai",
+          "model_id" => "llama3.2",
+          "tool_start_hook" => "MySidecar.Hooks.BashGate",
+          "tool_end_hook" => "MySidecar.Hooks.ApprovalTagger"
+        })
+
+      assert spec.tool_start_hook == "MySidecar.Hooks.BashGate"
+      assert spec.tool_end_hook == "MySidecar.Hooks.ApprovalTagger"
     end
 
     test "parses the turn_start_hook hook fields from TEAM.json entries" do

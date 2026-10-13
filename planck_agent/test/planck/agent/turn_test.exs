@@ -1,7 +1,38 @@
 defmodule Planck.Agent.TurnTest do
   use ExUnit.Case, async: true
 
-  alias Planck.Agent.{Message, Tool, Turn}
+  alias Planck.Agent.{Context, Hooks, Identity, Message, Tool, Turn}
+  alias Planck.AI.Model
+
+  @model %Model{
+    id: "llama3.2",
+    name: "Llama 3.2",
+    provider: :openai,
+    context_window: 4_096,
+    max_tokens: 2_048
+  }
+
+  defmodule DenyGate do
+    use Planck.Agent.Hooks.ToolStart
+
+    @impl true
+    def proceed(_agent_id, _tool, _args), do: {:deny, "denied by gate"}
+  end
+
+  defmodule ParkGate do
+    use Planck.Agent.Hooks.ToolStart
+
+    @impl true
+    def proceed(_agent_id, _tool, _args), do: {:await_approval, "needs a human"}
+  end
+
+  defmodule UpperTransform do
+    use Planck.Agent.Hooks.ToolEnd
+
+    @impl true
+    def transform(_agent_id, _tool, _args, {:ok, text}), do: {:ok, String.upcase(text)}
+    def transform(_agent_id, _tool, _args, result), do: result
+  end
 
   defp make_tool(name, fun) do
     Tool.new(
@@ -10,6 +41,22 @@ defmodule Planck.Agent.TurnTest do
       parameters: %{"type" => "object", "properties" => %{}},
       execute_fn: fun
     )
+  end
+
+  defp identity, do: Identity.build(id: "a1", model: @model)
+
+  defp context(tools) when is_list(tools), do: Context.build(tools: tools)
+  defp context(tool_map) when is_map(tool_map), do: %Context{Context.build([]) | tools: tool_map}
+
+  defp hooks(opts \\ []), do: Hooks.build(opts)
+
+  defp prepare(buffer_calls, tools, hook_opts \\ []) do
+    turn =
+      Enum.reduce(buffer_calls, Turn.new(), fn call, acc ->
+        Turn.append_call(acc, call)
+      end)
+
+    Turn.prepare_calls(turn, identity(), context(tools), hooks(hook_opts))
   end
 
   defp user_messages(count) do
@@ -28,7 +75,6 @@ defmodule Planck.Agent.TurnTest do
       assert turn.buffer_calls == []
       assert turn.running == %{}
       assert turn.results == []
-      assert turn.loop_counts == %{}
     end
   end
 
@@ -115,69 +161,42 @@ defmodule Planck.Agent.TurnTest do
     end
   end
 
-  describe inspect(&Turn.prepare_call/4) do
-    test "should execute a known tool and return its result" do
+  describe inspect(&Turn.prepare_calls/4) do
+    test "should execute a known tool and track it as runnable" do
       tool = make_tool("echo", fn _agent_id, _call_id, %{"msg" => msg} -> {:ok, msg} end)
+      call = %{id: "c1", name: "echo", args: %{"msg" => "hi"}}
 
-      {_turn, wrapped} =
-        Turn.prepare_call(Turn.new(), %{"echo" => tool}, "a1", %{
-          id: "c1",
-          name: "echo",
-          args: %{"msg" => "hi"}
-        })
+      turn = prepare([call], [tool])
 
-      assert {:ok, "hi"} = wrapped.()
+      assert turn.buffer_calls == []
+      assert turn.status == :executing_tools
+      assert %{approved: true, pid: nil} = turn.running["c1"]
+      assert {:ok, "hi"} = turn.running["c1"].function.(nil)
     end
 
-    test "should return an error for an unknown tool" do
-      {turn, wrapped} =
-        Turn.prepare_call(Turn.new(), %{}, "a1", %{id: "c1", name: "noop", args: %{}})
+    test "should register an error for an unknown tool without consulting the gate" do
+      turn = prepare([%{id: "c1", name: "noop", args: %{}}], [])
 
-      assert {:error, msg} = wrapped.()
+      assert %{approved: true} = turn.running["c1"]
+      assert {:error, msg} = turn.running["c1"].function.(nil)
       assert msg =~ "unknown tool"
-      assert turn.loop_counts == %{{"noop", :erlang.phash2(%{})} => 1}
     end
 
-    test "should increment loop counts and nudge from the third identical call" do
-      tool = make_tool("echo", fn _, _, _ -> {:ok, "same"} end)
-      tools = %{"echo" => tool}
-      call = %{id: "c1", name: "echo", args: %{"x" => 1}}
+    test "should prepare multiple buffered calls in order" do
+      tool = make_tool("echo", fn _, _, %{"msg" => msg} -> {:ok, msg} end)
 
-      {turn1, w1} = Turn.prepare_call(Turn.new(), tools, "a1", call)
-      assert {:ok, "same"} = w1.()
+      turn =
+        prepare(
+          [
+            %{id: "c1", name: "echo", args: %{"msg" => "a"}},
+            %{id: "c2", name: "echo", args: %{"msg" => "b"}}
+          ],
+          [tool]
+        )
 
-      {turn2, w2} = Turn.prepare_call(turn1, tools, "a1", call)
-      assert {:ok, "same"} = w2.()
-
-      {_turn3, w3} = Turn.prepare_call(turn2, tools, "a1", call)
-      assert {:ok, nudged} = w3.()
-      assert nudged =~ "you have called `echo`"
-    end
-
-    test "should preserve the ui payload when nudging" do
-      ui = %{kind: :text, text: "note"}
-      tool = make_tool("echo", fn _, _, _ -> {:ok, "same", %{ui: ui}} end)
-      tools = %{"echo" => tool}
-      call = %{id: "c1", name: "echo", args: %{}}
-
-      {t1, _} = Turn.prepare_call(Turn.new(), tools, "a1", call)
-      {t2, _} = Turn.prepare_call(t1, tools, "a1", call)
-      {_t3, w3} = Turn.prepare_call(t2, tools, "a1", call)
-
-      assert {:ok, text, %{ui: ^ui}} = w3.()
-      assert text =~ "you have called `echo`"
-    end
-
-    test "should never nudge error results" do
-      tool = make_tool("bad", fn _, _, _ -> {:error, "nope"} end)
-      tools = %{"bad" => tool}
-      call = %{id: "c1", name: "bad", args: %{}}
-
-      {t1, _} = Turn.prepare_call(Turn.new(), tools, "a1", call)
-      {t2, _} = Turn.prepare_call(t1, tools, "a1", call)
-      {_t3, w3} = Turn.prepare_call(t2, tools, "a1", call)
-
-      assert {:error, "nope"} = w3.()
+      assert Map.keys(turn.running) |> Enum.sort() == ["c1", "c2"]
+      assert {:ok, "a"} = turn.running["c1"].function.(nil)
+      assert {:ok, "b"} = turn.running["c2"].function.(nil)
     end
 
     test "should return an error when argument validation fails" do
@@ -192,73 +211,153 @@ defmodule Planck.Agent.TurnTest do
           }
       }
 
-      {_turn, wrapped} =
-        Turn.prepare_call(Turn.new(), %{"strict" => tool}, "a1", %{
-          id: "c1",
-          name: "strict",
-          args: %{}
-        })
+      turn = prepare([%{id: "c1", name: "strict", args: %{}}], [tool])
 
-      assert {:error, _reason} = wrapped.()
+      assert {:error, _reason} = turn.running["c1"].function.(nil)
     end
 
     test "should catch exceptions and return an error string" do
       tool = make_tool("boom", fn _a, _c, _args -> raise "kaboom" end)
+      turn = prepare([%{id: "c1", name: "boom", args: %{}}], [tool])
 
-      {_turn, wrapped} =
-        Turn.prepare_call(Turn.new(), %{"boom" => tool}, "a1", %{
-          id: "c1",
-          name: "boom",
-          args: %{}
-        })
-
-      assert {:error, msg} = wrapped.()
+      assert {:error, msg} = turn.running["c1"].function.(nil)
       assert msg =~ "kaboom"
     end
 
-    test "should track separate loop counts for different args" do
-      tool = make_tool("echo", fn _, _, _ -> {:ok, "same"} end)
-      tools = %{"echo" => tool}
+    test "should park calls when the gate awaits approval" do
+      tool = make_tool("bash", fn _, _, _ -> {:ok, "ran"} end)
+      turn = prepare([%{id: "c1", name: "bash", args: %{}}], [tool], tool_start_hook: ParkGate)
 
-      {turn, _} =
-        Turn.prepare_call(Turn.new(), tools, "a1", %{id: "c1", name: "echo", args: %{"x" => 1}})
+      assert %{
+               approved: false,
+               pid: nil,
+               metadata: %{reason: "needs a human", kind: :await_approval}
+             } =
+               turn.running["c1"]
 
-      {turn, _} =
-        Turn.prepare_call(turn, tools, "a1", %{id: "c2", name: "echo", args: %{"x" => 2}})
+      assert [%{approved: false}] = Turn.list_pending(turn)
+      refute Turn.tool_done?(turn)
+    end
 
-      assert map_size(turn.loop_counts) == 2
+    test "should register denied calls with a blocked error" do
+      tool = make_tool("bash", fn _, _, _ -> {:ok, "ran"} end)
+      turn = prepare([%{id: "c1", name: "bash", args: %{}}], [tool], tool_start_hook: DenyGate)
+
+      assert %{approved: true, metadata: %{reason: "denied by gate", kind: :deny}} =
+               turn.running["c1"]
+
+      assert {:error, msg} = turn.running["c1"].function.("denied by gate")
+      assert msg =~ "denied by gate"
+      assert msg =~ "Do not attempt to work around"
+      assert Turn.list_pending(turn) == []
+    end
+
+    test "should apply the ToolEnd transform to results" do
+      tool = make_tool("echo", fn _, _, %{"msg" => msg} -> {:ok, msg} end)
+
+      turn =
+        prepare([%{id: "c1", name: "echo", args: %{"msg" => "hi"}}], [tool],
+          tool_end_hook: UpperTransform
+        )
+
+      assert {:ok, "HI"} = turn.running["c1"].function.(nil)
     end
   end
 
-  describe inspect({&Turn.register_call/3, &Turn.mark_tool_done/3, &Turn.tool_done?/1}) do
-    test "should register running entries and mark them done" do
-      pid = self()
-      turn = Turn.register_call(Turn.new(), %{id: "c1", name: "bash", args: %{}}, pid)
+  describe inspect({&Turn.approve_pending/2, &Turn.deny_pending/3}) do
+    test "should approve a parked call one-shot" do
+      tool = make_tool("bash", fn _, _, _ -> {:ok, "ran"} end)
+      turn = prepare([%{id: "c1", name: "bash", args: %{}}], [tool], tool_start_hook: ParkGate)
 
-      assert turn.status == :executing_tools
-      assert turn.running["c1"].name == "bash"
+      assert {:ok, {entry, approved}} = Turn.approve_pending(turn, "c1")
+      assert entry.approved == true
+      assert {:ok, "ran"} = approved.running["c1"].function.(nil)
+
+      assert {:error, :not_found} = Turn.approve_pending(approved, "c1")
+      assert {:error, :not_found} = Turn.deny_pending(approved, "c1", "nope")
+    end
+
+    test "should deny a parked call with a blocked error" do
+      tool = make_tool("bash", fn _, _, _ -> {:ok, "ran"} end)
+      turn = prepare([%{id: "c1", name: "bash", args: %{}}], [tool], tool_start_hook: ParkGate)
+
+      assert {:ok, {_entry, denied}} = Turn.deny_pending(turn, "c1", "nope")
+      assert {:error, msg} = denied.running["c1"].function.("nope")
+      assert msg =~ "nope"
+
+      assert {:error, :not_found} = Turn.approve_pending(denied, "c1")
+    end
+
+    test "should return :not_found for unknown call ids" do
+      assert {:error, :not_found} = Turn.approve_pending(Turn.new(), "ghost")
+      assert {:error, :not_found} = Turn.deny_pending(Turn.new(), "ghost", "reason")
+    end
+
+    test "should not approve already-runnable calls" do
+      tool = make_tool("echo", fn _, _, _ -> {:ok, "ok"} end)
+      turn = prepare([%{id: "c1", name: "echo", args: %{}}], [tool])
+
+      assert {:error, :not_found} = Turn.approve_pending(turn, "c1")
+      assert {:error, :not_found} = Turn.deny_pending(turn, "c1", "reason")
+    end
+  end
+
+  describe inspect(
+             {&Turn.list_pending/1, &Turn.register_running/3, &Turn.mark_tool_done/3,
+              &Turn.tool_done?/1}
+           ) do
+    test "should list only parked entries" do
+      tool = make_tool("bash", fn _, _, _ -> {:ok, "ran"} end)
+
+      turn =
+        prepare(
+          [
+            %{id: "c1", name: "bash", args: %{}},
+            %{id: "c2", name: "bash", args: %{}}
+          ],
+          [tool],
+          tool_start_hook: ParkGate
+        )
+
+      assert length(Turn.list_pending(turn)) == 2
+
+      {:ok, {_entry, turn}} = Turn.approve_pending(turn, "c1")
+      assert length(Turn.list_pending(turn)) == 1
+    end
+
+    test "should register running pids and mark them done in order" do
+      tool = make_tool("echo", fn _, _, _ -> {:ok, "ok"} end)
+      turn = prepare([%{id: "c1", name: "echo", args: %{}}], [tool])
+
+      pid = spawn(fn -> Process.sleep(5_000) end)
+      turn = Turn.register_running(turn, "c1", pid)
       assert turn.running["c1"].pid == pid
+      assert turn.running["c1"].approved == true
       refute Turn.tool_done?(turn)
 
       assert {:ok, updated} = Turn.mark_tool_done(turn, "c1", {:ok, "out"})
       assert updated.running == %{}
-      assert [{"c1", {:ok, "out"}}] = updated.results
+      assert [{"c1", %{result: {:ok, "out"}}}] = updated.results
       assert Turn.tool_done?(updated)
+
+      Process.exit(pid, :kill)
     end
 
-    test "should return :not_running for an unknown call id" do
-      assert Turn.mark_tool_done(Turn.new(), "unknown", {:ok, "x"}) == :not_running
+    test "should return {:error, :not_running} for an unknown call id" do
+      assert Turn.mark_tool_done(Turn.new(), "unknown", {:ok, "x"}) == {:error, :not_running}
     end
   end
 
-  describe inspect(&Turn.reset_streaming/1) do
-    test "should clear buffers, running state, and loop counts" do
+  describe inspect(&Turn.reset_streaming/2) do
+    test "should clear buffers and running state but keep calls by default" do
+      tool = make_tool("bash", fn _, _, _ -> {:ok, "ran"} end)
+
       turn =
         Turn.new()
         |> Turn.append_text("hi")
         |> Turn.append_thinking("think")
         |> Turn.append_call(%{id: "c1", name: "bash", args: %{}})
-        |> Turn.register_call(%{id: "c1", name: "bash", args: %{}}, self())
+        |> then(&Turn.prepare_calls(&1, identity(), context([tool]), hooks()))
         |> Turn.reset_streaming()
 
       assert turn.status == :idle
@@ -269,21 +368,31 @@ defmodule Planck.Agent.TurnTest do
       assert turn.buffer_calls == []
       assert turn.running == %{}
       assert turn.results == []
-      assert turn.loop_counts == %{}
+    end
+
+    test "should drop buffered calls with include_calls" do
+      turn =
+        Turn.new()
+        |> Turn.append_call(%{id: "c1", name: "bash", args: %{}})
+        |> Turn.reset_streaming(include_calls: true)
+
+      assert turn.buffer_calls == []
     end
   end
 
-  describe inspect({&Turn.cancel_stream/1, &Turn.cancel_all_tools/1}) do
-    test "should no-op without a stream task" do
-      assert Turn.cancel_stream(Turn.new()) == :ok
-    end
+  describe inspect(&Turn.abort/1) do
+    test "should kill running tool processes and reset streaming" do
+      tool = make_tool("echo", fn _, _, _ -> {:ok, "ok"} end)
+      turn = prepare([%{id: "c1", name: "echo", args: %{}}], [tool])
 
-    test "should kill tracked tool processes" do
       pid = spawn(fn -> Process.sleep(5_000) end)
-      turn = Turn.register_call(Turn.new(), %{id: "c1", name: "bash", args: %{}}, pid)
-
-      assert :ok = Turn.cancel_all_tools(turn)
+      turn = Turn.register_running(turn, "c1", pid)
       ref = Process.monitor(pid)
+
+      aborted = Turn.abort(%{turn | stream_task: nil})
+      assert aborted.status == :idle
+      assert aborted.running == %{}
+
       assert_receive {:DOWN, ^ref, _, _, _}, 1_000
     end
   end
