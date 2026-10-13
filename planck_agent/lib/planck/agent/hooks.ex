@@ -19,6 +19,8 @@ defmodule Planck.Agent.Hooks do
           prompt: module() | nil,
           turn_end: module() | nil,
           turn_start: module() | nil,
+          tool_start: module() | nil,
+          tool_end: module() | nil,
           sidecar_node: atom() | nil
         }
 
@@ -28,6 +30,8 @@ defmodule Planck.Agent.Hooks do
             prompt: nil,
             turn_end: nil,
             turn_start: nil,
+            tool_start: nil,
+            tool_end: nil,
             sidecar_node: nil
 
   @doc "Build a `Hooks` struct from agent start opts."
@@ -41,6 +45,8 @@ defmodule Planck.Agent.Hooks do
       prompt: opts[:prompt_hook],
       turn_end: opts[:turn_end_hook],
       turn_start: opts[:turn_start_hook],
+      tool_start: opts[:tool_start_hook],
+      tool_end: opts[:tool_end_hook],
       sidecar_node: opts[:sidecar_node]
     }
   end

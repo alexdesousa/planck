@@ -45,6 +45,9 @@ defmodule Planck.Agent.Tool do
     LLM — see `Planck.Agent`'s tool-result handling.
   - `{:error, reason}` — `reason` is placed into the model's context the same
     way `result` would be.
+  - `{:error, reason, %{ui: ui_content()}}` — same, plus a UI side effect.
+    A `ToolEnd` hook may attach `%{ui: ...}` to an error the same way it
+    can to an ok result.
 
   All text values must be strings. Exceptions and exit signals are caught by
   the agent and converted to error strings automatically.
@@ -53,7 +56,8 @@ defmodule Planck.Agent.Tool do
           (agent_id :: String.t(), id :: String.t(), args :: map() ->
              {:ok, String.t()}
              | {:ok, String.t(), %{ui: ui_content()}}
-             | {:error, String.t()})
+             | {:error, String.t()}
+             | {:error, String.t(), %{ui: ui_content()}})
 
   @typedoc """
   A fully-specified tool: schema fields understood by the LLM plus the
