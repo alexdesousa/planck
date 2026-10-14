@@ -28,12 +28,11 @@ defmodule Planck.Agent.Hooks.ToolStart do
   - `{:proceed, new_args}` — run the call with rewritten arguments.
   - `{:deny, reason}` — skip execution; the agent sees an error containing
     `reason` plus a do-not-work-around notice.
-  - `{:deny, reason, %{ui: ui_content}}` — same, plus a UI side effect
-    served with the blocked error (e.g. an approval widget).
   - `{:await_approval, reason}` — park the call for human approval (handled
     by the approval loop); until approved it behaves like a deny.
-  - `{:await_approval, reason, %{ui: ui_content}}` — same, plus a UI side
-    effect served with the parked error.
+
+  Gates return 2-tuples only — UI side effects are attached downstream by
+  `Planck.Agent.Hooks.ToolEnd` (e.g. the sidecar `ApprovalTagger`).
 
   ## Dispatch
 

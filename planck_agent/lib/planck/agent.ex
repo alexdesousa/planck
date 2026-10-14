@@ -105,8 +105,8 @@ defmodule Planck.Agent do
   Turn fields (grouped in `turn`):
   - `status` — `:idle`, `:streaming`, or `:executing_tools`. A parked tool call
     keeps the status `:executing_tools`; whether approval is pending is
-    derived from `pending_approvals` (see `list_pending_approvals/1`), not
-    from `status`.
+    derived from the parked entries in `turn.running` (see
+    `list_pending_approvals/1`), not from `status`.
   - `index` / `checkpoints` — monotonically increasing turn counter and checkpoint stack
   - `stream_task` / `stream_ref` — in-flight async LLM stream
   - `stream_start` — length of `context.messages` when the current stream began; used to
@@ -456,8 +456,8 @@ defmodule Planck.Agent do
 
   The pending entry is one-shot: unknown or already-resolved `call_id`
   returns `{:error, :not_found}` and nothing executes. Approval always
-  executes the stored arguments (bound to their args-hash at park time),
-  so it can never be redirected to a different call. Returns `:ok`
+  executes the stored arguments seen at park time, so it can never be
+  redirected to a different call. Returns `:ok`
   once the execution is kicked off — the result arrives asynchronously
   through the normal `:tool_end` event and turn continuation.
   """
