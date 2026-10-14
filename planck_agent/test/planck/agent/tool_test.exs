@@ -441,6 +441,72 @@ defmodule Planck.Agent.ToolTest do
                Tools.ask([@rlcd_model]).parameters["questions"]
     end
 
+    test "ask and ask_files schemas contain no nil property values" do
+      for tool <- [Tools.ask([@rlcd_model]), Tools.ask_files([@rlcd_model])] do
+        props = tool.parameters["properties"]
+        assert is_map(props)
+        refute Enum.any?(props, fn {_k, v} -> is_nil(v) end)
+        questions = props["questions"]
+        assert is_map(questions)
+        assert length(questions["additionalProperties"]["oneOf"]) == 3
+      end
+    end
+
+    test "invalid tool schema returns error instead of raising" do
+      bad =
+        Tool.new(
+          name: "ask",
+          description: "bad",
+          parameters: %{"type" => "object", "properties" => %{"questions" => nil}},
+          execute_fn: fn _, _, _ -> {:ok, "x"} end
+        )
+
+      assert {:error, message} = Tool.validate_args(bad, %{"questions" => %{}})
+      assert message =~ "misconfigured"
+    end
+
+    test "user repro ask/ask_files payloads validate" do
+      ask_tool = Tools.ask([@rlcd_model])
+      files_tool = Tools.ask_files([@rlcd_model])
+
+      ask_args = %{
+        "provider" => "typesafe",
+        "model_id" => "Decider 2b",
+        "base_url" => "https://decider.coroto.net",
+        "state" => "NullPointerException in PaymentService.process()",
+        "questions" => %{
+          "is_reproducible" => %{
+            "type" => "boolean",
+            "instructions" => "Reproducible?",
+            "criteria" => %{"true" => "yes", "false" => "no"}
+          },
+          "route_to" => %{
+            "type" => "choice",
+            "instructions" => "Who handles it?",
+            "criteria" => %{"backend" => "Server-side", "frontend" => "UI"}
+          },
+          "severity" => %{
+            "type" => "score",
+            "instructions" => "Severity?",
+            "criteria" => ["trivial", "minor", "blocking"]
+          }
+        }
+      }
+
+      assert :ok = Tool.validate_args(ask_tool, ask_args)
+
+      assert :ok =
+               Tool.validate_args(files_tool, %{
+                 "provider" => "typesafe",
+                 "model_id" => "Decider 2b",
+                 "base_url" => "https://decider.coroto.net",
+                 "paths" => ["a.txt"],
+                 "questions" => %{
+                   "bug_related" => %{"type" => "boolean", "instructions" => "Related?"}
+                 }
+               })
+    end
+
     test "mixed ok/skipped envelope with injected reader" do
       questions = %{"related" => %{"type" => "boolean", "instructions" => "Related to the bug?"}}
 

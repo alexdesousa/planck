@@ -6,6 +6,7 @@ defmodule Planck.Agent.Tool do
   LLM requests a tool invocation. The AI tool schema (name, description, parameters)
   is extracted when building `Planck.AI.Context`; `execute_fn` stays agent-side.
   """
+  require Logger
 
   @typedoc """
   A UI side effect attached to a tool result — see `execute_fn`'s 3-element
@@ -116,13 +117,19 @@ defmodule Planck.Agent.Tool do
   so individual tools do not need to duplicate this check.
   """
   @spec validate_args(t(), map()) :: :ok | {:error, String.t()}
-  def validate_args(%__MODULE__{parameters: params}, args) do
+  def validate_args(%__MODULE__{name: name, parameters: params}, args) do
     schema = ExJsonSchema.Schema.resolve(params)
 
-    case ExJsonSchema.Validator.validate(schema, args) do
-      :ok -> :ok
-      {:error, errors} -> {:error, format_schema_errors(errors, params)}
+    with {:error, errors} <- ExJsonSchema.Validator.validate(schema, args) do
+      {:error, format_schema_errors(errors, params)}
     end
+  rescue
+    e in ExJsonSchema.Schema.InvalidSchemaError ->
+      warning = "Tool #{name} has an invalid JSON schema: #{Exception.message(e)}"
+      Logger.error(warning)
+
+      reason = "Tool #{name} is misconfigured (invalid schema) — contact the tool author."
+      {:error, reason}
   end
 
   @spec format_schema_errors([{String.t(), String.t()}], map()) :: String.t()

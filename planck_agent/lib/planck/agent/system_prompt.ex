@@ -224,33 +224,77 @@ defmodule Planck.Agent.SystemPrompt do
     yes/no confidence check — instead of reasoning it out yourself in text.
 
     Call `list_models` first — only models with `type: \"rlcd\"` are valid.
+    Pass `provider: \"typesafe\"`, the `model_id` from `list_models`, and
+    `base_url` (real URL for self-hosted, any placeholder for cloud).
+    `state` is the content to evaluate — plain text, or a JSON object/array.
 
     The result is a probability or chosen value per question, not prose — do
     not ask it to explain itself, and do not use it for anything that needs
     multi-step reasoning or tool use.
 
-    Each entry in `questions` is one of three types — see the tool schema for
-    exact fields:
+    Each entry in `questions` is one of three types. Choose by the shape of
+    the answer you need:
 
     #### Choice
 
     Use when state fits into exactly one of a fixed set of named categories
-    — routing to the right specialist, sorting an inbound message by
-    intent. `criteria` names the options; the answer is the winning option's
-    key and its probability.
+    — routing to the right specialist, sorting an inbound message by intent.
+    `criteria` is required: an object naming the options. The answer is the
+    winning option's key and its probability.
+
+    ```json
+    {"route_to": {"type": "choice", "instructions": "Which team handles this?",
+      "criteria": {"billing": "Payments and refunds", "technical": "Bugs"}}}
+    ```
 
     #### Score
 
     Use when state falls somewhere on an ordered scale rather than a
     discrete category — severity, quality, how well a draft matches a spec.
-    `criteria` orders the scale low to high; the answer is a value across it.
+    `criteria` is required: an array of 2-10 level descriptions, low to high.
+    Describe each level as a concrete situation, not a bare degree — "broken
+    feature but a workaround exists" gives the model something to match;
+    "minor" alone does not and splits the answer. Keep each Score question to
+    one dimension. The answer is a position on the scale that can fall between
+    two levels, plus a probability per level and a confidence.
+
+    ```json
+    {"severity": {"type": "score", "instructions": "How severe is the impact?",
+      "criteria": ["cosmetic, no user impact",
+                   "feature degraded but a workaround exists",
+                   "blocking, no workaround exists"]}}
+    ```
 
     #### Boolean
 
     Use as a yes/no confidence gate before a destructive or irreversible
     action — "does this message clearly authorize a refund?" `criteria` is
-    optional, clarifying what counts as yes/no; the answer is the
-    probability the answer is yes.
+    optional, clarifying what counts as yes/no. The answer is the probability
+    the answer is yes.
+
+    ```json
+    {"urgent": {"type": "boolean", "instructions": "Is this urgent?"}}
+    ```
+
+    A full call puts all three under `questions`:
+
+    ```json
+    {
+      "provider": "typesafe",
+      "model_id": "<rlcd-model-id>",
+      "base_url": "http://localhost:8000",
+      "state": "Refund request: charged twice for order 42.",
+      "questions": {
+        "urgent": {"type": "boolean", "instructions": "Is this urgent?"},
+        "route_to": {"type": "choice", "instructions": "Which team?",
+          "criteria": {"billing": "Payments", "technical": "Bugs"}},
+        "severity": {"type": "score", "instructions": "How severe?",
+          "criteria": ["cosmetic, no user impact",
+                       "feature degraded but a workaround exists",
+                       "blocking, no workaround exists"]}
+      }
+    }
+    ```
     """
     |> String.trim_trailing()
   end
@@ -264,19 +308,34 @@ defmodule Planck.Agent.SystemPrompt do
     migration — without reading them all yourself.
 
     Pass explicit file paths only (max 255, no globs or directories) and
-    one `questions` block shaped exactly like `ask`'s. Each readable file
+    one `questions` block shaped exactly like `ask`'s — the same three types
+    (`choice`, `score`, `boolean`), same `criteria` rules. Each readable file
     gets one evaluation; unreadable files land in `skipped` with a reason
     instead of failing the whole call.
+
+    ```json
+    {
+      "provider": "typesafe",
+      "model_id": "<rlcd-model-id>",
+      "base_url": "http://localhost:8000",
+      "paths": ["lib/billing.ex", "lib/webhook.ex"],
+      "questions": {
+        "bug_related": {
+          "type": "boolean",
+          "instructions": "Is this file related to the double-charge bug?"
+        }
+      }
+    }
+    ```
 
     The result is `{results: [{path, answers}], skipped: [{path, reason}],
     calls}` — `answers` is per-path, keyed by your own question IDs. A
     `boolean` question here is upstream `noul`: its answer is the
     probability the answer is yes.
 
-    Gating recipe: ask one `boolean` question per triage ("is this file
-    related to <bug>?"), then act only where that probability exceeds a
-    cutoff you choose (e.g. `noul > 0.7`) — `read` just those hits in
-    full and leave the rest unread.
+    Gating recipe: ask one `boolean` question per triage, then act only
+    where that probability exceeds a cutoff you choose (e.g. `noul > 0.7`) —
+    `read` just those hits in full and leave the rest unread.
     """
     |> String.trim_trailing()
   end

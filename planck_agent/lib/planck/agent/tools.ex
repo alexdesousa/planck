@@ -563,76 +563,7 @@ defmodule Planck.Agent.Tools do
               "The content to evaluate — plain text, or a JSON object/array for " <>
                 "structured data such as a chat log or a record."
           },
-          "questions" => %{
-            "type" => "object",
-            "description" =>
-              "Named typed questions to ask about state. Choose your own key " <>
-                "for each question — its answer comes back under the same key.",
-            "additionalProperties" => %{
-              "oneOf" => [
-                %{
-                  "properties" => %{
-                    "type" => %{
-                      "enum" => ["choice"],
-                      "description" => "Pick exactly one option from criteria."
-                    },
-                    "instructions" => %{
-                      "type" => "string",
-                      "description" =>
-                        "What the model should decide between the given criteria options."
-                    },
-                    "criteria" => %{
-                      "type" => "object",
-                      "description" => "Option key -> description. Up to 255 options."
-                    }
-                  },
-                  "required" => ["type", "instructions", "criteria"]
-                },
-                %{
-                  "properties" => %{
-                    "type" => %{
-                      "enum" => ["score"],
-                      "description" => "Rate state against the ordered levels in criteria."
-                    },
-                    "instructions" => %{
-                      "type" => "string",
-                      "description" => "What the model should rate, in natural language."
-                    },
-                    "criteria" => %{
-                      "type" => "array",
-                      "items" => %{"type" => "string"},
-                      "minItems" => 2,
-                      "maxItems" => 10,
-                      "description" => "Ordered level descriptions, low to high."
-                    }
-                  },
-                  "required" => ["type", "instructions", "criteria"]
-                },
-                %{
-                  "properties" => %{
-                    "type" => %{
-                      "enum" => ["boolean"],
-                      "description" =>
-                        "A yes/no question — returns the probability the answer is yes."
-                    },
-                    "instructions" => %{
-                      "type" => "string",
-                      "description" => "The yes/no question to evaluate, in natural language."
-                    },
-                    "criteria" => %{
-                      "type" => "object",
-                      "properties" => %{
-                        "true" => %{"type" => "string"},
-                        "false" => %{"type" => "string"}
-                      },
-                      "description" => "Optional — clarifies what counts as yes/no."
-                    }
-                  },
-                  "required" => ["type", "instructions"]
-                }
-              ]
-            }
-          }
+          "questions" => questions_schema()
         },
         "required" => ["provider", "model_id", "base_url", "state", "questions"]
       },
@@ -725,7 +656,7 @@ defmodule Planck.Agent.Tools do
                 "workspace, same rule as read). Max #{@max_ask_files}; no globs, " <>
                 "directories, or recursion."
           },
-          "questions" => ask(available_models).parameters["questions"]
+          "questions" => questions_schema()
         },
         "required" => ["provider", "model_id", "base_url", "paths", "questions"]
       },
@@ -733,7 +664,6 @@ defmodule Planck.Agent.Tools do
         provider = String.to_existing_atom(args["provider"])
         model_id = Map.get(args, "model_id")
         base_url = Map.get(args, "base_url")
-
         paths = Map.get(args, "paths", [])
         questions = Map.get(args, "questions")
 
@@ -828,6 +758,79 @@ defmodule Planck.Agent.Tools do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  @spec questions_schema() :: map()
+  defp questions_schema do
+    %{
+      "type" => "object",
+      "description" =>
+        "Named typed questions to ask about state. Choose your own key " <>
+          "for each question — its answer comes back under the same key.",
+      "additionalProperties" => %{
+        "oneOf" => [
+          %{
+            "properties" => %{
+              "type" => %{
+                "enum" => ["choice"],
+                "description" => "Pick exactly one option from criteria."
+              },
+              "instructions" => %{
+                "type" => "string",
+                "description" =>
+                  "What the model should decide between the given criteria options."
+              },
+              "criteria" => %{
+                "type" => "object",
+                "description" => "Option key -> description. Up to 255 options."
+              }
+            },
+            "required" => ["type", "instructions", "criteria"]
+          },
+          %{
+            "properties" => %{
+              "type" => %{
+                "enum" => ["score"],
+                "description" => "Rate state against the ordered levels in criteria."
+              },
+              "instructions" => %{
+                "type" => "string",
+                "description" => "What the model should rate, in natural language."
+              },
+              "criteria" => %{
+                "type" => "array",
+                "items" => %{"type" => "string"},
+                "minItems" => 2,
+                "maxItems" => 10,
+                "description" => "Ordered level descriptions, low to high."
+              }
+            },
+            "required" => ["type", "instructions", "criteria"]
+          },
+          %{
+            "properties" => %{
+              "type" => %{
+                "enum" => ["boolean"],
+                "description" => "A yes/no question — returns the probability the answer is yes."
+              },
+              "instructions" => %{
+                "type" => "string",
+                "description" => "The yes/no question to evaluate, in natural language."
+              },
+              "criteria" => %{
+                "type" => "object",
+                "properties" => %{
+                  "true" => %{"type" => "string"},
+                  "false" => %{"type" => "string"}
+                },
+                "description" => "Optional — clarifies what counts as yes/no."
+              }
+            },
+            "required" => ["type", "instructions"]
+          }
+        ]
+      }
+    }
+  end
 
   @spec resolve_target(String.t(), map()) :: {:ok, pid()} | {:error, String.t()}
   defp resolve_target(_team_id, %{"agent_id" => id}) when is_binary(id) and id != "" do

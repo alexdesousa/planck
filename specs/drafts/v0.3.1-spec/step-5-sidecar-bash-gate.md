@@ -1,8 +1,7 @@
-# Step 5 — Bundled `BashGate` + thresholds + session-start hold
+# Step 5 — Bundled `BashGate` + thresholds
 
 Part of [v0.3.1-spec](../v0.3.1-spec.md). Depends on
-[Steps 3–4](step-3-hook-behaviours.md). (Freeze the ETS record shape
-here — Step 6 consumes it.)
+[Steps 3–4](step-3-hook-behaviours.md).
 
 ## Description
 
@@ -28,12 +27,6 @@ Bundled sidecar modules (all hook *logic* lives sidecar-side):
   never runs unevaluated when a gate is configured. This deliberately
   diverges from the `ToolStart` RPC wrapper's fail-open rule: a gate
   transport failure is itself a safety signal.
-- `Sidecar.Hooks.ApprovalTagger` (`use Planck.Agent.Hooks.ToolEnd`):
-  identity for everything except fresh gate-tagged blocked errors,
-  which it decorates with the approval-widget `%{ui:}` (shape frozen
-  here for Step 6) and writes the per-call ETS record keyed by
-  `call_id` (`%{agent_id, tool, args_hash, command, reason,
-  expires_at}`).
 - `Sidecar.Config`: `BASH_GATE_IRREVERSIBLE_THRESHOLD` (0.6),
   `BASH_GATE_DESTRUCTIVE_THRESHOLD` (0.7) via Skogsra `app_env` +
   `os_env`; `compose.yml` `planck:` `environment:` gains both
@@ -42,23 +35,33 @@ Bundled sidecar modules (all hook *logic* lives sidecar-side):
   documented. RLCD calls go through
   the same credential-proxy path as headless (verify at build; the
   sidecar inherits container env — spawn is additive, no `:clear`).
-- **Session-start hold** (`planck_headless`): sessions declaring
-  `tool_start_hook` wait (bounded) for sidecar `:connected` before
-  starting agents; on timeout, start anyway with fail-open + loud log.
-  UI shows "waiting for sidecar" off the existing `planck:sidecar`
-  topic.
+
+### Deliberately not built
+
+- **No `ApprovalTagger` (`ToolEnd`).** Gates return 2-tuples only
+  (Step 3 contract) — UI side effects are not attached hook-side. The
+  approval UI is `planck_cli`'s `ApprovalModal`, fed by `:tool_blocked`
+  events plus `list_all_pending_approvals/1` on refresh. Nothing needs
+  tagging.
+- **No sidecar ETS approvals store.** Parked approvals are owned by
+  `Planck.Agent` (`turn.running` parked entries), surfaced via
+  `Agent.list_pending_approvals/0` and the Headless passthroughs. A
+  sidecar-side copy would be a second source of truth to keep in sync
+  for no consumer.
+- **No session-start hold.** `ToolStart` dispatch already fails open on
+  `:badrpc`/missing sidecar (Step 3), and the gate itself denies loudly
+  when headless is unreachable — the ungated window self-resolves when
+  the sidecar connects. No startup coordination in `planck_headless`.
 
 ### TDD order
 
 1. Gate rule as pure function (verbatim upstream vectors).
-2. Park mapping + fail-closed transport errors; tagger + ETS shape; config/env.
-3. Session-start hold.
+2. Park mapping + fail-closed transport errors; config/env.
 
 ## Definition of Done
 
 - Upstream `bash-gate.ts` vectors reproduced (read-only allows,
-  destructive parks); `mix test` green in sidecar +
-  headless hold tests.
+  destructive parks); `mix test` green in sidecar.
 
 ## Use Cases
 
@@ -95,11 +98,6 @@ Feature: BashGate park-only gating with env thresholds
     When the gate evaluates any bash command
     Then it returns deny with a warning, never running bash unevaluated
 
-  Scenario: Session waits for sidecar when a gate is declared
-    Given a session with tool_start_hook declared and no sidecar yet
-    When the session starts
-    Then agents do not start until :connected or the hold timeout, which fails open loudly
-
   Scenario: Custom thresholds via env
     Given BASH_GATE_DESTRUCTIVE_THRESHOLD set in .env and a restart
     When the gate evaluates a borderline command
@@ -110,13 +108,12 @@ Feature: BashGate park-only gating with env thresholds
 
 - Pure `gateBash` port incl. threshold boundaries; park mapping;
   non-bash bypass (assert zero RLCD calls); fail-closed transport-error
-  paths; `Sidecar.Config` env parsing; ETS record shape; hold/wait/timeout.
+  paths; `Sidecar.Config` env parsing.
 
 ## Files touched
 
 - `planck_docker/sidecar/lib/sidecar/hooks/bash_gate.ex`,
-  `approval_tagger.ex`, `approvals.ex` (ETS), `config.ex` (new)
+  `config.ex`
 - `planck_docker/sidecar/lib/sidecar/planck.ex` (no tool
   registration — hooks aren't tools; TEAM.json declares them)
-- `planck_docker/compose.yml`, `planck_docker/planck/setup.sh`
-- `planck_headless` session-start hold
+- `planck_docker/compose.yml`

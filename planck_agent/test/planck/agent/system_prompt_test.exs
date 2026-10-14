@@ -156,6 +156,30 @@ defmodule Planck.Agent.SystemPromptTest do
       assert score_at < boolean_at
     end
 
+    test "ask's section documents criteria requirements per type" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build()
+
+      assert prompt =~ "`criteria` is required"
+      assert prompt =~ "`criteria` is\noptional"
+    end
+
+    test "ask's section includes a full call example with all three types" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build()
+
+      assert prompt =~ "\"provider\": \"typesafe\""
+      assert prompt =~ "\"questions\":"
+      assert prompt =~ "\"criteria\":"
+    end
+
+    test "ask_files' section shows the same three types and a call example" do
+      prompt = with_tools(~w(ask_files)) |> SystemPrompt.build()
+
+      assert prompt =~ "`choice`"
+      assert prompt =~ "`score`"
+      assert prompt =~ "`boolean`"
+      assert prompt =~ "\"paths\":"
+    end
+
     test "list_models' section mentions type guidance" do
       prompt = with_tools(~w(list_models)) |> SystemPrompt.build()
 
