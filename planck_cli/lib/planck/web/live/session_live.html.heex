@@ -167,4 +167,13 @@
       text={@edit_message.text}
     />
   <% end %>
+
+  <%!-- Approval modal — shown when tool calls are parked awaiting approval --%>
+  <%= if @pending_approvals not in [nil, []] do %>
+    <.live_component
+      module={Planck.Web.Live.ApprovalModal}
+      id="approval-modal"
+      approvals={@pending_approvals}
+      agent_id={@orchestrator_id}
+    />  <% end %>
 </div>

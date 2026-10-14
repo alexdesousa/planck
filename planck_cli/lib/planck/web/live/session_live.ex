@@ -30,6 +30,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:available_models, [])
       |> assign(:first_run, false)
       |> assign(:open_widget_id, nil)
+      |> assign(:pending_approvals, [])
 
     if connected?(socket) do
       # Restore locale for the LiveView process (the plug already set it for
@@ -102,6 +103,19 @@ defmodule Planck.Web.SessionLive do
     {:noreply, socket}
   end
 
+  def handle_info(
+        {:agent_event, :tool_blocked, %{agent_id: agent_id, mode: :await_approval}} = event,
+        socket
+      ) do
+    send_to_chats(socket, agent_id, event)
+    {:noreply, fetch_pending_approvals(socket)}
+  end
+
+  def handle_info({:agent_event, :tool_blocked, _payload} = event, socket) do
+    send_to_chats(socket, nil, event)
+    {:noreply, socket}
+  end
+
   def handle_info({:agent_event, :tool_end, _payload} = event, socket) do
     send_to_chats(socket, nil, event)
     {:noreply, socket}
@@ -158,6 +172,18 @@ defmodule Planck.Web.SessionLive do
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info({:approve_tool_call, call_id, agent_id}, socket) do
+    handle_event("approve_tool_call", %{"call_id" => call_id, "agent_id" => agent_id}, socket)
+  end
+
+  def handle_info({:deny_tool_call, call_id, agent_id, reason}, socket) do
+    handle_event(
+      "deny_tool_call",
+      %{"call_id" => call_id, "agent_id" => agent_id, "reason" => reason},
+      socket
+    )
   end
 
   def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
@@ -381,6 +407,31 @@ defmodule Planck.Web.SessionLive do
     {:noreply, assign(socket, :open_widget_id, nil)}
   end
 
+  def handle_event("approve_tool_call", %{"call_id" => call_id, "agent_id" => agent_id}, socket) do
+    if session_id = socket.assigns.active_session do
+      Headless.approve_tool_call(session_id, agent_id, call_id)
+    end
+
+    {:noreply, fetch_pending_approvals(socket)}
+  end
+
+  def handle_event(
+        "deny_tool_call",
+        %{"call_id" => call_id, "agent_id" => agent_id, "reason" => reason},
+        socket
+      ) do
+    if session_id = socket.assigns.active_session do
+      Headless.deny_tool_call(
+        session_id,
+        agent_id,
+        call_id,
+        if(reason == "", do: nil, else: reason)
+      )
+    end
+
+    {:noreply, fetch_pending_approvals(socket)}
+  end
+
   def handle_event("open_setup", _params, socket) do
     {:noreply, assign(socket, :setup_visible, true)}
   end
@@ -561,8 +612,11 @@ defmodule Planck.Web.SessionLive do
   @spec agent_active?(String.t()) :: boolean()
   defp agent_active?(agent_id) do
     case Agent.whereis(agent_id) do
-      {:ok, pid} -> Agent.get_state(pid).turn.status in [:streaming, :executing_tools]
-      _ -> false
+      {:ok, pid} ->
+        Agent.get_state(pid).turn.status in [:streaming, :executing_tools]
+
+      _ ->
+        false
     end
   end
 
@@ -751,6 +805,8 @@ defmodule Planck.Web.SessionLive do
       |> assign(:waiting, false)
       |> assign(:overlay, nil)
 
+    socket = fetch_pending_approvals(socket)
+
     if sidecar_status == :connected, do: maybe_sync_sidecar_tools(socket), else: socket
   end
 
@@ -796,6 +852,27 @@ defmodule Planck.Web.SessionLive do
       _ ->
         {nil, false}
     end
+  end
+
+  @spec fetch_pending_approvals(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp fetch_pending_approvals(socket)
+
+  defp fetch_pending_approvals(%{assigns: %{active_session: nil}} = socket) do
+    assign(socket, :pending_approvals, [])
+  end
+
+  defp fetch_pending_approvals(
+         %{assigns: %{active_session: session_id}} = socket
+       )
+       when is_binary(session_id) do
+    case Headless.list_all_pending_approvals(session_id) do
+      {:ok, approvals} -> assign(socket, :pending_approvals, approvals)
+      _ -> assign(socket, :pending_approvals, [])
+    end
+  end
+
+  defp fetch_pending_approvals(socket) do
+    assign(socket, :pending_approvals, [])
   end
 
   @spec orchestrator_active?(%{String.t() => map()}, String.t() | nil) :: boolean()

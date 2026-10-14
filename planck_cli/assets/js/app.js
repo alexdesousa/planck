@@ -9,6 +9,17 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const Hooks = {}
 Hooks.LiveToast = createLiveToastHook()
 
+// Shared code highlighting (highlight.js), also used by Hooks.Chat.
+function highlightCode(root) {
+  root.querySelectorAll('pre code:not([data-highlighted])').forEach(el => {
+    hljs.highlightElement(el)
+  })
+}
+Hooks.Highlight = {
+  mounted() { highlightCode(this.el) },
+  updated() { highlightCode(this.el) }
+}
+
 // Submit on Enter, newline on Shift+Enter.
 // Auto-grow is handled by field-sizing: content (Chrome/Safari).
 // When the command dropdown is open, ↑/↓ navigate, Enter selects,
@@ -170,9 +181,7 @@ Hooks.Chat = {
     if (force) el.scrollTop = el.scrollHeight
   },
   highlight() {
-    this.el.querySelectorAll('pre code:not([data-highlighted])').forEach(el => {
-      hljs.highlightElement(el)
-    })
+    highlightCode(this.el)
   },
   // Rewrite external image src through the server-side proxy so they load
   // regardless of CORS restrictions. Skips images already proxied.

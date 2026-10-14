@@ -98,7 +98,7 @@ defmodule Sidecar.Hooks.BashGate do
     e ->
       reason = "[Sidecar.Hooks.BashGate] gate raised (#{Exception.message(e)}), failing closed"
       Logger.warning(reason)
-      {:deny, "bash gate raised an exception"}
+      {:deny, "bash gate raised an exception (#{Exception.message(e)})"}
   end
 
   def proceed(_agent_id, _tool_name, _args) do
@@ -185,7 +185,7 @@ defmodule Sidecar.Hooks.BashGate do
         {:error, :no_headless_node}
 
       name when is_binary(name) ->
-        {:ok, String.to_existing_atom(name)}
+        {:ok, String.to_atom(name)}
     end
   end
 
