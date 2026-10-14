@@ -343,6 +343,33 @@ defmodule Planck.Agent.ToolHooksAgentTest do
       assert Enum.all?(state.context.messages, &(not match?(%{role: {:custom, :ui}}, &1)))
     end
 
+    test "deny with no reason reaches the model as the default denial" do
+      tool =
+        Tool.new(
+          name: "bash",
+          description: "bash",
+          parameters: %{},
+          execute_fn: fn _, _, _ -> {:ok, "ran"} end
+        )
+
+      stream_tool_once(%{id: "c1", name: "bash", args: %{}})
+
+      agent = start_agent(tools: [tool], tool_start_hook: ParkBash)
+      Agent.subscribe(agent)
+      Agent.prompt(agent, "run it")
+
+      assert_receive {:agent_event, :tool_blocked, %{mode: :await_approval}}, 1_000
+      assert :ok = Agent.deny_tool_call(agent, "c1")
+
+      assert_receive {:agent_event, :tool_end, %{name: "bash", error: true}}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      state = Agent.get_state(agent)
+      tool_result_msg = Enum.find(state.context.messages, &(&1.role == :tool_result))
+      assert [{:tool_result, "c1", text}] = tool_result_msg.content
+      assert text =~ "Tool call denied."
+    end
+
     test "unknown call ids fail with :not_found" do
       agent = start_agent(tools: [])
 

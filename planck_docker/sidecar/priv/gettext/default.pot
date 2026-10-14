@@ -70,3 +70,21 @@ msgstr ""
 msgctxt "bead widget"
 msgid "assigned to"
 msgstr ""
+
+#: lib/sidecar/hooks/bash_gate.ex:133
+#, elixir-autogen, elixir-format
+msgctxt "bash gate"
+msgid "Likely irreversible (%{confidence}): nothing would restore what this removes or overwrites"
+msgstr ""
+
+#: lib/sidecar/hooks/bash_gate.ex:120
+#, elixir-autogen, elixir-format
+msgctxt "bash gate"
+msgid "Likely irreversible (%{irreversible}) and destructive (%{destructive}): nothing would restore what this removes or overwrites"
+msgstr ""
+
+#: lib/sidecar/hooks/bash_gate.ex:145
+#, elixir-autogen, elixir-format
+msgctxt "bash gate"
+msgid "Looks destructive (%{confidence}): this command aims to wipe something"
+msgstr ""

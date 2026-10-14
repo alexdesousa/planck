@@ -387,7 +387,7 @@ defmodule Planck.Headless do
         |> Map.values()
         |> Stream.map(&list_pending_approvals(session_id, &1))
         |> Stream.filter(&(elem(&1, 0) == :ok))
-        |> Enum.flat_map(&(elem(&1, 1)))
+        |> Enum.flat_map(&elem(&1, 1))
 
       {:ok, approvals}
     end
@@ -596,6 +596,32 @@ defmodule Planck.Headless do
   @spec available_models() :: [Model.t()]
   def available_models do
     ResourceStore.get().available_models
+  end
+
+  @doc """
+  Ask an RLCD model a set of typed questions, using the first available
+  `:rlcd` model.
+  """
+  @spec ask(String.t() | map(), map()) ::
+          {:ok, map()}
+          | {:error, :no_rlcd_model}
+          | {:error, term()}
+  @spec ask(String.t() | map(), map(), [Model.t()]) ::
+          {:ok, map()}
+          | {:error, :no_rlcd_model}
+          | {:error, term()}
+  def ask(state, questions, available \\ available_models())
+
+  def ask(state, questions, available)
+      when is_map(questions) and is_list(available) do
+    with %Model{type: :rlcd} = model <- Enum.find(available, &(&1.type == :rlcd)),
+         {:ok, response} <-
+           Planck.Agent.AIBehaviour.client().evaluate(model, state, questions, []) do
+      {:ok, response.object}
+    else
+      nil -> {:error, :no_rlcd_model}
+      {:error, _} = error -> error
+    end
   end
 
   @doc """

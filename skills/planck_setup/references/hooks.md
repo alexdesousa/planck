@@ -384,18 +384,26 @@ and tags the blocked error with the widget).
 
 ### Example — RLCD bash gate
 
+The bundled `Sidecar.Hooks.BashGate` judges `bash` commands with an RLCD
+model and parks anything irreversible or destructive for human approval —
+it never denies; only the human denies, in the approval modal:
+
 ```elixir
 defmodule MySidecar.Hooks.BashGate do
   use Planck.Agent.Hooks.ToolStart
 
   @impl true
   def proceed(_agent_id, "bash", %{"command" => "rm -rf /"} = _args) do
-    {:deny, "destructive command"}
+    {:await_approval, "Looks destructive: this command aims to wipe something"}
   end
 
   def proceed(_agent_id, _tool_name, _args), do: :ok
 end
 ```
+
+Gate reasons are written for the human reading the modal and translated
+sidecar-side (`Sidecar.Gettext`, locale pushed per request) — what the
+gate returns is what the modal shows, next to the command.
 
 ### TEAM.json
 

@@ -8,7 +8,8 @@
       "model_id": "example-chat-model",
       "system_prompt": "You are an orchestrator, a helpful assistant.",
       "prompt_hook": "Sidecar.Memory",
-      "turn_end_hook": "Sidecar.SkillReflector"
+      "turn_end_hook": "Sidecar.SkillReflector",
+      "tool_start_hook": "Sidecar.Hooks.BashGate"
     }
   ]
 }

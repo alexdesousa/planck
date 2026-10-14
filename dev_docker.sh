@@ -59,6 +59,8 @@ AGENT_VAULT_MASTER_PASSWORD=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 3
 AGENT_VAULT_EMAIL=admin@planck.local
 AGENT_VAULT_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
 BEADS_TOKEN=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)
+BASH_GATE_IRREVERSIBLE_THRESHOLD=0.6
+BASH_GATE_DESTRUCTIVE_THRESHOLD=0.7
 EOF
   echo "  → $ENV_FILE created."
 else
@@ -72,6 +74,8 @@ else
   add_if_missing AGENT_VAULT_EMAIL "admin@planck.local"
   add_if_missing AGENT_VAULT_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
   add_if_missing BEADS_TOKEN "$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
+  add_if_missing BASH_GATE_IRREVERSIBLE_THRESHOLD "0.6"
+  add_if_missing BASH_GATE_DESTRUCTIVE_THRESHOLD "0.7"
 fi
 
 # ── Install planck_setup skill (always — it's repo-managed, not user data) ───

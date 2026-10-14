@@ -12,9 +12,22 @@ Bundled sidecar modules (all hook *logic* lives sidecar-side):
   non-`bash` tools → `:ok` immediately (zero RLCD cost). For `bash`,
   evaluate the upstream `BASH_QUESTIONS` block verbatim (`effect`
   choice `{read_only, reversible, irreversible}` + `destructive_intent`
-  boolean over `{command, cwd}`) and apply a two-tier rule: extreme
-  band → `{:deny, reason + BLOCK_NOTICE}`; middle band →
-  `{:await_approval, reason}`. No RLCD reachable → `:ok` (fail-open).
+  boolean over `{command, cwd}`) via `Planck.Headless.ask/2` (the
+  sidecar holds no model credentials — same rule as the agent tools
+  `ask`/`ask_files`, which resolve their model from the store). Any
+  blocked signal (irreversible at/above threshold or destructive
+  intent at/above threshold) → `{:await_approval, reason}`. Model
+  verdicts never deny; only the human denies, in the approval modal.
+  Transport failures (no headless node, RPC failure, exceptions) deny
+  loudly instead. Reasons
+  are human-facing and translated sidecar-side (`Sidecar.Gettext`,
+  locale pushed per request) — what the gate returns is what the modal
+  shows. No RLCD model configured (`:no_rlcd_model`, i.e. no gate
+  configured) → `:ok`. Any other evaluation failure (no headless node,
+  RPC failure, raised exception) → `{:deny, reason}` loudly, so `bash`
+  never runs unevaluated when a gate is configured. This deliberately
+  diverges from the `ToolStart` RPC wrapper's fail-open rule: a gate
+  transport failure is itself a safety signal.
 - `Sidecar.Hooks.ApprovalTagger` (`use Planck.Agent.Hooks.ToolEnd`):
   identity for everything except fresh gate-tagged blocked errors,
   which it decorates with the approval-widget `%{ui:}` (shape frozen
@@ -24,8 +37,9 @@ Bundled sidecar modules (all hook *logic* lives sidecar-side):
 - `Sidecar.Config`: `BASH_GATE_IRREVERSIBLE_THRESHOLD` (0.6),
   `BASH_GATE_DESTRUCTIVE_THRESHOLD` (0.7) via Skogsra `app_env` +
   `os_env`; `compose.yml` `planck:` `environment:` gains both
-  (`${VAR:-default}` pattern); `$PLANCK_HOME/.env` `add_if_missing`
-  in `setup.sh`. Restart-required documented. RLCD calls go through
+  (`${VAR:-default}` pattern, Skogsra defaults cover existing
+  installs — no `setup.sh` migration needed). Restart-required
+  documented. RLCD calls go through
   the same credential-proxy path as headless (verify at build; the
   sidecar inherits container env — spawn is additive, no `:clear`).
 - **Session-start hold** (`planck_headless`): sessions declaring
@@ -37,19 +51,19 @@ Bundled sidecar modules (all hook *logic* lives sidecar-side):
 ### TDD order
 
 1. Gate rule as pure function (verbatim upstream vectors).
-2. Tier mapping + fail-open; tagger + ETS shape; config/env.
+2. Park mapping + fail-closed transport errors; tagger + ETS shape; config/env.
 3. Session-start hold.
 
 ## Definition of Done
 
 - Upstream `bash-gate.ts` vectors reproduced (read-only allows,
-  destructive denies/awaits); `mix test` green in sidecar +
+  destructive parks); `mix test` green in sidecar +
   headless hold tests.
 
 ## Use Cases
 
 ```gherkin
-Feature: BashGate two-tier gating with env thresholds
+Feature: BashGate park-only gating with env thresholds
 
   Scenario: Read-only command is allowed without friction
     Given command "ls -la src" in "/workspace"
@@ -57,24 +71,29 @@ Feature: BashGate two-tier gating with env thresholds
     Then it returns :ok and no RLCD-heavy path blocks the turn
 
   Scenario: Destructive command is parked for approval
-    Given command "rm -rf _build" landing in the middle band
+    Given command "rm -rf _build" with destructive intent above threshold
     When the gate evaluates
-    Then it returns await_approval with a reason naming the destructive intent
+    Then it returns await_approval with a human-facing, translated reason naming the destructive intent
 
-  Scenario: Extreme irreversible command is denied outright
+  Scenario: Extreme irreversible command is parked, never denied on its verdict
     Given command "git push --force origin main" with irreversible at high confidence
     When the gate evaluates
-    Then it returns deny with the reason and the do-not-work-around notice
+    Then it returns await_approval; only the human denies, in the modal
 
   Scenario: Non-bash tools bypass the gate
     Given a "write" call with the gate configured
     When the gate evaluates
     Then it returns :ok without any RLCD call
 
-  Scenario: No RLCD fails open
-    Given no RLCD model reachable
+  Scenario: No RLCD model configured bypasses the gate
+    Given no RLCD model available
     When the gate evaluates any command
-    Then it returns :ok and logs the fallback
+    Then it returns :ok and logs that no gate is configured
+
+  Scenario: Unreachable evaluation path denies loudly
+    Given no headless node, an RPC failure, or a raised exception
+    When the gate evaluates any bash command
+    Then it returns deny with a warning, never running bash unevaluated
 
   Scenario: Session waits for sidecar when a gate is declared
     Given a session with tool_start_hook declared and no sidecar yet
@@ -89,9 +108,9 @@ Feature: BashGate two-tier gating with env thresholds
 
 ## Test Cases
 
-- Pure `gateBash` port incl. threshold boundaries; tier mapping;
-  non-bash bypass (assert zero RLCD calls); fail-open paths;
-  `Sidecar.Config` env parsing; ETS record shape; hold/wait/timeout.
+- Pure `gateBash` port incl. threshold boundaries; park mapping;
+  non-bash bypass (assert zero RLCD calls); fail-closed transport-error
+  paths; `Sidecar.Config` env parsing; ETS record shape; hold/wait/timeout.
 
 ## Files touched
 

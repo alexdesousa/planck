@@ -51,6 +51,8 @@ services:
       AGENT_VAULT_TOKEN: ${AGENT_VAULT_TOKEN}
       BEADS_URL: http://beads:8377
       BEADS_TOKEN: ${BEADS_TOKEN}
+      BASH_GATE_IRREVERSIBLE_THRESHOLD: ${BASH_GATE_IRREVERSIBLE_THRESHOLD:-0.6}
+      BASH_GATE_DESTRUCTIVE_THRESHOLD: ${BASH_GATE_DESTRUCTIVE_THRESHOLD:-0.7}
     depends_on:
       setup:
         condition: service_completed_successfully
