@@ -65,7 +65,10 @@ defmodule Planck.Web.API.Schemas do
         id: %Schema{type: :string},
         name: %Schema{type: :string, nullable: true},
         type: %Schema{type: :string, nullable: true},
-        status: %Schema{type: :string, enum: ["idle", "streaming", "executing_tools"]}
+        status: %Schema{
+          type: :string,
+          enum: ["idle", "streaming", "executing_tools"]
+        }
       },
       required: [:id, :status],
       example: %{id: "orch-id", name: "orchestrator", type: "orchestrator", status: "idle"}
@@ -147,6 +150,79 @@ defmodule Planck.Web.API.Schemas do
       },
       required: [:message_id],
       example: %{message_id: "a1b2c3d4e5f6g7h8"}
+    })
+  end
+
+  defmodule ApprovalRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      properties: %{
+        call_id: %Schema{type: :string},
+        tool_name: %Schema{type: :string},
+        args: %Schema{type: :object},
+        reason: %Schema{type: :string}
+      },
+      required: [:call_id, :tool_name, :args, :reason],
+      example: %{
+        call_id: "t1",
+        tool_name: "bash",
+        args: %{"command" => "rm -rf _build"},
+        reason: "destructive command"
+      }
+    })
+  end
+
+  defmodule ApprovalList do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      type: :array,
+      items: ApprovalRequest,
+      example: [
+        %{
+          call_id: "t1",
+          tool_name: "bash",
+          args: %{"command" => "rm -rf _build"},
+          reason: "destructive command"
+        }
+      ]
+    })
+  end
+
+  defmodule ApproveToolCall do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      properties: %{
+        call_id: %Schema{type: :string, description: "The tool call id to approve."}
+      },
+      required: [:call_id],
+      example: %{call_id: "t1"}
+    })
+  end
+
+  defmodule DenyToolCall do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      properties: %{
+        call_id: %Schema{type: :string, description: "The tool call id to deny."},
+        reason: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Optional reason shown to the model."
+        }
+      },
+      required: [:call_id],
+      example: %{call_id: "t1", reason: "not now"}
     })
   end
 
@@ -282,6 +358,9 @@ defmodule Planck.Web.API.Schemas do
 
     event: tool_start
     data: {"agent_id":"orch-id","id":"t1","name":"read","args":{"path":"lib/app.ex"}}
+
+    event: tool_blocked
+    data: {"agent_id":"orch-id","id":"t1","name":"bash","args":{"command":"rm -rf _build"},"reason":"destructive command","mode":"await_approval"}
 
     event: tool_end
     data: {"agent_id":"orch-id","id":"t1","name":"read","result":"defmodule App do\\n...","error":false}

@@ -25,9 +25,66 @@ defmodule Planck.Headless do
     Tools
   }
 
-  alias Planck.Headless.{Config, DefaultPrompt, ResourceStore, SessionName, SidecarManager}
+  alias Planck.AI.Model
 
+  alias Planck.Headless.{
+    Config,
+    DefaultPrompt,
+    ResourceStore,
+    SessionName,
+    SidecarManager
+  }
+
+  @typedoc "A session ID"
   @type session_id :: String.t()
+
+  @typedoc "A session name"
+  @type session_name :: String.t()
+
+  @typedoc "A team ID"
+  @type team_id :: String.t()
+
+  @typedoc "An agent ID"
+  @type agent_id :: String.t()
+
+  @typedoc "An agent name"
+  @type agent_name :: String.t()
+
+  @typedoc "A tool call ID"
+  @type tool_call_id :: String.t()
+
+  @typedoc "A tool call ID"
+  @type tool_call_name :: String.t()
+
+  @typedoc false
+  @type start_ctx :: %{
+          metadata: map(),
+          session_tools: [Planck.Agent.Tool.t()],
+          prev_ids: %{agent_name() => agent_id()},
+          team_name: String.t() | nil
+        }
+
+  @typedoc false
+  @type session_metadata :: %{
+          template: term(),
+          session_name: session_name(),
+          cwd: Path.t(),
+          team_id: String.t(),
+          agent_id_map: map(),
+          description: String.t() | nil,
+          persistence: String.t() | nil
+        }
+
+  @typedoc """
+  A parked tool call awaiting human approval.
+  """
+  @type approval :: %{
+          agent_id: agent_id(),
+          call_id: tool_call_id(),
+          tool_name: tool_call_name(),
+          args: map(),
+          reason: String.t()
+        }
 
   # ---------------------------------------------------------------------------
   # Config
@@ -42,7 +99,7 @@ defmodule Planck.Headless do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Start a new session. Returns `{:ok, session_id}`.
+  Starts a new session.
 
   ## Options
 
@@ -53,44 +110,66 @@ defmodule Planck.Headless do
   - `tools:` — extra `Planck.Agent.Tool.t()` list available only for this
     session. These shadow registered and built-in tools of the same name.
   """
-  @spec start_session(keyword()) :: {:ok, session_id()} | {:error, term()}
-  def start_session(opts \\ []) do
+  @spec start_session(keyword()) ::
+          {:ok, session_id()}
+          | {:error, {:team_not_found, String.t()}}
+          | {:error, {:no_default_model_configured, String.t()}}
+          | {:error, {:default_model_not_available, String.t()}}
+          | {:error, :session_name_exhausted}
+          | {:error, {:invalid_session_name, String.t()}}
+          | {:error, :session_start_failed}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+          | {:error, String.t()}
+  def start_session(opts \\ [])
+
+  def start_session(opts) when is_list(opts) do
     template = Keyword.get(opts, :template)
     cwd = Keyword.get(opts, :cwd, File.cwd!())
-    user_name = Keyword.get(opts, :name)
+    session_name = Keyword.get(opts, :name)
     session_tools = Keyword.get(opts, :tools, [])
 
     with {:ok, team} <- resolve_team(template),
-         {:ok, session_name} <- resolve_name(user_name),
-         {:ok, session_id} <- create_session(session_name, cwd),
-         {:ok, team_id} <- materialize_team(session_id, team, cwd, session_tools: session_tools),
-         :ok <-
-           save_metadata(session_id, %{
-             template: template,
-             session_name: session_name,
-             cwd: cwd,
-             team_id: team_id,
-             agent_id_map: agent_ids(team_id),
-             description: team.description,
-             persistence: primary_persistence(team)
-           }) do
+         {:ok, session_name} <- resolve_name(session_name),
+         {:ok, session_id} <- create_session(session_name),
+         {:ok, team_id} <- materialize_team(session_id, team, cwd, session_tools: session_tools) do
+      save_metadata(session_id, %{
+        template: template,
+        session_name: session_name,
+        cwd: cwd,
+        team_id: team_id,
+        agent_id_map: agent_ids(team_id),
+        description: team.description,
+        persistence: primary_persistence(team)
+      })
+
       {:ok, session_id}
     end
   end
 
   @doc """
-  Resume a session by session_id or by name. Reconstructs the team, restores
+  Resumes a session by session_id or by name. Reconstructs the team, restores
   message history, and injects a recovery context if prior work was in-flight.
   """
-  @spec resume_session(String.t(), keyword()) :: {:ok, session_id()} | {:error, term()}
-  def resume_session(id_or_name, _opts \\ []) do
+  @spec resume_session(String.t()) ::
+          {:ok, session_id()}
+          | {:error, {:session_not_found, String.t()}}
+          | {:error, :session_start_failed}
+          | {:error, :not_found}
+          | {:error, {:team_not_found, String.t()}}
+          | {:error, {:no_default_model_configured, String.t()}}
+          | {:error, {:default_model_not_available, String.t()}}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+          | {:error, String.t()}
+  def resume_session(id_or_name)
+
+  def resume_session(id_or_name) when is_binary(id_or_name) do
     sessions_dir = Config.sessions_dir!() |> Path.expand()
 
     with {:ok, session_id, session_name} <- locate_session(sessions_dir, id_or_name),
-         {:ok, _pid} <- reopen_session(session_id, session_name, sessions_dir),
+         {:ok, ^session_id} <- create_session(session_id, session_name),
          {:ok, metadata} <- Session.get_metadata(session_id),
          {:ok, team} <- resolve_team(metadata["team_alias"]),
-         prev_ids = decode_agent_ids(Map.get(metadata, "agent_ids")),
+         prev_ids = agent_ids(metadata),
          {:ok, team_id} <-
            materialize_team(session_id, team, metadata["cwd"] || File.cwd!(),
              prev_ids: prev_ids,
@@ -116,8 +195,12 @@ defmodule Planck.Headless do
   Close a session. Stops the agent team and the session GenServer.
   The SQLite file is retained for later resumption.
   """
-  @spec close_session(session_id()) :: :ok | {:error, term()}
-  def close_session(session_id) do
+  @spec close_session(session_id()) ::
+          :ok
+          | {:error, :team_id_not_found}
+  def close_session(session_id)
+
+  def close_session(session_id) when is_binary(session_id) do
     with {:ok, team_id} <- read_team_id(session_id) do
       stop_team(team_id)
       Session.stop(session_id)
@@ -132,7 +215,9 @@ defmodule Planck.Headless do
   the `.db` file. This operation is irreversible.
   """
   @spec delete_session(session_id()) :: :ok
-  def delete_session(session_id) do
+  def delete_session(session_id)
+
+  def delete_session(session_id) when is_binary(session_id) do
     # Stop running processes if active — best-effort, ignore any errors
     try do
       close_session(session_id)
@@ -140,16 +225,14 @@ defmodule Planck.Headless do
       _ -> :ok
     end
 
+    # TODO: We should add a delete session callback in the Persistence hook
     sessions_dir = Config.sessions_dir!() |> Path.expand()
 
-    case Session.find_by_id(sessions_dir, session_id) do
-      {:ok, path, _name} ->
-        File.rm(path)
-        :ok
-
-      {:error, _} ->
-        :ok
+    with {:ok, path, _name} <- Session.find_by_id(sessions_dir, session_id) do
+      File.rm(path)
     end
+
+    :ok
   end
 
   @doc """
@@ -158,8 +241,16 @@ defmodule Planck.Headless do
   `Planck.Agent.rewind_to_message/2`), then re-prompt with `new_text`.
   """
   @spec rewind_to_message(session_id(), pos_integer(), String.t()) ::
-          :ok | {:error, term()}
-  def rewind_to_message(session_id, db_id, new_text) do
+          :ok
+          | {:error, :team_id_not_found}
+          | {:error, :orchestrator_not_found}
+          | {:error, :already_sent}
+  def rewind_to_message(session_id, db_id, new_text)
+
+  def rewind_to_message(session_id, db_id, new_text)
+      when is_binary(session_id) and
+             is_integer(db_id) and db_id > 0 and
+             is_binary(new_text) do
     with {:ok, team_id} <- read_team_id(session_id),
          {:ok, orch_pid} <- find_orchestrator(team_id) do
       Agent.rewind_to_message(orch_pid, db_id)
@@ -182,8 +273,14 @@ defmodule Planck.Headless do
   been flushed to the session.
   """
   @spec prompt(session_id(), String.t(), keyword()) ::
-          :ok | {:error, :already_sent} | {:error, term()}
-  def prompt(session_id, text, opts \\ []) do
+          :ok
+          | {:error, :team_id_not_found}
+          | {:error, :orchestrator_not_found}
+          | {:error, :already_sent}
+  def prompt(session_id, text, opts \\ [])
+
+  def prompt(session_id, text, opts)
+      when is_binary(session_id) and is_binary(text) and is_list(opts) do
     with {:ok, team_id} <- read_team_id(session_id),
          {:ok, pid} <- find_orchestrator(team_id) do
       dispatch_prompt(pid, text, opts)
@@ -200,11 +297,132 @@ defmodule Planck.Headless do
   queued.
   """
   @spec cancel_queued_message(session_id(), String.t()) ::
-          :ok | {:error, :not_found} | {:error, :already_sent} | {:error, term()}
-  def cancel_queued_message(session_id, id) do
+          :ok
+          | {:error, :team_id_not_found}
+          | {:error, :orchestrator_not_found}
+          | {:error, :not_found}
+          | {:error, :already_sent}
+  def cancel_queued_message(session_id, agent_id)
+
+  def cancel_queued_message(session_id, agent_id)
+      when is_binary(session_id) and is_binary(agent_id) do
     with {:ok, team_id} <- read_team_id(session_id),
          {:ok, pid} <- find_orchestrator(team_id) do
-      Agent.cancel_queued(pid, id)
+      Agent.cancel_queued(pid, agent_id)
+    end
+  end
+
+  @doc """
+  Approve a parked tool call for the given agent in the session.
+
+  The agent must belong to the session; unknown or already-resolved calls
+  return `{:error, :not_found}`.
+  """
+  @spec approve_tool_call(session_id(), String.t(), String.t()) ::
+          :ok
+          | {:error, :not_found}
+          | {:error, :agent_not_in_session}
+          | {:error, :agent_not_found}
+  def approve_tool_call(session_id, agent_id, call_id)
+
+  def approve_tool_call(session_id, agent_id, call_id)
+      when is_binary(session_id) and is_binary(agent_id) and is_binary(call_id) do
+    with_session_agent(session_id, agent_id, &Agent.approve_tool_call(&1, call_id))
+  end
+
+  @doc """
+  Deny a parked tool call for the given agent in the session, with an
+  optional reason shown to the model.
+
+  The agent must belong to the session; unknown or already-resolved calls
+  return `{:error, :not_found}`.
+  """
+  @spec deny_tool_call(session_id(), String.t(), String.t(), String.t() | nil) ::
+          :ok
+          | {:error, :not_found}
+          | {:error, :agent_not_in_session}
+          | {:error, :agent_not_found}
+  def deny_tool_call(session_id, agent_id, call_id, reason \\ nil)
+
+  def deny_tool_call(session_id, agent_id, call_id, reason)
+      when is_binary(session_id) and is_binary(agent_id) and is_binary(call_id) do
+    with_session_agent(session_id, agent_id, &Agent.deny_tool_call(&1, call_id, reason))
+  end
+
+  @doc """
+  List parked tool calls awaiting human approval for the given agent in
+  the session. Used by UIs rendering approval prompts after a refresh,
+  when the `:tool_blocked` event was missed.
+  """
+  @spec list_pending_approvals(session_id(), String.t()) ::
+          {:ok, [approval()]}
+          | {:error, :not_found}
+          | {:error, :agent_not_in_session}
+          | {:error, :agent_not_found}
+  def list_pending_approvals(session_id, agent_id)
+      when is_binary(session_id) and is_binary(agent_id) do
+    with_session_agent(session_id, agent_id, fn pid ->
+      approvals =
+        pid
+        |> Agent.list_pending_approvals()
+        |> Enum.map(&flatten_approval(&1, agent_id))
+
+      {:ok, approvals}
+    end)
+  end
+
+  @doc """
+  List parked tool calls awaiting human approval across all agents in
+  the session. Each entry carries its owning `agent_id`. Dead agents
+  are skipped.
+  """
+  @spec list_all_pending_approvals(session_id()) ::
+          {:ok, [approval()]}
+          | {:error, :not_found}
+  def list_all_pending_approvals(session_id) do
+    with {:ok, metadata} <- Session.get_metadata(session_id) do
+      approvals =
+        metadata
+        |> agent_ids()
+        |> Map.values()
+        |> Stream.map(&list_pending_approvals(session_id, &1))
+        |> Stream.filter(&(elem(&1, 0) == :ok))
+        |> Enum.flat_map(&(elem(&1, 1)))
+
+      {:ok, approvals}
+    end
+  end
+
+  @spec flatten_approval(Agent.Turn.running_entry(), agent_id()) :: approval()
+  defp flatten_approval(entry, agent_id)
+
+  defp flatten_approval(entry, agent_id)
+       when is_map(entry) and is_binary(agent_id) do
+    tool_call = Map.get(entry, :tool_call, %{})
+    metadata = Map.get(entry, :metadata, %{})
+
+    %{
+      agent_id: agent_id,
+      call_id: Map.get(tool_call, :id),
+      tool_name: Map.get(tool_call, :name),
+      args: Map.get(tool_call, :args, %{}),
+      reason: Map.get(metadata, :reason, "")
+    }
+  end
+
+  @spec with_session_agent(session_id(), agent_id(), (pid() -> term())) :: term()
+  defp with_session_agent(session_id, agent_id, fun)
+
+  defp with_session_agent(session_id, agent_id, fun)
+       when is_binary(session_id) and is_binary(agent_id) and is_function(fun, 1) do
+    with {:ok, metadata} <- Session.get_metadata(session_id),
+         ids = agent_ids(metadata),
+         true <- agent_id in Map.values(ids),
+         {:ok, pid} <- Agent.whereis(agent_id) do
+      fun.(pid)
+    else
+      false -> {:error, :agent_not_in_session}
+      {:error, :not_found} -> {:error, :agent_not_found}
     end
   end
 
@@ -375,8 +593,10 @@ defmodule Planck.Headless do
   # ---------------------------------------------------------------------------
 
   @doc "Return models available for use (providers with API keys configured)."
-  @spec available_models() :: [Planck.AI.Model.t()]
-  def available_models, do: ResourceStore.get().available_models
+  @spec available_models() :: [Model.t()]
+  def available_models do
+    ResourceStore.get().available_models
+  end
 
   @doc """
   Register a local-node tool globally. Available to all new sessions.
@@ -526,8 +746,12 @@ defmodule Planck.Headless do
   # ---------------------------------------------------------------------------
 
   @spec locate_session(Path.t(), String.t()) ::
-          {:ok, String.t(), String.t()} | {:error, term()}
-  defp locate_session(sessions_dir, id_or_name) do
+          {:ok, session_id(), session_name()}
+          | {:error, {:session_not_found, String.t()}}
+  defp locate_session(sessions_dir, id_or_name)
+
+  defp locate_session(sessions_dir, id_or_name)
+       when is_binary(sessions_dir) and is_binary(id_or_name) do
     with {:error, :not_found} <- Session.find_by_id(sessions_dir, id_or_name),
          {:ok, _path, id} <- Session.find_by_name(sessions_dir, id_or_name) do
       {:ok, id, id_or_name}
@@ -540,42 +764,36 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec reopen_session(String.t(), String.t(), Path.t()) ::
-          {:ok, pid()} | {:error, term()}
-  defp reopen_session(session_id, session_name, sessions_dir) do
-    case Session.whereis(session_id) do
-      {:ok, pid} ->
-        {:ok, pid}
+  @spec create_session(session_name()) ::
+          {:ok, session_id()}
+          | {:error, :session_start_failed}
+  @spec create_session(nil | session_id(), session_name()) ::
+          {:ok, session_id()}
+          | {:error, :session_start_failed}
+  defp create_session(session_id \\ nil, session_name)
 
-      {:error, :not_found} ->
-        Session.start(session_id, name: session_name, dir: sessions_dir)
-    end
+  defp create_session(nil, session_name) when is_binary(session_name) do
+    generate_id()
+    |> create_session(session_name)
   end
 
-  @spec create_session(String.t(), Path.t()) :: {:ok, String.t()} | {:error, term()}
-  defp create_session(session_name, _cwd) do
-    session_id = generate_id()
+  defp create_session(session_id, session_name)
+       when is_binary(session_id) and is_binary(session_name) do
     sessions_dir = Config.sessions_dir!() |> Path.expand()
 
     case Session.start(session_id, name: session_name, dir: sessions_dir) do
       {:ok, _pid} -> {:ok, session_id}
-      {:error, reason} -> {:error, {:session_start_failed, reason}}
+      {:ok, _pid, _info} -> {:ok, session_id}
+      {:error, {:already_started, _pid}} -> {:ok, session_id}
+      _ -> {:error, :session_start_failed}
     end
   end
 
-  @typedoc "Named fields for save_metadata/2 — see that function."
-  @type session_metadata_attrs :: %{
-          template: term(),
-          session_name: String.t(),
-          cwd: Path.t(),
-          team_id: String.t(),
-          agent_id_map: map(),
-          description: String.t() | nil,
-          persistence: String.t() | nil
-        }
+  @spec save_metadata(session_id(), session_metadata()) :: :ok
+  defp save_metadata(session_id, attrs)
 
-  @spec save_metadata(String.t(), session_metadata_attrs()) :: :ok
-  defp save_metadata(session_id, attrs) do
+  defp save_metadata(session_id, attrs)
+       when is_binary(session_id) and is_map(attrs) do
     team_alias =
       case attrs.template do
         nil -> nil
@@ -608,35 +826,47 @@ defmodule Planck.Headless do
 
   # Build a name → id map for all agents in a team, keyed by their display name.
   # Used to preserve agent IDs across session resumes.
-  @spec agent_ids(String.t()) :: %{String.t() => String.t()}
-  defp agent_ids(team_id) do
+  @spec agent_ids(team_id() | map()) :: %{agent_name() => agent_id()}
+  defp agent_ids(team_id)
+
+  defp agent_ids(team_id) when is_binary(team_id) do
     Registry.lookup(Planck.Agent.Registry, {team_id, :member})
     |> Map.new(fn {_pid, meta} -> {meta.name || meta.type, meta.id} end)
   end
 
-  @spec decode_agent_ids(String.t() | nil) :: %{String.t() => String.t()}
-  defp decode_agent_ids(nil), do: %{}
-
-  defp decode_agent_ids(json) do
-    case Jason.decode(json) do
-      {:ok, map} -> map
+  defp agent_ids(metadata) when is_map(metadata) do
+    with json when is_binary(json) <- metadata["agent_ids"],
+         {:ok, ids} <- Jason.decode(json) do
+      ids
+    else
       _ -> %{}
     end
   end
 
-  @spec read_team_id(String.t()) :: {:ok, String.t()} | {:error, term()}
-  defp read_team_id(session_id) do
-    with {:ok, meta} <- Session.get_metadata(session_id) do
-      case meta["team_id"] do
-        nil -> {:error, :team_id_not_found}
-        team_id -> {:ok, team_id}
-      end
+  @spec read_team_id(session_id()) ::
+          {:ok, team_id()}
+          | {:error, :team_id_not_found}
+  defp read_team_id(session_id)
+
+  defp read_team_id(session_id) when is_binary(session_id) do
+    with {:ok, meta} <- Session.get_metadata(session_id),
+         %{"team_id" => "" <> team_id} <- meta do
+      {:ok, team_id}
+    else
+      _ -> {:error, :team_id_not_found}
     end
   end
 
-  @spec resolve_name(String.t() | nil) :: {:ok, String.t()} | {:error, term()}
+  @spec resolve_name(nil | session_name()) ::
+          {:ok, session_name()}
+          | {:error, :session_name_exhausted}
+          | {:error, {:invalid_session_name, String.t()}}
+  defp resolve_name(session_name)
+
   defp resolve_name(nil) do
-    sessions_dir = Config.sessions_dir!() |> Path.expand()
+    sessions_dir =
+      Config.sessions_dir!()
+      |> Path.expand()
 
     case SessionName.generate(sessions_dir) do
       {:ok, name} -> {:ok, name}
@@ -644,63 +874,75 @@ defmodule Planck.Headless do
     end
   end
 
-  defp resolve_name(name) do
+  defp resolve_name(name) when is_binary(name) do
     case SessionName.sanitize(name) do
       {:ok, sanitized} -> {:ok, sanitized}
       {:error, :invalid} -> {:error, {:invalid_session_name, name}}
     end
   end
 
-  @spec resolve_team(term()) :: {:ok, Team.t()} | {:error, term()}
-  defp resolve_team(nil), do: build_dynamic_team()
+  @spec resolve_team(nil | String.t()) ::
+          {:ok, Team.t()}
+          | {:error, String.t()}
+          | {:error, {:team_not_found, String.t()}}
+          | {:error, {:no_default_model_configured, String.t()}}
+          | {:error, {:default_model_not_available, String.t()}}
+  defp resolve_team(team_alias)
+
+  defp resolve_team(nil) do
+    build_dynamic_team()
+  end
 
   defp resolve_team(alias) when is_binary(alias) do
-    case get_team(alias) do
-      {:ok, team} ->
-        {:ok, team}
-
-      {:error, :not_found} ->
-        expanded = Path.expand(alias)
-
-        if File.dir?(expanded) do
-          Team.load(expanded)
-        else
-          {:error, {:team_not_found, alias}}
-        end
+    with {:error, :not_found} <- get_team(alias),
+         expanded = Path.expand(alias),
+         true <- File.dir?(expanded) || {:error, {:team_not_found, alias}} do
+      Team.load(expanded)
     end
   end
 
-  @spec build_dynamic_team() :: {:ok, Team.t()} | {:error, term()}
-  defp build_dynamic_team do
+  @spec build_dynamic_team() ::
+          {:ok, Team.t()}
+          | {:error, {:no_default_model_configured, String.t()}}
+          | {:error, {:default_model_not_available, String.t()}}
+  @spec build_dynamic_team(nil | String.t()) ::
+          {:ok, Team.t()}
+          | {:error, {:no_default_model_configured, String.t()}}
+          | {:error, {:default_model_not_available, String.t()}}
+  defp build_dynamic_team(model_alias \\ nil)
+
+  defp build_dynamic_team(nil) do
     model_alias = Config.default_model!()
 
     if is_nil(model_alias) do
-      {:error,
-       {:no_default_model_configured,
-        "Set default_model in ~/.planck/config.json or via PLANCK_DEFAULT_MODEL"}}
+      reason = "Set default_model in ~/.planck/config.json or via PLANCK_DEFAULT_MODEL"
+      {:error, {:no_default_model_configured, reason}}
     else
-      store = ResourceStore.get()
+      build_dynamic_team(model_alias)
+    end
+  end
 
-      case Enum.find(store.available_models, &(&1.id == model_alias)) do
-        nil ->
-          {:error,
-           {:default_model_not_available,
-            "Model #{inspect(model_alias)} not found — check providers and models in config"}}
+  defp build_dynamic_team(model_alias) when is_binary(model_alias) do
+    store = ResourceStore.get()
 
-        model ->
-          orchestrator =
-            AgentSpec.new(
-              type: "orchestrator",
-              provider: model.provider,
-              model_id: model.id,
-              base_url: model.base_url,
-              system_prompt: DefaultPrompt.orchestrator(),
-              tools: builtin_tool_names() ++ Enum.map(store.tools, & &1.name),
-              skills: Enum.map(store.skills, & &1.name)
-            )
+    case Enum.find(store.available_models, &(&1.id == model_alias)) do
+      nil ->
+        reason = "Model #{inspect(model_alias)} not found — check providers and models in config"
+        {:error, {:default_model_not_available, reason}}
 
-          {:ok, Team.dynamic(orchestrator)}
-      end
+      %Model{} = model ->
+        orchestrator =
+          AgentSpec.new(
+            type: "orchestrator",
+            provider: model.provider,
+            model_id: model.id,
+            base_url: model.base_url,
+            system_prompt: DefaultPrompt.orchestrator(),
+            tools: builtin_tool_names() ++ Enum.map(store.tools, & &1.name),
+            skills: Enum.map(store.skills, & &1.name)
+          )
+
+        {:ok, Team.dynamic(orchestrator)}
     end
   end
 
@@ -708,9 +950,13 @@ defmodule Planck.Headless do
   # Private — team materialization
   # ---------------------------------------------------------------------------
 
-  @spec materialize_team(String.t(), Team.t(), Path.t(), keyword()) ::
-          {:ok, String.t()} | {:error, term()}
-  defp materialize_team(session_id, team, cwd, opts) do
+  @spec materialize_team(session_id(), Team.t(), Path.t(), keyword()) ::
+          {:ok, team_id()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp materialize_team(session_id, team, cwd, opts)
+
+  defp materialize_team(session_id, %Team{} = team, cwd, opts)
+       when is_binary(session_id) and is_binary(cwd) and is_list(opts) do
     prev_ids = Keyword.get(opts, :prev_ids, %{})
     metadata = Keyword.get(opts, :metadata, %{})
     session_tools = Keyword.get(opts, :session_tools, [])
@@ -743,21 +989,48 @@ defmodule Planck.Headless do
         )
 
       %AgentSpec{type: "solo"} ->
-        do_materialize_solo(session_id, team_id, orchestrator_id, orch_spec, store, cwd, ctx)
+        do_materialize_solo(
+          session_id,
+          team_id,
+          orchestrator_id,
+          orch_spec,
+          store,
+          cwd,
+          ctx
+        )
     end
   end
 
   @spec do_materialize_team(
-          String.t(),
-          String.t(),
-          String.t(),
+          session_id(),
+          team_id(),
+          agent_id(),
           AgentSpec.t(),
           [AgentSpec.t()],
           ResourceStore.t(),
           Path.t(),
-          map()
-        ) :: {:ok, String.t()} | {:error, term()}
-  defp do_materialize_team(session_id, team_id, orchestrator_id, spec, workers, store, cwd, ctx) do
+          start_ctx()
+        ) ::
+          {:ok, team_id()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp do_materialize_team(session_id, team_id, orchestrator_id, spec, workers, store, cwd, ctx)
+
+  defp do_materialize_team(
+         session_id,
+         team_id,
+         orchestrator_id,
+         %AgentSpec{} = spec,
+         workers,
+         %ResourceStore{} = store,
+         cwd,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(orchestrator_id) and
+              is_list(workers) and
+              is_binary(cwd) and
+              is_map(ctx) do
     with {:ok, _} <-
            start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx),
          :ok <- start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx) do
@@ -766,44 +1039,66 @@ defmodule Planck.Headless do
   end
 
   @spec do_materialize_solo(
-          String.t(),
-          String.t(),
-          String.t(),
+          session_id(),
+          team_id(),
+          agent_id(),
           AgentSpec.t(),
           ResourceStore.t(),
           Path.t(),
-          map()
-        ) :: {:ok, String.t()} | {:error, term()}
-  defp do_materialize_solo(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
-    with {:ok, _} <- start_solo(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
+          start_ctx()
+        ) ::
+          {:ok, team_id()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp do_materialize_solo(session_id, team_id, agent_id, spec, store, cwd, ctx)
+
+  defp do_materialize_solo(
+         session_id,
+         team_id,
+         agent_id,
+         %AgentSpec{} = spec,
+         %ResourceStore{} = store,
+         cwd,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(agent_id) and
+              is_binary(cwd) and
+              is_map(ctx) do
+    with {:ok, _} <- start_solo(session_id, team_id, agent_id, spec, store, cwd, ctx) do
       {:ok, team_id}
     end
   end
 
   @spec start_orchestrator(
-          String.t(),
-          String.t(),
-          String.t(),
+          session_id(),
+          team_id(),
+          agent_id(),
           AgentSpec.t(),
           ResourceStore.t(),
           Path.t(),
-          %{
-            metadata: map(),
-            session_tools: [Planck.Agent.Tool.t()],
-            prev_ids: map(),
-            team_name: String.t() | nil
-          }
-        ) :: {:ok, pid()} | {:error, term()}
-  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
-    start_primary_agent(
-      session_id,
-      team_id,
-      orchestrator_id,
-      spec,
-      store,
-      cwd,
-      ctx,
-      fn resolved ->
+          start_ctx()
+        ) ::
+          {:ok, pid()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp start_orchestrator(session_id, team_id, orchestrator_id, spec, store, cwd, ctx)
+
+  defp start_orchestrator(
+         session_id,
+         team_id,
+         orchestrator_id,
+         %AgentSpec{} = spec,
+         %ResourceStore{} = store,
+         cwd,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(orchestrator_id) and
+              is_binary(cwd) and
+              is_map(ctx) do
+    tool_resolver = fn resolved ->
+      orchestrator_tools =
         Tools.orchestrator_tools(
           session_id,
           team_id,
@@ -811,27 +1106,13 @@ defmodule Planck.Headless do
           resolved,
           store.skills,
           cwd
-        ) ++
-          Tools.worker_tools(team_id, nil)
-      end
-    )
-  end
+        )
 
-  @spec start_solo(
-          String.t(),
-          String.t(),
-          String.t(),
-          AgentSpec.t(),
-          ResourceStore.t(),
-          Path.t(),
-          %{
-            metadata: map(),
-            session_tools: [Planck.Agent.Tool.t()],
-            prev_ids: map(),
-            team_name: String.t() | nil
-          }
-        ) :: {:ok, pid()} | {:error, term()}
-  defp start_solo(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
+      worker_tools = Tools.worker_tools(team_id, nil)
+
+      orchestrator_tools ++ worker_tools
+    end
+
     start_primary_agent(
       session_id,
       team_id,
@@ -840,10 +1121,40 @@ defmodule Planck.Headless do
       store,
       cwd,
       ctx,
-      fn _resolved ->
-        Tools.solo_tools()
-      end
+      tool_resolver
     )
+  end
+
+  @spec start_solo(
+          session_id(),
+          team_id(),
+          agent_id(),
+          AgentSpec.t(),
+          ResourceStore.t(),
+          Path.t(),
+          start_ctx()
+        ) ::
+          {:ok, pid()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp start_solo(session_id, team_id, agent_id, spec, store, cwd, ctx)
+
+  defp start_solo(
+         session_id,
+         team_id,
+         agent_id,
+         %AgentSpec{} = spec,
+         %ResourceStore{} = store,
+         cwd,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(agent_id) and
+              is_binary(cwd) and
+              is_map(ctx) do
+    tool_resolver = fn _resolved -> Tools.solo_tools() end
+
+    start_primary_agent(session_id, team_id, agent_id, spec, store, cwd, ctx, tool_resolver)
   end
 
   # Shared setup for a team's primary agent — an "orchestrator" or a "solo"
@@ -851,45 +1162,53 @@ defmodule Planck.Headless do
   # only in which extra delegation tools they get, supplied by
   # `extra_tools_fn` once the tool pool has resolved `spec.tools`.
   @spec start_primary_agent(
-          String.t(),
-          String.t(),
-          String.t(),
+          session_id(),
+          team_id(),
+          agent_id(),
           AgentSpec.t(),
           ResourceStore.t(),
           Path.t(),
-          %{
-            metadata: map(),
-            session_tools: [Planck.Agent.Tool.t()],
-            prev_ids: map(),
-            team_name: String.t() | nil
-          },
-          ([Planck.Agent.Tool.t()] -> [Planck.Agent.Tool.t()])
-        ) :: {:ok, pid()} | {:error, term()}
+          start_ctx(),
+          tool_resolver
+        ) ::
+          {:ok, pid()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+        when tool_resolver: ([Planck.Agent.Tool.t()] -> [Planck.Agent.Tool.t()])
+  defp start_primary_agent(session_id, team_id, agent_id, spec, store, cwd, ctx, tool_resolver)
+
   defp start_primary_agent(
          session_id,
          team_id,
-         orchestrator_id,
-         spec,
-         store,
+         agent_id,
+         %AgentSpec{} = spec,
+         %ResourceStore{} = store,
          cwd,
          ctx,
-         extra_tools_fn
-       ) do
-    %{metadata: metadata, session_tools: session_tools} = ctx
-
+         tool_resolver
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(agent_id) and
+              is_binary(cwd) and
+              is_map(ctx) and
+              is_function(tool_resolver, 1) do
     skill_opts =
-      build_skill_opts(ctx.team_name, spec.name, spec.type, store.invocable_skills, cwd)
+      build_skill_opts(
+        ctx.team_name,
+        spec.name,
+        spec.type,
+        store.invocable_skills,
+        cwd
+      )
 
-    default_tools = if spec.tools == [], do: builtins(), else: []
+    default_tools =
+      if spec.tools == [],
+        do: builtins(),
+        else: []
 
     base_opts =
       AgentSpec.to_start_opts(spec,
-        tool_pool:
-          builtins() ++
-            store.tools ++
-            store.registered_tools ++
-            rlcd_grantable_tools(store.available_models) ++
-            skill_discovery_tools(store.invocable_skills),
+        tool_pool: tool_pool(store),
         tools: default_tools,
         skill_pool: store.invocable_skills,
         skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
@@ -903,18 +1222,18 @@ defmodule Planck.Headless do
     resolved = base_opts[:tools]
 
     full_tools =
-      extra_tools_fn.(resolved) ++
+      tool_resolver.(resolved) ++
         skill_discovery_tools(store.invocable_skills) ++
         resolved ++
         store.registered_tools ++
-        session_tools
+        ctx.session_tools
 
     system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
-    {usage, cost} = load_agent_usage(metadata, orchestrator_id)
+    {usage, cost} = load_agent_usage(ctx.metadata, agent_id)
 
     opts =
       base_opts
-      |> Keyword.put(:id, orchestrator_id)
+      |> Keyword.put(:id, agent_id)
       |> Keyword.put(:cwd, cwd)
       |> Keyword.put(:tools, full_tools)
       |> Keyword.put(:system_prompt, system_prompt)
@@ -929,71 +1248,113 @@ defmodule Planck.Headless do
   end
 
   @spec start_workers(
-          String.t(),
-          String.t(),
-          String.t(),
+          session_id(),
+          team_id(),
+          agent_id(),
           [AgentSpec.t()],
           ResourceStore.t(),
           Path.t(),
-          %{
-            prev_ids: map(),
-            metadata: map(),
-            session_tools: [Planck.Agent.Tool.t()],
-            team_name: String.t() | nil
-          }
-        ) :: :ok | {:error, term()}
-  defp start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx) do
-    %{prev_ids: prev_ids, metadata: metadata, session_tools: session_tools} = ctx
+          start_ctx()
+        ) ::
+          :ok
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp start_workers(session_id, team_id, orchestrator_id, workers, store, cwd, ctx)
 
+  defp start_workers(
+         session_id,
+         team_id,
+         orchestrator_id,
+         workers,
+         %ResourceStore{} = store,
+         cwd,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(orchestrator_id) and
+              is_list(workers) and
+              is_binary(cwd) and
+              is_map(ctx) do
     Enum.reduce_while(workers, :ok, fn spec, :ok ->
-      base_opts =
-        AgentSpec.to_start_opts(spec,
-          tool_pool:
-            builtins() ++
-              store.tools ++
-              store.registered_tools ++
-              rlcd_grantable_tools(store.available_models) ++
-              skill_discovery_tools(store.invocable_skills),
-          skill_pool: store.invocable_skills,
-          skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
-          team_id: team_id,
-          session_id: session_id,
-          available_models: store.available_models,
-          sidecar_node: SidecarManager.node()
-        )
-
-      resolved = base_opts[:tools]
-      worker_id = Map.get(prev_ids, spec.name, base_opts[:id])
-      sender = %{id: worker_id, name: spec.name}
-      {usage, cost} = load_agent_usage(metadata, worker_id)
-      system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
-
-      skill_opts =
-        build_skill_opts(ctx.team_name, spec.name, spec.type, store.invocable_skills, cwd)
-
-      opts =
-        base_opts
-        |> Keyword.put(:id, worker_id)
-        |> Keyword.put(:cwd, cwd)
-        |> Keyword.put(
-          :tools,
-          Tools.worker_tools(team_id, orchestrator_id, sender) ++
-            resolved ++ store.registered_tools ++ session_tools
-        )
-        |> Keyword.put(:system_prompt, system_prompt)
-        |> Keyword.put(:delegator_id, orchestrator_id)
-        |> Keyword.put(:team_name, ctx.team_name)
-        |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
-        |> Keyword.put(:top_skills, skill_opts[:top_skills])
-        |> Keyword.put(:skill_pool, skill_opts[:skill_pool])
-        |> Keyword.put(:usage, usage)
-        |> Keyword.put(:cost, cost)
-
-      case start_agent(opts) do
+      case start_worker(session_id, team_id, orchestrator_id, spec, store, cwd, ctx) do
         {:ok, _pid} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  @spec start_worker(
+          session_id(),
+          team_id(),
+          agent_id(),
+          AgentSpec.t(),
+          ResourceStore.t(),
+          Path.t(),
+          start_ctx()
+        ) ::
+          {:ok, pid()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp start_worker(session_id, team_id, orchestrator_id, spec, store, cwd, ctx)
+
+  defp start_worker(
+         session_id,
+         team_id,
+         orchestrator_id,
+         %AgentSpec{} = spec,
+         %ResourceStore{} = store,
+         cwd,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(orchestrator_id) and
+              is_binary(cwd) and
+              is_map(ctx) do
+    base_opts =
+      AgentSpec.to_start_opts(spec,
+        tool_pool: tool_pool(store),
+        skill_pool: store.invocable_skills,
+        skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
+        team_id: team_id,
+        session_id: session_id,
+        available_models: store.available_models,
+        sidecar_node: SidecarManager.node()
+      )
+
+    resolved = base_opts[:tools]
+    worker_id = Map.get(ctx.prev_ids, spec.name, base_opts[:id])
+    sender = %{id: worker_id, name: spec.name}
+    {usage, cost} = load_agent_usage(ctx.metadata, worker_id)
+    system_prompt = Tools.prepend_agents_md(base_opts[:system_prompt], cwd)
+
+    skill_opts =
+      build_skill_opts(
+        ctx.team_name,
+        spec.name,
+        spec.type,
+        store.invocable_skills,
+        cwd
+      )
+
+    opts =
+      base_opts
+      |> Keyword.put(:id, worker_id)
+      |> Keyword.put(:cwd, cwd)
+      |> Keyword.put(
+        :tools,
+        Tools.worker_tools(team_id, orchestrator_id, sender) ++
+          resolved ++ store.registered_tools ++ ctx.session_tools
+      )
+      |> Keyword.put(:system_prompt, system_prompt)
+      |> Keyword.put(:delegator_id, orchestrator_id)
+      |> Keyword.put(:team_name, ctx.team_name)
+      |> Keyword.put(:ranked_skill_names, skill_opts[:ranked_skill_names])
+      |> Keyword.put(:top_skills, skill_opts[:top_skills])
+      |> Keyword.put(:skill_pool, skill_opts[:skill_pool])
+      |> Keyword.put(:usage, usage)
+      |> Keyword.put(:cost, cost)
+
+    start_agent(opts)
   end
 
   @spec resolve_hook_module(String.t() | nil) :: module() | nil
@@ -1058,11 +1419,17 @@ defmodule Planck.Headless do
     end
   end
 
-  @spec start_agent(keyword()) :: {:ok, pid()} | {:error, term()}
-  defp start_agent(opts) do
+  @spec start_agent(keyword()) ::
+          {:ok, pid()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+  defp start_agent(opts)
+
+  defp start_agent(opts) when is_list(opts) do
     case DynamicSupervisor.start_child(Planck.Agent.AgentSupervisor, {Planck.Agent, opts}) do
       {:ok, pid} -> {:ok, pid}
-      {:error, reason} -> {:error, {:agent_start_failed, reason}}
+      {:ok, pid, _info} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      _ -> {:error, {:cannot_start_agent, opts[:id]}}
     end
   end
 
@@ -1082,7 +1449,9 @@ defmodule Planck.Headless do
   # A team has exactly one promptable primary agent — either an
   # "orchestrator" or a "solo" agent (Team.validate_single_primary/2 enforces
   # this) — so at most one of these two lookups ever returns a match.
-  @spec find_orchestrator(String.t()) :: {:ok, pid()} | {:error, :orchestrator_not_found}
+  @spec find_orchestrator(String.t()) ::
+          {:ok, pid()}
+          | {:error, :orchestrator_not_found}
   defp find_orchestrator(team_id) do
     case Registry.lookup(Planck.Agent.Registry, {team_id, "orchestrator"}) ++
            Registry.lookup(Planck.Agent.Registry, {team_id, "solo"}) do
@@ -1123,7 +1492,8 @@ defmodule Planck.Headless do
         {type, name}
       end)
       |> Enum.each(fn {args, original_id} ->
-        start_dynamic_worker(args, session_id, team_id, orch_id, store, original_id)
+        ctx = %{agent_id: original_id, args: args}
+        start_dynamic_worker(session_id, team_id, orch_id, store, ctx)
       end)
     end
 
@@ -1167,61 +1537,89 @@ defmodule Planck.Headless do
   defp successful_spawn(_result, _args), do: []
 
   @spec start_dynamic_worker(
-          map(),
-          String.t(),
-          String.t(),
-          String.t(),
+          session_id(),
+          team_id(),
+          agent_id(),
           ResourceStore.t(),
-          String.t() | nil
+          ctx
         ) :: :ok
-  defp start_dynamic_worker(args, session_id, team_id, orchestrator_id, store, original_id) do
-    case AgentSpec.from_map(args) do
-      {:ok, spec} ->
-        base_opts =
-          AgentSpec.to_start_opts(spec,
-            tool_pool:
-              builtins() ++
-                store.tools ++
-                store.registered_tools ++
-                rlcd_grantable_tools(store.available_models) ++
-                skill_discovery_tools(store.invocable_skills),
-            skill_pool: store.invocable_skills,
-            skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
-            team_id: team_id,
-            session_id: session_id,
-            available_models: store.available_models,
-            sidecar_node: SidecarManager.node()
-          )
-
-        base_opts =
-          if original_id, do: Keyword.put(base_opts, :id, original_id), else: base_opts
-
-        dynamic_worker_id = base_opts[:id]
-        sender = %{id: dynamic_worker_id, name: spec.name}
-
-        opts =
-          base_opts
-          |> Keyword.put(
-            :tools,
-            Tools.worker_tools(team_id, orchestrator_id, sender) ++
-              base_opts[:tools]
-          )
-          |> Keyword.put(:delegator_id, orchestrator_id)
-          |> Keyword.put(:team_name, nil)
-
-        case start_agent(opts) do
-          {:ok, _} ->
-            :ok
-
-          {:error, r} ->
-            Logger.warning("[Planck.Headless] could not reconstruct worker: #{inspect(r)}")
-        end
-
-      {:error, reason} ->
-        Logger.warning("[Planck.Headless] skipping worker reconstruction: #{reason}")
+        when ctx: %{agent_id: agent_id() | nil, args: map()}
+  defp start_dynamic_worker(
+         session_id,
+         team_id,
+         orchestrator_id,
+         %ResourceStore{} = store,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(orchestrator_id) and
+              is_map(ctx) do
+    with {args, ctx} <- Map.pop(ctx, :args, %{}),
+         {:ok, %AgentSpec{} = spec} <- AgentSpec.from_map(args),
+         {:ok, _} <-
+           do_start_dynamic_worker(session_id, team_id, orchestrator_id, spec, store, ctx) do
+      :ok
+    else
+      {:error, _} ->
+        Logger.warning("[Planck.Headless] skipping worker reconstruction.")
     end
 
     :ok
+  end
+
+  @spec do_start_dynamic_worker(
+          session_id(),
+          team_id(),
+          agent_id(),
+          AgentSpec.t(),
+          ResourceStore.t(),
+          ctx
+        ) ::
+          {:ok, pid()}
+          | {:error, {:cannot_start_agent, nil | agent_id()}}
+        when ctx: %{agent_id: agent_id() | nil}
+  defp do_start_dynamic_worker(session_id, team_id, orchestrator_id, spec, store, ctx)
+
+  defp do_start_dynamic_worker(
+         session_id,
+         team_id,
+         orchestrator_id,
+         spec,
+         store,
+         ctx
+       )
+       when is_binary(session_id) and
+              is_binary(team_id) and
+              is_binary(orchestrator_id) and
+              is_map(ctx) do
+    base_opts =
+      AgentSpec.to_start_opts(spec,
+        tool_pool: tool_pool(store),
+        skill_pool: store.invocable_skills,
+        skill_refresh_fn: fn -> ResourceStore.get().invocable_skills end,
+        team_id: team_id,
+        session_id: session_id,
+        available_models: store.available_models,
+        sidecar_node: SidecarManager.node()
+      )
+
+    base_opts =
+      if ctx.agent_id,
+        do: Keyword.put(base_opts, :id, ctx.agent_id),
+        else: base_opts
+
+    sender = %{id: base_opts[:id], name: spec.name}
+
+    tools = Tools.worker_tools(team_id, orchestrator_id, sender) ++ base_opts[:tools]
+
+    opts =
+      base_opts
+      |> Keyword.put(:tools, tools)
+      |> Keyword.put(:delegator_id, orchestrator_id)
+      |> Keyword.put(:team_name, nil)
+
+    start_agent(opts)
   end
 
   @spec maybe_inject_recovery(String.t(), String.t()) :: :ok
@@ -1414,6 +1812,17 @@ defmodule Planck.Headless do
     end
   end
 
+  @spec tool_pool(ResourceStore.t()) :: [Planck.Agent.Tool.t()]
+  defp tool_pool(store)
+
+  defp tool_pool(%ResourceStore{} = store) do
+    builtins() ++
+      store.tools ++
+      store.registered_tools ++
+      rlcd_grantable_tools(store.available_models) ++
+      skill_discovery_tools(store.invocable_skills)
+  end
+
   @spec builtins() :: [Planck.Agent.Tool.t()]
   defp builtins do
     [BuiltinTools.read(), BuiltinTools.write(), BuiltinTools.edit(), BuiltinTools.bash()]
@@ -1430,7 +1839,7 @@ defmodule Planck.Headless do
   @spec builtin_tool_names() :: [String.t()]
   defp builtin_tool_names, do: Enum.map(builtins(), & &1.name)
 
-  @spec generate_id() :: String.t()
+  @spec generate_id() :: session_id() | team_id() | agent_id()
   defp generate_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
   end

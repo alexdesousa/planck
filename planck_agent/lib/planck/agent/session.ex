@@ -194,9 +194,8 @@ defmodule Planck.Agent.Session do
   @spec get_metadata(session_id()) ::
           {:ok, %{optional(String.t()) => String.t() | nil}} | {:error, :not_found}
   def get_metadata(session_id) do
-    case whereis(session_id) do
-      {:ok, pid} -> GenServer.call(pid, :get_metadata)
-      error -> error
+    with {:ok, pid} <- whereis(session_id) do
+      GenServer.call(pid, :get_metadata)
     end
   end
 

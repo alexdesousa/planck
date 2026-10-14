@@ -1411,7 +1411,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
 
     test "returns error for unknown session" do
-      assert {:error, :not_found} = Headless.close_session("ghost-session")
+      assert {:error, :team_id_not_found} = Headless.close_session("ghost-session")
     end
 
     test "SQLite file is retained after close", %{tmp_dir: dir, sessions_dir: sessions_dir} do
@@ -1434,7 +1434,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
 
     test "returns error for closed session" do
-      assert {:error, :not_found} = Headless.prompt("no-session", "hi")
+      assert {:error, :team_id_not_found} = Headless.prompt("no-session", "hi")
     end
   end
 

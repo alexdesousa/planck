@@ -105,6 +105,63 @@ defmodule Planck.Web.API.SessionController do
       }
     }
 
+  def open_api_operation(:pending_approvals),
+    do: %Operation{
+      tags: ["Sessions"],
+      summary: "List pending tool approvals",
+      description:
+        "Returns parked tool calls awaiting human approval for the given agent. " <>
+          "Use after a refresh to recover state when the :tool_blocked SSE event was missed.",
+      operationId: "SessionController.pending_approvals",
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Session ID", required: true),
+        Operation.parameter(:agent_id, :query, :string, "Agent ID", required: true)
+      ],
+      responses: %{
+        200 => Operation.response("Approvals", "application/json", Schemas.ApprovalList),
+        404 => Operation.response("Not Found", "application/json", Schemas.Error),
+        422 => Operation.response("Error", "application/json", Schemas.Error)
+      }
+    }
+
+  def open_api_operation(:approve_tool_call),
+    do: %Operation{
+      tags: ["Sessions"],
+      summary: "Approve a parked tool call",
+      description: "Runs the parked tool call with its original arguments, skipping the gate.",
+      operationId: "SessionController.approve_tool_call",
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Session ID", required: true),
+        Operation.parameter(:agent_id, :query, :string, "Agent ID", required: true)
+      ],
+      requestBody:
+        Operation.request_body("Approve params", "application/json", Schemas.ApproveToolCall),
+      responses: %{
+        200 => Operation.response("OK", "application/json", Schemas.Ok),
+        404 => Operation.response("Not Found", "application/json", Schemas.Error),
+        422 => Operation.response("Error", "application/json", Schemas.Error)
+      }
+    }
+
+  def open_api_operation(:deny_tool_call),
+    do: %Operation{
+      tags: ["Sessions"],
+      summary: "Deny a parked tool call",
+      description: "Completes the parked tool call as a denied error, with an optional reason.",
+      operationId: "SessionController.deny_tool_call",
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Session ID", required: true),
+        Operation.parameter(:agent_id, :query, :string, "Agent ID", required: true)
+      ],
+      requestBody:
+        Operation.request_body("Deny params", "application/json", Schemas.DenyToolCall),
+      responses: %{
+        200 => Operation.response("OK", "application/json", Schemas.Ok),
+        404 => Operation.response("Not Found", "application/json", Schemas.Error),
+        422 => Operation.response("Error", "application/json", Schemas.Error)
+      }
+    }
+
   # ---------------------------------------------------------------------------
   # Actions
   # ---------------------------------------------------------------------------
@@ -221,6 +278,84 @@ defmodule Planck.Web.API.SessionController do
         conn
         |> put_status(422)
         |> json(%{error: inspect(reason)})
+    end
+  end
+
+  @spec pending_approvals(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def pending_approvals(conn, params)
+
+  def pending_approvals(conn, %{id: session_id, agent_id: agent_id}) do
+    with :ok <- ensure_session(session_id),
+         {:ok, approvals} <- Headless.list_pending_approvals(session_id, agent_id) do
+      json(conn, approvals)
+    else
+      {:error, :session_not_found} ->
+        conn |> put_status(404) |> json(%{error: "Session not found"})
+
+      {:error, :agent_not_in_session} ->
+        conn |> put_status(404) |> json(%{error: "Agent not found"})
+
+      {:error, :agent_not_found} ->
+        conn |> put_status(404) |> json(%{error: "Agent not found"})
+
+      {:error, reason} ->
+        conn |> put_status(422) |> json(%{error: inspect(reason)})
+    end
+  end
+
+  @spec approve_tool_call(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def approve_tool_call(conn, params)
+
+  def approve_tool_call(conn, %{id: session_id, agent_id: agent_id}) do
+    call_id = conn.body_params.call_id
+
+    with :ok <- ensure_session(session_id),
+         :ok <- Headless.approve_tool_call(session_id, agent_id, call_id) do
+      json(conn, %{ok: true})
+    else
+      {:error, :session_not_found} ->
+        conn |> put_status(404) |> json(%{error: "Session not found"})
+
+      {:error, :agent_not_in_session} ->
+        conn |> put_status(404) |> json(%{error: "Agent not found"})
+
+      {:error, :agent_not_found} ->
+        conn |> put_status(404) |> json(%{error: "Agent not found"})
+
+      {:error, :not_found} ->
+        conn |> put_status(422) |> json(%{error: "Tool call not pending approval"})
+
+      {:error, reason} ->
+        conn |> put_status(422) |> json(%{error: inspect(reason)})
+    end
+  end
+
+  @spec deny_tool_call(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def deny_tool_call(conn, params)
+
+  def deny_tool_call(conn, %{id: session_id, agent_id: agent_id}) do
+    call_id = conn.body_params.call_id
+    reason = Map.get(conn.body_params, "reason", Map.get(conn.body_params, :reason))
+    reason = if reason == "", do: nil, else: reason
+
+    with :ok <- ensure_session(session_id),
+         :ok <- Headless.deny_tool_call(session_id, agent_id, call_id, reason) do
+      json(conn, %{ok: true})
+    else
+      {:error, :session_not_found} ->
+        conn |> put_status(404) |> json(%{error: "Session not found"})
+
+      {:error, :agent_not_in_session} ->
+        conn |> put_status(404) |> json(%{error: "Agent not found"})
+
+      {:error, :agent_not_found} ->
+        conn |> put_status(404) |> json(%{error: "Agent not found"})
+
+      {:error, :not_found} ->
+        conn |> put_status(422) |> json(%{error: "Tool call not pending approval"})
+
+      {:error, reason} ->
+        conn |> put_status(422) |> json(%{error: inspect(reason)})
     end
   end
 

@@ -357,8 +357,169 @@ defmodule Planck.Web.API.SessionControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # GET /api/sessions/:id/pending_approvals
+  # POST /api/sessions/:id/approve
+  # POST /api/sessions/:id/deny
+  # ---------------------------------------------------------------------------
+
+  describe "approval endpoints" do
+    defmodule ParkBash do
+      use Planck.Agent.Hooks.ToolStart
+
+      @impl true
+      def proceed(_agent_id, "bash", _args), do: {:await_approval, "needs a human"}
+      def proceed(_agent_id, _tool, _args), do: :ok
+    end
+
+    defp write_team_with_gate(dir) do
+      team_dir = Path.join(dir, "gate-team")
+      File.mkdir_p!(team_dir)
+
+      File.write!(
+        Path.join(team_dir, "TEAM.json"),
+        Jason.encode!(%{
+          "name" => "gate-team",
+          "members" => [
+            %{
+              "type" => "orchestrator",
+              "provider" => "openai",
+              "model_id" => "llama3.2",
+              "system_prompt" => "You coordinate.",
+              "tool_start_hook" => "Planck.Web.API.SessionControllerTest.ParkBash",
+              "tools" => ["bash"]
+            }
+          ]
+        })
+      )
+
+      team_dir
+    end
+
+    defp stream_bash_once(call_id \\ "c1") do
+      parent = self()
+
+      stub(MockAI, :stream, fn _model, %Planck.AI.Context{messages: msgs}, _opts ->
+        if Enum.any?(msgs, &match?(%{role: :tool_result}, &1)) do
+          [{:done, %{}}]
+        else
+          send(parent, :streamed)
+
+          [
+            {:tool_call_complete, %{id: call_id, name: "bash", args: %{"command" => "ls"}}},
+            {:done, %{}}
+          ]
+        end
+      end)
+    end
+
+    test "pending_approvals returns parked calls and approve runs them", %{
+      conn: conn,
+      tmp_dir: dir
+    } do
+      team_dir = write_team_with_gate(dir)
+      stream_bash_once()
+
+      {:ok, sid} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{sid}")
+
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "run it"})
+      assert_receive :streamed, 2_000
+      assert_receive {:agent_event, :tool_blocked, %{mode: :await_approval}}, 2_000
+
+      %{"agents" => [%{"id" => agent_id}]} = session_detail(sid)
+
+      conn2 = get(conn, "/api/sessions/#{sid}/pending_approvals", %{agent_id: agent_id})
+      body = json_response(conn2, 200)
+      assert_schema(body, "ApprovalList", api_spec())
+      assert length(body) == 1
+      assert hd(body)["tool_name"] == "bash"
+      assert hd(body)["call_id"] == "c1"
+
+      _conn3 = post(conn, "/api/sessions/#{sid}/approve?agent_id=#{agent_id}", %{call_id: "c1"})
+
+      assert_receive {:agent_event, :tool_end, %{name: "bash", error: false}}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+
+      conn4 = get(conn, "/api/sessions/#{sid}/pending_approvals", %{agent_id: agent_id})
+      assert json_response(conn4, 200) == []
+    end
+
+    test "deny completes the error", %{conn: conn, tmp_dir: dir} do
+      team_dir = write_team_with_gate(dir)
+      stream_bash_once()
+
+      {:ok, sid} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{sid}")
+
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "run it"})
+      assert_receive :streamed, 2_000
+      assert_receive {:agent_event, :tool_blocked, %{mode: :await_approval}}, 2_000
+
+      %{"agents" => [%{"id" => agent_id}]} = session_detail(sid)
+
+      conn2 =
+        post(conn, "/api/sessions/#{sid}/deny?agent_id=#{agent_id}", %{
+          call_id: "c1",
+          reason: "not now"
+        })
+
+      body = json_response(conn2, 200)
+      assert_schema(body, "Ok", api_spec())
+
+      assert_receive {:agent_event, :tool_end, %{name: "bash", error: true}}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "deny without a reason uses the default message", %{conn: conn, tmp_dir: dir} do
+      team_dir = write_team_with_gate(dir)
+      stream_bash_once()
+
+      {:ok, sid} = Headless.start_session(template: team_dir)
+
+      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "session:#{sid}")
+
+      post(conn, "/api/sessions/#{sid}/prompt", %{text: "run it"})
+      assert_receive :streamed, 2_000
+      assert_receive {:agent_event, :tool_blocked, %{mode: :await_approval}}, 2_000
+
+      %{"agents" => [%{"id" => agent_id}]} = session_detail(sid)
+
+      conn2 = post(conn, "/api/sessions/#{sid}/deny?agent_id=#{agent_id}", %{call_id: "c1"})
+      body = json_response(conn2, 200)
+      assert_schema(body, "Ok", api_spec())
+
+      assert_receive {:agent_event, :tool_end, %{name: "bash", error: true}}, 1_000
+      assert_receive {:agent_event, :turn_end, _}, 2_000
+    end
+
+    test "approve returns 422 for unknown call_id", %{conn: conn, team_dir: team_dir} do
+      {:ok, sid} = Headless.start_session(template: team_dir)
+      %{"agents" => [%{"id" => agent_id}]} = session_detail(sid)
+
+      conn2 = post(conn, "/api/sessions/#{sid}/approve?agent_id=#{agent_id}", %{call_id: "nope"})
+      body = json_response(conn2, 422)
+      assert_schema(body, "Error", api_spec())
+      assert body["error"] == "Tool call not pending approval"
+    end
+
+    test "pending_approvals returns 404 for unknown session", %{conn: conn} do
+      conn2 = get(conn, "/api/sessions/nonexistent/pending_approvals", %{agent_id: "x"})
+      body = json_response(conn2, 404)
+      assert_schema(body, "Error", api_spec())
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
+
+  defp session_detail(session_id) do
+    conn = build_conn()
+    conn = get(conn, "/api/sessions/#{session_id}")
+    json_response(conn, 200)
+  end
 
   defp write_team(dir, alias_name) do
     team_dir = Path.join(dir, alias_name)
