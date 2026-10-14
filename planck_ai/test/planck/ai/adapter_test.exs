@@ -78,11 +78,24 @@ defmodule Planck.AI.AdapterTest do
       assert spec == "typesafe:jev-latest"
     end
 
-    test "typesafe with base_url produces a typesafe-provider map to bypass catalog lookup" do
+    test "typesafe with base_url produces a full inline evaluation spec" do
       {spec, _, _} =
         to_req_llm(model(:typesafe, id: "decider-1", base_url: "http://localhost:8377"))
 
-      assert spec == %{provider: :typesafe, id: "decider-1"}
+      assert spec == %{
+               provider: :typesafe,
+               id: "decider-1",
+               capabilities: %{evaluate: true},
+               execution: %{
+                 evaluate: %{
+                   supported: true,
+                   family: "typesafe_systemone",
+                   wire_protocol: "typesafe_systemone",
+                   path: "/v1/systemone",
+                   provider_model_id: "decider-1"
+                 }
+               }
+             }
     end
 
     test "uses model.model field as the API identifier when set" do
