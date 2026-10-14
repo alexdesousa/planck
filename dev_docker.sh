@@ -80,57 +80,24 @@ rm -rf "$DEV_DIR/workspace/.planck/skills/planck_setup"
 cp -r skills/planck_setup "$DEV_DIR/workspace/.planck/skills/"
 
 # ── Write deep-thought team config (init-config only) ────────────────────────
+# Loads config.json and TEAM.json from the repo root — copy the *.example
+# files to get started. Both are gitignored so local endpoints stay local.
 if [ "$INIT_CONFIG" = "1" ]; then
   echo "Writing deep-thought team config..."
+  [ -f "config.json" ] || {
+    echo "  !! config.json missing — copy config.json.example and adjust."
+    exit 1
+  }
+  [ -f "TEAM.json" ] || {
+    echo "  !! TEAM.json missing — copy TEAM.json.example and adjust."
+    exit 1
+  }
   mkdir -p "$DEV_DIR/workspace/.planck/teams/deep-thought"
 
-  cat >"$DEV_DIR/workspace/.planck/config.json" <<'EOF'
-{
-  "providers": {
-    "marvin": {
-      "type": "openai",
-      "base_url": "https://qwen.coroto.net/v1",
-      "has_api_key": false
-    }
-  },
-  "models": [
-    {
-      "id": "Qwen3.6 27B",
-      "model": "Qwen3.6-27B-UD-Q6_K_XL.gguf",
-      "provider": "marvin",
-      "params": {
-        "temperature": 1.0,
-        "top_p": 0.95,
-        "top_k": 20,
-        "min_p": 0.0,
-        "presence_penalty": 1.5,
-        "repetition_penalty": 1.0
-      }
-    }
-  ],
-  "default_provider": "marvin",
-  "default_model": "Qwen3.6 27B"
-}
-EOF
+  cp config.json "$DEV_DIR/workspace/.planck/config.json"
+  cp TEAM.json "$DEV_DIR/workspace/.planck/teams/deep-thought/TEAM.json"
 
-  cat >"$DEV_DIR/workspace/.planck/teams/deep-thought/TEAM.json" <<'EOF'
-{
-  "name": "deep-thought",
-  "members": [
-    {
-      "type": "orchestrator",
-      "name": "Marvin",
-      "provider": "openai",
-      "model_id": "Qwen3.6 27B",
-      "system_prompt": "You are Marvin, a helpful assistant.",
-      "prompt_hook": "Sidecar.Memory",
-      "turn_end_hook": "Sidecar.SkillReflector"
-    }
-  ]
-}
-EOF
-
-  echo "  → deep-thought team written."
+  echo "  → deep-thought team written from config.json + TEAM.json."
 fi
 
 # ── Build images ──────────────────────────────────────────────────────────────

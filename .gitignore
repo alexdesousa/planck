@@ -1,3 +1,5 @@
 .planck-dev/
 test_local.sh
 .planck
+/config.json
+/TEAM.json
