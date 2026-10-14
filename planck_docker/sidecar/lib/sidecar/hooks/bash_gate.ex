@@ -215,14 +215,21 @@ defmodule Sidecar.Hooks.BashGate do
   defp effect_answer(answers)
 
   defp effect_answer(%{"effect" => %{"choice" => choice, "confidence" => confidence}})
-       when choice in ["read_only", "reversible", "irreversible"] and
-              is_number(confidence) do
-    {String.to_existing_atom(choice), confidence * 1.0}
+       when is_binary(choice) and is_number(confidence) do
+    {effect(choice), confidence * 1.0}
   end
 
   defp effect_answer(_) do
     {:unknown, 0.0}
   end
+
+  @spec effect(String.t()) :: atom()
+  defp effect(effect)
+
+  defp effect("read_only"), do: :read_only
+  defp effect("reversible"), do: :reversible
+  defp effect("irreversible"), do: :irreversible
+  defp effect(_choice), do: :unknown
 
   @spec destructive_answer(map()) :: float()
   defp destructive_answer(answers)
