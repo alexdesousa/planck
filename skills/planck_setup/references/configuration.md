@@ -191,10 +191,11 @@ Useful for:
 `"typesafe"` is a different model *family*, not another chat/agent model —
 Typesafe AI's System One models (e.g. Jev) and wire-compatible self-hosted
 servers (e.g. `decider`) take a **state** and a set of typed questions
-(Choice / Score / Noul) and return calibrated probabilities in a single
+(Choice / Score / Boolean) and return calibrated probabilities in a single
 forward pass. They can't chat, stream, or call tools, so they're never used
 as an agent's own model — instead, an agent calls one through the
-[`classify`](teams.md#orchestrator-only-tools) tool.
+[`ask`](teams.md#orchestrator-only-tools) or
+[`ask_files`](teams.md#ask_files-parameters) tool.
 
 A model declared under a `"typesafe"` provider automatically gets
 `type: "rlcd"` (surfaced by `list_models`/`GET /api/models`); every other

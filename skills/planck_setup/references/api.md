@@ -146,6 +146,72 @@ session.
 
 ---
 
+### Pending approvals
+
+When a `ToolStart` gate (e.g. the bundled `BashGate`) parks a tool call
+for human review, the call waits with mode `:await_approval`. List what's
+parked for one agent:
+
+```sh
+curl "http://localhost:4000/api/sessions/a1b2c3d4/pending_approvals?agent_id=orchestrator"
+```
+
+```json
+[
+  {
+    "agent_id": "orchestrator",
+    "call_id": "tc_1a2b3c4d",
+    "tool_name": "bash",
+    "args": {"command": "rm -rf _build"},
+    "reason": "Looks destructive: this command aims to wipe something"
+  }
+]
+```
+
+The `call_id` is the tool-call id from the `tool_start` / `tool_blocked`
+SSE events. Returns `[]` when nothing is parked.
+
+---
+
+### Approve a parked tool call
+
+Runs the parked call exactly once, with the exact arguments it was parked
+with — approval can never authorize a later, different command. The gate
+is skipped for that one call only.
+
+```sh
+curl -X POST http://localhost:4000/api/sessions/a1b2c3d4/approve \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "orchestrator", "call_id": "tc_1a2b3c4d"}'
+```
+
+```json
+{"ok": true}
+```
+
+Returns 422 with `{"error": "Tool call not pending approval"}` if the
+call was already resolved (approvals are one-shot).
+
+---
+
+### Deny a parked tool call
+
+Completes the call as a denial the model is told not to work around.
+
+```sh
+curl -X POST http://localhost:4000/api/sessions/a1b2c3d4/deny \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "orchestrator", "call_id": "tc_1a2b3c4d", "reason": "not today"}'
+```
+
+```json
+{"ok": true}
+```
+
+`reason` is optional — the gate's own reason is used when omitted.
+
+---
+
 ### Close a session
 
 Stops all agents. The session file is retained on disk and can be resumed.
@@ -209,6 +275,7 @@ data: {"agent_id":"orch-id","total":{"input_tokens":1200,"output_tokens":340,"co
 | `thinking_delta` | `agent_id`, `text` | Streaming thinking/reasoning chunk |
 | `tool_start` | `agent_id`, `id`, `name`, `args` | Tool call began |
 | `tool_end` | `agent_id`, `id`, `name`, `result`, `error` | Tool call finished |
+| `tool_blocked` | `agent_id`, `id`, `name`, `args`, `reason`, `mode` (`:deny` or `:await_approval`) | A `ToolStart` gate blocked the call — `:await_approval` waits for approve/deny, `:deny` is final |
 | `worker_spawned` | `agent_id`, `name`, `type` | New worker agent started |
 | `usage_delta` | `agent_id`, `total` (`input_tokens`, `output_tokens`, `cost`) | Usage update |
 | `compacting` | `agent_id` | Context compaction in progress |
@@ -317,6 +384,9 @@ http://localhost:4000/api. Key operations:
 - Send prompt:     POST /api/sessions/:id/prompt   {"text": "..."}
 - Abort turn:      POST /api/sessions/:id/abort
 - Cancel queued:   POST /api/sessions/:id/cancel_queued   {"message_id": "..."}
+- Pending approvals: GET  /api/sessions/:id/pending_approvals?agent_id=...
+- Approve call:    POST /api/sessions/:id/approve   {"agent_id": "...", "call_id": "..."}
+- Deny call:       POST /api/sessions/:id/deny      {"agent_id": "...", "call_id": "...", "reason": "..."}
 - Stream events:   GET  /api/sessions/:id/events   (SSE — listen for turn_end)
 - Close session:   DELETE /api/sessions/:id
 - List teams:      GET  /api/teams

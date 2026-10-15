@@ -7,8 +7,10 @@ Part of [v0.3.1-spec](../v0.3.1-spec.md). Depends on
 
 New `Tools.ask_files/1` in `planck_agent`, appended next to `ask` in
 `orchestrator_tools/6` under the identical RLCD predicate. Params:
-`provider, model_id, base_url, paths: [string]` (max 255, explicit
-paths only — no globs/dirs/recursive), `questions` (same
+`provider, model_id, base_url, paths: [string]` (max 255 after
+expansion; explicit paths plus glob patterns `*`/`?`/`[...]` expanded
+against the agent's cwd — glob support was added after this draft's
+original "explicit paths only" plan), `questions` (same
 `choice|score|boolean` shape as `ask`). Per file: resolve
 (absolute or workspace/cwd-relative, same rule as `read`), skip with
 reason (not-found, not-a-file, empty, over char budget with headroom

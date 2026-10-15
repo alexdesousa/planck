@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.3.1
+
+### Bundled `BashGate` — RLCD-gated `bash` with human approval
+
+New `Sidecar.Hooks.BashGate` (a `Planck.Agent.Hooks.ToolStart` hook):
+every `bash` command is judged by the RLCD model for irreversibility and
+destructive intent before it runs. Park-only by design — the gate never
+denies on its own; suspicious commands park for human approval in the CLI
+modal (approve runs the exact command once), and only transport failures
+deny, loudly. Thresholds are env-configurable:
+`BASH_GATE_IRREVERSIBLE_THRESHOLD` (default `0.6`) and
+`BASH_GATE_DESTRUCTIVE_THRESHOLD` (default `0.7`), passed through in
+`compose.yml`. Gate reasons are written for the human reading the modal
+and translated sidecar-side per locale. Port of upstream
+`ten-levels-of-jev` L6; no tagger/ETS/session-start-hold machinery by
+design.
+
+### Dev docker generalized
+
+`dev_docker.sh` no longer hardcodes a personal provider/team setup — it
+now loads `config.json` and `TEAM.json` from the repo root (gitignored;
+copy the `*.example` files to get started) instead of baking endpoints
+into the script.
+
 ## v0.3.0
 
 ### `write_skill` preserves `disable_model_invocation`

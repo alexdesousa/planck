@@ -449,6 +449,105 @@ The synthetic tool name (`"skill_reflector"`) does **not** appear in the agent's
 callable tool list — it exists only as a history entry the LLM sees passively on
 the next turn.
 
+## Tool-call gates and transforms
+
+Since v0.3.1 the tool pipeline has three more hook points, each a behaviour in
+`Planck.Agent.Hooks` declared per agent in TEAM.json. The full pipeline per
+tool call is now:
+
+```
+validate args → ToolStart.proceed (gate) → execute → loop-nudge → ToolEnd.transform → UI extraction
+```
+
+plus `TurnStart.notify` fired once per turn. All three dispatch the same way
+as the compactor/prompt/turn-end hooks — locally or via `:rpc.call` to the
+sidecar node, with a configurable timeout callback — and a `nil` hook keeps
+the pre-v0.3.1 code path at zero overhead.
+
+### `Planck.Agent.Hooks.ToolStart` — synchronous gate
+
+Declared with `"tool_start_hook": "MySidecar.Hooks.BashGate"`. Runs per
+call, after argument validation (schema-invalid calls never spend a gate
+evaluation).
+
+```elixir
+@callback proceed(agent_id :: String.t(), tool_name :: String.t(), args :: map()) ::
+            :ok
+            | {:deny, String.t()}
+            | {:await_approval, String.t()}
+
+@callback proceed_timeout() :: pos_integer()   # default: 5_000 ms
+```
+
+- `:ok` — run the call unchanged.
+- `{:deny, reason}` — skip execution; the model sees an error with the
+  reason plus a do-not-work-around notice. Broadcasts `:tool_blocked` with
+  `mode: :deny`.
+- `{:await_approval, reason}` — park the call in `turn.running` (no task
+  spawned, the turn pauses) and broadcast `:tool_blocked` with
+  `mode: :await_approval`. A human resolves it via
+  `Planck.Agent.approve_tool_call/2` / `deny_tool_call/3` (with
+  `planck_headless` passthroughs and HTTP endpoints). Approval runs the
+  stored `execute_fn` with the exact parked args, once — the gate is
+  skipped for that call only; a second resolve of the same `call_id`
+  returns `:not_found`, so approval can never authorize a later,
+  different command. Rewind/stop drops parked entries silently.
+
+Gate failures are fail-open with a warning: `:badrpc`, local exceptions,
+and unexpected return values all resolve to `:ok` (run the call), so a
+down sidecar never wedges the agent — a session started while the sidecar
+is still booting simply runs its early calls ungated until the node is
+reachable.
+
+Gates return 2-tuples only — UI side effects are attached downstream by
+`ToolEnd`. The bundled `Sidecar.Hooks.BashGate` is the reference
+implementation: RLCD-judges `bash` commands for irreversibility and
+destructive intent, parks (never denies) above env-configured thresholds
+(`BASH_GATE_IRREVERSIBLE_THRESHOLD` 0.6, `BASH_GATE_DESTRUCTIVE_THRESHOLD`
+0.7), and denies loudly only on RLCD transport failure.
+
+### `Planck.Agent.Hooks.ToolEnd` — synchronous result transform
+
+Declared with `"tool_end_hook": "MySidecar.Hooks.ApprovalTagger"`. Runs
+per call after execution (and after the loop-nudge). Default is identity.
+
+```elixir
+@callback transform(
+            agent_id :: String.t(),
+            tool_name :: String.t(),
+            args :: map(),
+            result ::
+              {:ok, String.t()}
+              | {:ok, String.t(), %{ui: ui_content()}}
+              | {:error, String.t()}
+              | {:error, String.t(), %{ui: ui_content()}}
+          ) ::
+            {:ok, String.t()}
+            | {:ok, String.t(), %{ui: ui_content()}}
+            | {:error, String.t()}
+            | {:error, String.t(), %{ui: ui_content()}}
+
+@callback transform_timeout() :: pos_integer()   # default: 5_000 ms
+```
+
+This is where the v0.3.1 additive error shape `{:error, reason, %{ui: ui}}`
+matters: a blocked call can carry an approval widget alongside the denial
+text, extracted exactly like ok triples.
+
+### `Planck.Agent.Hooks.TurnStart` — async observer
+
+Declared with `"turn_start_hook": "MySidecar.Hooks.Warmup"`. Fired in a
+background task when a new LLM turn begins, alongside the `:turn_start`
+broadcast. Observer-only — cannot block the turn or inject prompt content
+(`Prompt` remains the sole synchronous injector). For memory warmup,
+metrics, and similar side effects.
+
+```elixir
+@callback notify(agent_id :: String.t(), session_id :: String.t() | nil) :: :ok
+
+@callback notify_timeout() :: pos_integer()   # default: 5_000 ms
+```
+
 ## Per-agent persistence
 
 Conversation storage is implemented in the sidecar via the
@@ -503,17 +602,23 @@ once per turn.
 @callback load_session_messages(session_id :: String.t(), opts :: keyword()) ::
             {:ok, [session_row()]} | :error
 
+@callback delete_session(session_id :: String.t(), opts :: keyword()) ::
+            :ok | {:error, term()}
+
 @callback persistence_timeout() :: pos_integer()
 ```
 
 `persist_message/3`, `persist_usage/3`, `load_messages/3`, `flush_unpersisted/3`,
 and `truncate_after/2` are agent-scoped — an agent only ever touches its own
-history, and `Planck.Agent` calls these directly. `load_session_messages/2` is
-session-scoped and never called by `Planck.Agent` itself; it exists for a
-caller outside any agent process — planck_headless calls it (via
-`Planck.Headless.session_messages/1`) to hand a chat UI every agent's history
-for a session, interleaved by insertion order, so a closed session can still
-be read back.
+history, and `Planck.Agent` calls these directly. `load_session_messages/2` and
+`delete_session/2` are session-scoped and never called by `Planck.Agent`
+itself; they exist for callers outside any agent process — planck_headless
+calls the former (via `Planck.Headless.session_messages/1`) to hand a chat UI
+every agent's history for a session, interleaved by insertion order, so a
+closed session can still be read back, and the latter to tear a session down
+for good. `delete_session/2` is the optional one: `use` provides a default
+delegating to the built-in SQLite file removal, so custom backends only
+override it when their storage lives somewhere SQLite can't reach.
 
 ### Default — built-in SQLite store
 
@@ -526,7 +631,7 @@ satisfies the behaviour itself, so `state.persistence: nil` and
 ### Fallback on RPC failure
 
 When the sidecar node is unavailable, `Hooks.Persistence` falls back to
-`Default` on `:badrpc` from any of the six calls — not a neutral no-op, unlike
+`Default` on `:badrpc` from any of the seven calls — not a neutral no-op, unlike
 the prompt and turn-end hooks. Losing a persisted message on a transient RPC
 failure is worse than losing a compaction pass, so this always still writes
 somewhere.

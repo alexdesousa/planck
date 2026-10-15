@@ -137,15 +137,22 @@ response/communication subset.
 | `destroy_agent` | Permanently terminate a worker |
 | `interrupt_agent` | Abort a worker's current turn without terminating it |
 | `list_models` | List available models (provider, id, `type`, base_url, context_window) |
-| `classify` | Ask a Typesafe/RLCD model a set of typed questions (Choice/Score/Noul) and get calibrated probabilities back — see below |
+| `ask` | Ask a Typesafe/RLCD model a set of typed questions (Choice/Score/Boolean) and get calibrated probabilities back — see below |
+| `ask_files` | Ask the same typed questions about many files at once (explicit paths and/or globs) without reading them — see below |
 
-`classify` isn't declared in `TEAM.json` like a normal tool — it's granted
-to the orchestrator automatically, the same way `spawn_agent`/`list_models`
-are, whenever at least one `"typesafe"`-provider model is configured (see
-[configuration.md](configuration.md#typesafe--rlcd-models)). It's absent
-entirely when no RLCD model is configured. A worker never gets it
-automatically — grant it explicitly via `TEAM.json`'s `"tools"` array or
-`spawn_agent`'s `"tools"` parameter, exactly like any other built-in tool.
+`ask` and `ask_files` aren't declared in `TEAM.json` like normal tools —
+they're granted to the orchestrator automatically, the same way
+`spawn_agent`/`list_models` are, whenever at least one `"typesafe"`-provider
+model is configured (see
+[configuration.md](configuration.md#typesafe--rlcd-models)). They're
+absent entirely when no RLCD model is configured. A worker never gets
+them automatically — grant them explicitly via `TEAM.json`'s `"tools"`
+array or `spawn_agent`'s `"tools"` parameter, exactly like any other
+built-in tool.
+
+> `ask` was called `classify` before v0.3.1. The rename was hard — there
+> is no `classify` alias, and teams still referencing it fail with an
+> unknown-tool error.
 
 ### All-agent tools
 
@@ -179,7 +186,7 @@ a clean slate for a new task.
 Use `list_models` before calling `spawn_agent` to get the correct `model_id`
 and `base_url` for the target provider.
 
-### `classify` parameters
+### `ask` parameters
 
 | Parameter | Required | Description |
 |---|---|---|
@@ -193,11 +200,34 @@ Each entry in `questions` is one of:
 
 - **Choice** — `{"type": "choice", "instructions": "...", "criteria": {"key": "description", ...}}` — pick exactly one option (up to 255)
 - **Score** — `{"type": "score", "instructions": "...", "criteria": ["low description", "...", "high description"]}` — rate against 2-10 ordered levels
-- **Boolean/Noul** — `{"type": "boolean", "instructions": "..."}` (optionally `"criteria": {"true": "...", "false": "..."}`) — probability the answer is yes
+- **Boolean** — `{"type": "boolean", "instructions": "..."}` (optionally `"criteria": {"true": "...", "false": "..."}`) — probability the answer is yes. This is what upstream RLCD docs call `noul`; Planck keeps the `boolean` name
 
-Unlike `spawn_agent`, `classify` never starts an agent — it's a single
+Unlike `spawn_agent`, `ask` never starts an agent — it's a single
 stateless call. It can't chat, stream, or use tools, so it's the wrong tool
 for anything needing multi-step reasoning.
+
+### `ask_files` parameters
+
+Same as `ask`, but `state` is replaced by `paths`:
+
+| Parameter | Required | Description |
+|---|---|---|
+| `provider` | ✅ | Always `"typesafe"` |
+| `model_id` | ✅ | RLCD model id from `list_models` |
+| `base_url` | ✅ | Self-hosted/compatible endpoint URL; placeholder for Typesafe cloud |
+| `paths` | ✅ | File paths to evaluate (absolute or relative to the workspace, same rule as `read`). Glob patterns (`*`, `?`, `[...]`) are expanded to matching files. Max 255 after expansion |
+| `questions` | ✅ | One shared questions block, shaped exactly like `ask`'s |
+
+Returns `{results: [{path, answers}], skipped: [{path, reason}], calls}`:
+one entry per readable file in input order, unreadable paths (and globs
+matching nothing) in `skipped` with a reason, and `calls` counting the
+successful RLCD calls. One `evaluate` call per file, at most 16 in
+flight; files whose content plus the question block exceed the RLCD token
+budget are skipped. File content is read through the *live* `read` tool —
+a sidecar-shadowed `read` (sandboxed, Tika-extraction-aware, …) applies
+to `ask_files` too — falling back to local reads when no shadow is
+registered. Typical pattern: triage a large candidate set, then `read`
+only the files whose boolean answer clears your confidence cutoff.
 
 ### `list_team` verbose mode
 

@@ -118,6 +118,33 @@ this to pick up local changes to `planck_docker/`:
 ./dev_docker.sh init-config  # fresh environment + write a deep-thought team config
 ```
 
+#### The `.example` files (needed for `init-config`)
+
+`init-config` no longer bakes a personal setup into the script — it copies two
+files from the repo root into the dev environment. Create them from the tracked
+templates first:
+
+```bash
+cp config.json.example config.json   # providers, models, default model/team
+cp TEAM.json.example   TEAM.json     # the deep-thought team definition
+```
+
+- **`config.json`** — becomes the dev stack's `.planck/config.json`: its
+  `providers` and `models` (the example ships a placeholder `openai` chat
+  provider and a `typesafe` RLCD provider pointing at `example.com` — edit the
+  `base_url`s and add your real models/keys), plus `default_provider`,
+  `default_model`, and `default_team`.
+- **`TEAM.json`** — becomes `deep-thought/TEAM.json` in the dev teams dir: the
+  orchestrator spec (model, system prompt, and the `prompt_hook` /
+  `turn_end_hook` / `tool_start_hook` sidecar wiring). Edit it to change the
+  team the dev stack runs.
+
+Both `config.json` and `TEAM.json` are **gitignored** (only the `*.example`
+templates are tracked), so your local endpoints and keys never get committed.
+If either real file is missing, `init-config` stops with a message pointing at
+the template to copy. The plain `./dev_docker.sh` and `preserve` modes don't
+need them — they leave whatever config already exists in `.planck-dev/` alone.
+
 Data lives in `.planck-dev/` (gitignored) so it doesn't touch `~/planck`. See
 [`skills/planck_setup/`](./skills/planck_setup) for configuring the resulting
 environment.

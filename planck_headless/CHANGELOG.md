@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.3.1
+
+### `default_team` config
+
+New `PLANCK_DEFAULT_TEAM` / `.planck/config.json` key: the team used when
+a session starts without an explicit team — a team alias from the teams
+dirs or a path to a team directory. When absent or unresolvable, sessions
+fall back to the default dynamic team as before; pass `"dynamic"`
+explicitly to force a dynamic session regardless.
+
+### Approval passthroughs
+
+`approve_tool_call/3`, `deny_tool_call/4`, `list_pending_approvals/2`,
+and `list_all_pending_approvals/1` wrap the agent's park/resume approval
+loop for session callers — resolve a parked (gate-blocked) tool call by
+session + agent + call id, or list everything parked across the whole
+session (what the CLI's approval modal polls on mount).
+
+### `ask/2,3` helper
+
+Public RLCD ask without an agent in the loop: pass the questions and the
+helper discovers the available RLCD model itself (`available_models/0`
+filter), so external callers (scripts, CI, other agents) get the same
+calibrated answers the `ask` tool provides.
+
+### Misc
+
+- `system_prompt/1` fetches an agent's assembled system prompt for the
+  UI's agent-details view.
+- `delete_session/1` now routes deletion through
+  `Hooks.Persistence.delete_session`, so sessions on a custom
+  persistence backend actually have their data removed (see
+  `planck_agent`'s entry).
+- Worker grant resolution (`rlcd_grantable_tools/1`) includes `ask` and
+  `ask_files`, so `TEAM.json` grants for both reach workers.
+- Dynamic worker starts pass the orchestrator's hooks down, matching the
+  `planck_agent` inheritance fix.
+
 ## v0.3.0
 
 ### Slash-command dispatcher with three tiers
