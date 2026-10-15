@@ -571,9 +571,118 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert meta["team_alias"] == "my-alias-team"
     end
 
-    test "returns error for unknown team alias" do
-      assert {:error, {:team_not_found, "no-such-team"}} =
-               Headless.start_session(template: "no-such-team")
+    test "unknown team alias falls back to the dynamic team with a warning" do
+      import ExUnit.CaptureLog
+
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, session_id} = Headless.start_session(template: "no-such-team")
+          {:ok, meta} = Session.get_metadata(session_id)
+          assert meta["team_alias"] == "no-such-team"
+        end)
+
+      assert log =~ "could not be resolved"
+      assert log =~ "falling back to the dynamic team"
+    end
+
+    defp with_default_team(alias_name) do
+      Application.put_env(:planck, :default_team, alias_name)
+      Config.reload_default_team()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_team)
+        Config.reload_default_team()
+      end)
+    end
+
+    test "no template uses the configured default_team", %{tmp_dir: dir} do
+      write_team(dir, "default-team")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+      with_default_team("default-team")
+
+      assert {:ok, session_id} = Headless.start_session()
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "default-team"
+    end
+
+    test "default_team accepts a path", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "path-default-team")
+
+      with_default_team(team_dir)
+
+      assert {:ok, session_id} = Headless.start_session()
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == team_dir
+    end
+
+    test "unresolvable default_team falls back to the dynamic team", %{tmp_dir: _dir} do
+      import ExUnit.CaptureLog
+
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      with_default_team("deleted-team")
+
+      log =
+        capture_log(fn ->
+          assert {:ok, session_id} = Headless.start_session()
+
+          {:ok, meta} = Session.get_metadata(session_id)
+          assert meta["team_alias"] == "deleted-team"
+          assert [_] = Registry.lookup(Planck.Agent.Registry, {meta["team_id"], :member})
+        end)
+
+      assert log =~ "falling back to the dynamic team"
+    end
+
+    test "explicit template overrides the configured default_team", %{tmp_dir: dir} do
+      write_team(dir, "default-team")
+      write_team(dir, "explicit-team")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+      with_default_team("default-team")
+
+      assert {:ok, session_id} = Headless.start_session(template: "explicit-team")
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "explicit-team"
+    end
+
+    test "\"dynamic\" template stays dynamic even with a default_team configured", %{
+      tmp_dir: dir
+    } do
+      write_team(dir, "default-team")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      with_default_team("default-team")
+
+      assert {:ok, session_id} = Headless.start_session(template: "dynamic")
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "dynamic"
+    end
+
+    test "a real team named \"dynamic\" takes precedence over the reserved alias", %{
+      tmp_dir: dir
+    } do
+      write_team(dir, "dynamic")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+
+      assert {:ok, session_id} = Headless.start_session(template: "dynamic")
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "dynamic"
     end
 
     # Sidecar tools and sessions
@@ -1423,6 +1532,84 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- delete_session/1 ---
+
+  defmodule DeleteRecordingPersistence do
+    use Planck.Agent.Hooks.Persistence
+
+    @impl true
+    def persist_message(_session_id, _agent_id, message), do: message
+    @impl true
+    def persist_usage(_session_id, _agent_id, _usage), do: :ok
+    @impl true
+    def load_messages(_session_id, _agent_id, _opts), do: {:ok, []}
+    @impl true
+    def flush_unpersisted(_session_id, _agent_id, _messages), do: :noop
+    @impl true
+    def truncate_after(_session_id, _message_id), do: :ok
+    @impl true
+    def load_session_messages(_session_id, _opts), do: {:ok, []}
+
+    @impl true
+    def delete_session(session_id, opts) do
+      case :persistent_term.get({__MODULE__, :parent}, nil) do
+        nil -> :ok
+        parent -> send(parent, {:delete_session, session_id, opts})
+      end
+
+      :ok
+    end
+  end
+
+  describe "delete_session/1" do
+    test "removes the SQLite file for the default backend", %{
+      tmp_dir: dir,
+      sessions_dir: sessions_dir
+    } do
+      team_dir = write_team(dir, "delete-default-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      assert {:ok, _path, _} = Session.find_by_id(sessions_dir, session_id)
+
+      assert :ok = Headless.delete_session(session_id)
+      assert {:error, :not_found} = Session.find_by_id(sessions_dir, session_id)
+    end
+
+    test "stops active agents and the session before deleting", %{
+      tmp_dir: dir,
+      sessions_dir: sessions_dir
+    } do
+      team_dir = write_team(dir, "delete-active-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      assert :ok = Headless.delete_session(session_id)
+      refute Process.alive?(orch_pid)
+      assert {:error, :not_found} = Session.whereis(session_id)
+      assert {:error, :not_found} = Session.find_by_id(sessions_dir, session_id)
+    end
+
+    test "dispatches to the session's custom persistence backend", %{
+      tmp_dir: dir,
+      sessions_dir: sessions_dir
+    } do
+      :persistent_term.put({DeleteRecordingPersistence, :parent}, self())
+      on_exit(fn -> :persistent_term.erase({DeleteRecordingPersistence, :parent}) end)
+
+      module_name = inspect(DeleteRecordingPersistence)
+      team_dir = write_team_with_persistence(dir, "delete-custom-team", module_name)
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      assert :ok = Headless.delete_session(session_id)
+      assert_received {:delete_session, ^session_id, opts}
+      assert opts[:dir] == sessions_dir
+    end
+
+    test "unknown session is a no-op" do
+      assert :ok = Headless.delete_session("ghost-session")
+    end
+  end
+
   # --- prompt/2 ---
 
   describe "prompt/2" do
@@ -1790,7 +1977,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert_receive {:agent_event, :turn_end, _}, 2_000
     end
 
-    test "rejects a solo team with additional members", %{tmp_dir: dir} do
+    test "solo team with additional members falls back to the dynamic team", %{tmp_dir: dir} do
       team_dir = Path.join(dir, "solo-plus-worker")
       File.mkdir_p!(team_dir)
 
@@ -1814,8 +2001,18 @@ defmodule Planck.Headless.SessionLifecycleTest do
         })
       )
 
-      assert {:error, reason} = Headless.start_session(template: team_dir)
-      assert reason =~ "a \"solo\" team cannot have additional members"
+      import ExUnit.CaptureLog
+
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, _session_id} = Headless.start_session(template: team_dir)
+        end)
+
+      assert log =~ "could not be resolved"
+      assert log =~ "falling back to the dynamic team"
     end
   end
 

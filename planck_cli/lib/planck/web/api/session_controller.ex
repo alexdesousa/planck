@@ -324,9 +324,6 @@ defmodule Planck.Web.API.SessionController do
 
       {:error, :not_found} ->
         conn |> put_status(422) |> json(%{error: "Tool call not pending approval"})
-
-      {:error, reason} ->
-        conn |> put_status(422) |> json(%{error: inspect(reason)})
     end
   end
 
@@ -353,9 +350,6 @@ defmodule Planck.Web.API.SessionController do
 
       {:error, :not_found} ->
         conn |> put_status(422) |> json(%{error: "Tool call not pending approval"})
-
-      {:error, reason} ->
-        conn |> put_status(422) |> json(%{error: inspect(reason)})
     end
   end
 

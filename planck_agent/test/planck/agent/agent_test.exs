@@ -2096,11 +2096,11 @@ defmodule Planck.Agent.AgentTest do
       system
     end
 
-    test "prepends 'You are a X.' when name equals type" do
+    test "prepends 'You are a/an X.' when name equals type" do
       capture_system(self())
       agent = start_agent(name: "builder", type: "builder", system_prompt: "Base.")
       system = get_system(agent)
-      assert system =~ "You are a builder."
+      assert system =~ "You are a/an builder."
       assert system =~ "Base."
     end
 
@@ -2118,11 +2118,11 @@ defmodule Planck.Agent.AgentTest do
       assert system =~ "You are Marvin."
     end
 
-    test "prepends 'You are a X.' when only type is set" do
+    test "prepends 'You are a/an X.' when only type is set" do
       capture_system(self())
       agent = start_agent(type: "builder", system_prompt: "Base.")
       system = get_system(agent)
-      assert system =~ "You are a builder."
+      assert system =~ "You are a/an builder."
     end
 
     test "no identity line when name and type are both nil" do
@@ -2218,13 +2218,13 @@ defmodule Planck.Agent.AgentTest do
       assert system =~ "list_models"
     end
 
-    test "tool sections appear after the user system_prompt" do
+    test "user system_prompt is appended after the tool sections" do
       capture_system(self())
       agent = start_agent(tools: [fake_tool("respond_agent")], system_prompt: "Base.")
       system = get_system(agent)
       base_pos = :binary.match(system, "Base.") |> elem(0)
       intro_pos = :binary.match(system, "## Inter-agent tools") |> elem(0)
-      assert base_pos < intro_pos
+      assert intro_pos < base_pos
     end
 
     test "sections appear only for tools that are present" do

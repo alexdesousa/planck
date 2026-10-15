@@ -118,7 +118,7 @@ msgctxt "chat label"
 msgid "thinking…"
 msgstr "pensando…"
 
-#: lib/planck/web/live/chat_component.ex:457
+#: lib/planck/web/live/chat_component.ex:460
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"
@@ -574,7 +574,7 @@ msgid "Must include /v1 — e.g. http://localhost:11434/v1"
 msgstr "Debe incluir /v1 — p. ej. http://localhost:11434/v1"
 
 #: lib/planck/web/live/setup_modal/provider_model_step.ex:908
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgctxt "setup help"
 msgid "Uppercase tag for the API key env var (e.g. NVIDIA → NVIDIA_API_KEY). Also used as the provider key."
 msgstr "Etiqueta en mayúsculas para la variable de entorno de la clave API (p. ej. NVIDIA → NVIDIA_API_KEY). También se usa como clave de proveedor."
@@ -915,13 +915,13 @@ msgid "RLCD models can't be set as default — they can't serve chat."
 msgstr "Los modelos RLCD no pueden establecerse como predeterminados — no pueden atender chat."
 
 #: lib/planck/web/live/chat_component.html.heex:341
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgctxt "button label"
 msgid "delete"
 msgstr "eliminar"
 
 #: lib/planck/web/live/prompt_input.html.heex:28
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgctxt "command badge"
 msgid "builtin"
 msgstr "básico"
@@ -1032,9 +1032,9 @@ msgid "skill"
 msgstr "habilidad"
 
 #: lib/planck/web/live/sessions_sidebar.ex:88
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "Dynamic"
-msgstr "Dinámico (predeterminado)"
+msgstr "Dinámico"
 
 #: lib/planck/web/live/sessions_sidebar.ex:87
 #, elixir-autogen, elixir-format

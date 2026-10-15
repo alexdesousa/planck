@@ -32,5 +32,6 @@
     }
   ],
   "default_provider": "example-chat",
-  "default_model": "example-chat-model"
+  "default_model": "example-chat-model",
+  "default_team": "deep-thought"
 }

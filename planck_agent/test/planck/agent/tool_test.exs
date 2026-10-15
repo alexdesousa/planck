@@ -609,6 +609,107 @@ defmodule Planck.Agent.ToolTest do
       assert message =~ "255"
     end
 
+    @tag :tmp_dir
+    test "glob patterns expand to matching files", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "a.ex"), "aaa")
+      File.write!(Path.join(dir, "b.ex"), "bbb")
+      File.write!(Path.join(dir, "c.txt"), "ccc")
+
+      reader = fn path -> {:ok, "content of #{path}"} end
+
+      stub(MockAI, :evaluate, fn _model, %{path: path}, _qs, _opts ->
+        {:ok, %{object: %{"echo" => path}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, json} =
+               File.cd!(dir, fn ->
+                 tool.execute_fn.("agent-1", "tc-1", %{
+                   "provider" => "typesafe",
+                   "model_id" => "jev-latest",
+                   "base_url" => "",
+                   "paths" => ["*.ex"],
+                   "questions" => %{}
+                 })
+               end)
+
+      assert %{"results" => results, "skipped" => [], "calls" => 2} = Jason.decode!(json)
+      assert Enum.map(results, & &1["path"]) == ["a.ex", "b.ex"]
+    end
+
+    @tag :tmp_dir
+    test "globs with no matches fail the call with a clear reason", %{tmp_dir: dir} do
+      reader = fn _path -> raise "must not read" end
+      expect(MockAI, :evaluate, 0, fn _m, _s, _q, _o -> {:ok, %{object: %{}}} end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:error, message} =
+               File.cd!(dir, fn ->
+                 tool.execute_fn.("agent-1", "tc-1", %{
+                   "provider" => "typesafe",
+                   "model_id" => "jev-latest",
+                   "base_url" => "",
+                   "paths" => ["nothing-*.ex"],
+                   "questions" => %{}
+                 })
+               end)
+
+      assert message =~ "no matches"
+    end
+
+    @tag :tmp_dir
+    test "a literal already covered by a glob is not evaluated twice", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "a.ex"), "aaa")
+
+      reader = fn path -> {:ok, "content of #{path}"} end
+
+      stub(MockAI, :evaluate, fn _model, %{path: path}, _qs, _opts ->
+        {:ok, %{object: %{"echo" => path}}}
+      end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:ok, json} =
+               File.cd!(dir, fn ->
+                 tool.execute_fn.("agent-1", "tc-1", %{
+                   "provider" => "typesafe",
+                   "model_id" => "jev-latest",
+                   "base_url" => "",
+                   "paths" => ["a.ex", "*.ex"],
+                   "questions" => %{}
+                 })
+               end)
+
+      assert %{"results" => results, "calls" => 1} = Jason.decode!(json)
+      assert Enum.map(results, & &1["path"]) == ["a.ex"]
+    end
+
+    @tag :tmp_dir
+    test "glob expansion over the cap errors before any file is read", %{tmp_dir: dir} do
+      for n <- 1..256, do: File.write!(Path.join(dir, "file-#{n}.ex"), "x")
+
+      reader = fn _path -> raise "must not read" end
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @rlcd_model} end)
+
+      tool = Tools.ask_files([@rlcd_model], reader: reader)
+
+      assert {:error, message} =
+               File.cd!(dir, fn ->
+                 tool.execute_fn.("agent-1", "tc-1", %{
+                   "provider" => "typesafe",
+                   "model_id" => "jev-latest",
+                   "base_url" => "",
+                   "paths" => ["*.ex"],
+                   "questions" => %{}
+                 })
+               end)
+
+      assert message =~ "255"
+      assert message =~ "glob expansion"
+    end
+
     test "results keep input order despite uneven latency" do
       reader = fn path -> {:ok, "content of #{path}"} end
 

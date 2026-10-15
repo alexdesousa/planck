@@ -12,7 +12,10 @@ defmodule Planck.Agent.Hooks.Persistence do
   own history); the sixth, `load_session_messages/2`, is session-scoped, for
   callers outside any agent process that need every agent's history in one
   session, in original insertion order (e.g. a chat UI listing a whole
-  conversation, orchestrator and workers together).
+  conversation, orchestrator and workers together). A seventh,
+  `delete_session/2`, is also session-scoped but optional — `use` supplies a
+  default that delegates to `Default` (built-in SQLite file removal);
+  override it if your backend stores data elsewhere.
 
       defmodule MyApp.Persistence.Postgres do
         use Planck.Agent.Hooks.Persistence
@@ -77,7 +80,7 @@ defmodule Planck.Agent.Hooks.Persistence do
     `Default` satisfies the same behaviour a custom module would.
   - `module` set, `sidecar_node: nil` — calls the resolved module in-process.
   - `module` set, `sidecar_node` set — calls the module on the remote node
-    via RPC; falls back to `Default` on `:badrpc` from any of the six calls.
+    via RPC; falls back to `Default` on `:badrpc` from any of the seven calls.
 
   The default RPC timeout is #{@default_timeout_ms} ms; override
   `persistence_timeout/0` to declare a custom expected latency.
@@ -158,6 +161,22 @@ defmodule Planck.Agent.Hooks.Persistence do
               {:ok, [session_row()]} | :error
 
   @doc """
+  Delete all stored data for `session_id`. Never called by `Planck.Agent`
+  itself — like `load_session_messages/2`, it's for an external caller
+  (`planck_headless`) tearing a session down for good.
+
+  Options carry what the backend needs to locate its own storage — for the
+  built-in SQLite backend, `dir:` is the sessions directory holding the
+  `.db` file. Custom backends ignore what doesn't apply and remove their
+  own rows/collections instead.
+
+  `use` provides a default delegating to `Default`; override it when your
+  backend stores data somewhere SQLite can't reach.
+  """
+  @callback delete_session(session_id :: String.t(), opts :: keyword()) ::
+              :ok | {:error, term()}
+
+  @doc """
   RPC call timeout in milliseconds when this persistence module is invoked
   remotely. Defaults to #{@default_timeout_ms} ms.
   """
@@ -171,7 +190,15 @@ defmodule Planck.Agent.Hooks.Persistence do
       @impl unquote(__MODULE__)
       def persistence_timeout, do: unquote(__MODULE__).default_timeout()
 
-      defoverridable persistence_timeout: 0
+      # Optional override: backends that don't implement delete_session/2 get
+      # the built-in SQLite file removal. Default's own explicit impl takes
+      # precedence over this generated one, so no recursion there.
+      @impl unquote(__MODULE__)
+      def delete_session(session_id, opts) do
+        Planck.Agent.Hooks.Persistence.Default.delete_session(session_id, opts)
+      end
+
+      defoverridable persistence_timeout: 0, delete_session: 2
     end
   end
 
@@ -361,6 +388,35 @@ defmodule Planck.Agent.Hooks.Persistence do
       when is_atom(module) and
              is_binary(session_id) do
     dispatch(module, :load_session_messages, [session_id, []], sidecar_node)
+  end
+
+  @doc """
+  Delete a session's stored data, dispatching to `module` (or `Default`
+  when `nil`), locally or via `sidecar_node`. Like `load_session_messages/3`,
+  this is never called by `Planck.Agent` itself — the caller is tearing a
+  session down for good (see the moduledoc's "Dispatch" section).
+  """
+  @spec delete_session(module() | nil, String.t(), keyword(), atom() | nil) ::
+          :ok | {:error, term()}
+  def delete_session(module, session_id, opts, sidecar_node)
+
+  def delete_session(nil, session_id, opts, sidecar_node)
+      when is_binary(session_id) and is_list(opts) do
+    delete_session(Default, session_id, opts, sidecar_node)
+  end
+
+  def delete_session(module, session_id, opts, nil)
+      when is_atom(module) and
+             is_binary(session_id) and
+             is_list(opts) do
+    module.delete_session(session_id, opts)
+  end
+
+  def delete_session(module, session_id, opts, sidecar_node)
+      when is_atom(module) and
+             is_binary(session_id) and
+             is_list(opts) do
+    dispatch(module, :delete_session, [session_id, opts], sidecar_node)
   end
 
   # ---------------------------------------------------------------------------

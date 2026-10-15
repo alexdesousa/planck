@@ -211,15 +211,29 @@ defmodule Planck.Headless do
   end
 
   @doc """
-  Close a session and permanently delete its SQLite file from disk.
+  Close a session and permanently delete its stored data.
 
-  Stops all running agents and the Session GenServer if active, then removes
-  the `.db` file. This operation is irreversible.
+  Stops all running agents and the Session GenServer if active, then
+  dispatches `delete_session` to the session's persistence backend — the
+  built-in SQLite `.db` file by default, or the custom `persistence:`
+  module declared by the team (on the sidecar node when one is running),
+  resolved from the session's saved metadata the same way
+  `session_messages/1` resolves its read backend. This operation is
+  irreversible.
   """
   @spec delete_session(session_id()) :: :ok
   def delete_session(session_id)
 
   def delete_session(session_id) when is_binary(session_id) do
+    # Read the persistence module before closing — the Session GenServer
+    # must still be alive to answer, and it's what tells us which backend
+    # (if any) owns this session's data.
+    persistence =
+      case Session.get_metadata(session_id) do
+        {:ok, metadata} -> metadata["persistence"]
+        _ -> nil
+      end
+
     # Stop running processes if active — best-effort, ignore any errors
     try do
       close_session(session_id)
@@ -227,12 +241,15 @@ defmodule Planck.Headless do
       _ -> :ok
     end
 
-    # TODO: We should add a delete session callback in the Persistence hook
     sessions_dir = Config.sessions_dir!() |> Path.expand()
+    module = resolve_hook_module(persistence)
 
-    with {:ok, path, _name} <- Session.find_by_id(sessions_dir, session_id) do
-      File.rm(path)
-    end
+    Agent.Hooks.Persistence.delete_session(
+      module,
+      session_id,
+      [dir: sessions_dir],
+      SidecarManager.node()
+    )
 
     :ok
   end

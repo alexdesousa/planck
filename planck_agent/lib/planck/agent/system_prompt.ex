@@ -397,5 +397,5 @@ defmodule Planck.Agent.SystemPrompt do
   defp prepend_section("", section) when is_binary(section), do: section
 
   defp prepend_section(prompt, section) when is_binary(prompt) and is_binary(section),
-    do: prompt <> "\n\n" <> section
+    do: section <> "\n\n" <> prompt
 end

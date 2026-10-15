@@ -34,6 +34,19 @@ defmodule Planck.Agent.Hooks.PersistenceTest do
     session_id
   end
 
+  defp start_real_session_with_dir do
+    session_id = unique_id()
+    dir = Path.join(System.tmp_dir!(), "planck_persistence_delete_#{session_id}")
+    {:ok, _} = Session.start(session_id, name: "test", dir: dir)
+
+    on_exit(fn ->
+      Session.stop(session_id)
+      File.rm_rf!(dir)
+    end)
+
+    {session_id, dir}
+  end
+
   defp text_message(role, text), do: Message.new(role, [{:text, text}])
 
   # ---------------------------------------------------------------------------
@@ -90,6 +103,14 @@ defmodule Planck.Agent.Hooks.PersistenceTest do
     test "persistence_timeout/0 can be overridden" do
       assert CustomTimeoutPersistence.persistence_timeout() == 60_000
     end
+
+    test "provides a default delete_session/2 that delegates to Default (SQLite)" do
+      {session_id, dir} = start_real_session_with_dir()
+      assert {:ok, _path, _} = Session.find_by_id(dir, session_id)
+
+      assert MinimalPersistence.delete_session(session_id, dir: dir) == :ok
+      assert {:error, :not_found} = Session.find_by_id(dir, session_id)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -135,6 +156,12 @@ defmodule Planck.Agent.Hooks.PersistenceTest do
 
       {:ok,
        [%{db_id: 1, agent_id: "orchestrator", message: text_message_for_test(), inserted_at: 0}]}
+    end
+
+    @impl true
+    def delete_session(session_id, opts) do
+      notify({:delete_session, session_id, opts})
+      :ok
     end
 
     defp text_message_for_test, do: Message.new(:user, [{:text, "from recording module"}])
@@ -316,6 +343,77 @@ defmodule Planck.Agent.Hooks.PersistenceTest do
 
       refute_received {:load_session_messages, _, _}
       assert Enum.map(rows, & &1.agent_id) == ["orchestrator"]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # delete_session/4 — session teardown, dispatched to the session's
+  # persistence backend (see the moduledoc's "Dispatch" section).
+  # ---------------------------------------------------------------------------
+
+  describe "delete_session/4" do
+    test "module: nil dispatches to Default (removes the real SQLite file)" do
+      {session_id, dir} = start_real_session_with_dir()
+      assert {:ok, _path, _} = Session.find_by_id(dir, session_id)
+
+      assert Persistence.delete_session(nil, session_id, [dir: dir], nil) == :ok
+      assert {:error, :not_found} = Session.find_by_id(dir, session_id)
+    end
+
+    test "dispatches to a custom module locally" do
+      session_id = unique_id()
+
+      assert Persistence.delete_session(
+               RecordingPersistence,
+               session_id,
+               [dir: "/tmp/whatever"],
+               nil
+             ) ==
+               :ok
+
+      assert_received {:delete_session, ^session_id, [dir: "/tmp/whatever"]}
+    end
+
+    test "dispatches via RPC on the same node" do
+      session_id = unique_id()
+
+      assert Persistence.delete_session(
+               RecordingPersistence,
+               session_id,
+               [dir: "/tmp/whatever"],
+               Node.self()
+             ) == :ok
+
+      assert_received {:delete_session, ^session_id, [dir: "/tmp/whatever"]}
+    end
+
+    test "falls back to Default (real SQLite) when RPC fails" do
+      {session_id, dir} = start_real_session_with_dir()
+      assert {:ok, _path, _} = Session.find_by_id(dir, session_id)
+
+      assert Persistence.delete_session(
+               RecordingPersistence,
+               session_id,
+               [dir: dir],
+               :nonexistent@localhost
+             ) ==
+               :ok
+
+      refute_received {:delete_session, _, _}
+      assert {:error, :not_found} = Session.find_by_id(dir, session_id)
+    end
+
+    test "Default returns an error when :dir is missing" do
+      assert Persistence.delete_session(nil, "some-session", [], nil) ==
+               {:error, :missing_sessions_dir}
+    end
+
+    test "Default is a no-op when the session file doesn't exist" do
+      dir = Path.join(System.tmp_dir!(), "planck_persistence_delete_absent_#{unique_id()}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      assert Persistence.delete_session(nil, "ghost", [dir: dir], nil) == :ok
     end
   end
 

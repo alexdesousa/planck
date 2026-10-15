@@ -465,9 +465,10 @@ Conversation storage is implemented in the sidecar via the
 
 planck_headless passes `persistence: MySidecar.Persistence.Postgres` (a module
 atom) at agent start time. Unlike the compactor/prompt/turn-end hooks, this one
-has six callbacks — five agent-scoped, one session-scoped — and `Planck.Agent`
-dispatches to it (via `Hooks.Persistence.*`) on every message write, usage
-write, history load, flush, and truncate, not just once per turn.
+has seven callbacks — five agent-scoped, two session-scoped (one of which is
+optional) — and `Planck.Agent` dispatches to it (via `Hooks.Persistence.*`) on
+every message write, usage write, history load, flush, and truncate, not just
+once per turn.
 
 ### Behaviour
 

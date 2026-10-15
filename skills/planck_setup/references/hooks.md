@@ -529,10 +529,13 @@ prompted.
 @callback load_session_messages(session_id :: String.t(), opts :: keyword()) ::
             {:ok, [session_row()]} | :error
 
+@callback delete_session(session_id :: String.t(), opts :: keyword()) ::
+            :ok | {:error, term()}   # optional — `use` defaults to SQLite file removal
+
 @callback persistence_timeout() :: pos_integer()   # default: 5_000 ms
 ```
 
-Five of the six are agent-scoped — `Planck.Agent` calls them itself, and an
+Five of the seven are agent-scoped — `Planck.Agent` calls them itself, and an
 agent only ever touches its own history: `persist_message/3` on every new
 message, `persist_usage/3` after every turn, `load_messages/3` on session
 resume, `flush_unpersisted/3` before an agent stops, `truncate_after/2` when
@@ -544,6 +547,19 @@ process — planck_headless uses it to hand a chat UI every agent's history for
 a session, interleaved by insertion order, so a closed session can still be
 read back. `session_row()` is `%{db_id:, agent_id:, message:, inserted_at:}`,
 matching the shape `Planck.Agent.Session.messages/2` already returns.
+
+`delete_session/2` is also session-scoped and never called by `Planck.Agent` —
+planck_headless calls it when a session is deleted for good, so the backend
+that owns the session's data is the one that removes it. `opts` carries what
+the backend needs to locate its own storage; for the built-in SQLite backend
+it's `dir:` (the sessions directory holding the `.db` file). Unlike the
+others it's **optional**: `use` supplies a default that delegates to
+`Default` (remove the local `.db` file). Override it when your backend stores
+data somewhere SQLite can't reach — e.g. a Postgres backend should delete the
+session's rows there. The local sessions-directory metadata store that
+planck_headless keeps for the session lives in the same `dir:`, so a custom
+backend that wants the session fully gone from `list_sessions/0` should remove
+that file too.
 
 Ephemeral agents (no `session_id`) never reach a persistence module at all —
 each agent-scoped call is a no-op before dispatching.
@@ -579,6 +595,14 @@ defmodule MySidecar.Persistence.Postgres do
   def load_session_messages(session_id, opts) do
     # return {:ok, [session_row()]} for every agent in the session,
     # interleaved by insertion order, or :error
+  end
+
+  # Optional — without this, `use` falls through to the built-in SQLite
+  # file removal, which won't touch Postgres.
+  @impl true
+  def delete_session(session_id, _opts) do
+    # delete this session's rows from Postgres
+    :ok
   end
 end
 ```

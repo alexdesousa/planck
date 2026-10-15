@@ -883,7 +883,10 @@ defmodule Planck.Agent.Tools do
 
   defp expand_ask_paths(agent_id, paths) when is_binary(agent_id) and is_list(paths) do
     cwd = agent_cwd(agent_id)
-    Enum.flat_map(paths, &maybe_expand_glob(&1, cwd))
+
+    paths
+    |> Enum.flat_map(&maybe_expand_glob(&1, cwd))
+    |> Enum.uniq()
   end
 
   @spec agent_cwd(String.t()) :: Path.t()
@@ -919,7 +922,10 @@ defmodule Planck.Agent.Tools do
     if Path.type(path) == :absolute do
       Path.wildcard(path)
     else
-      Path.wildcard(path, cd: cwd)
+      cwd
+      |> Path.join(path)
+      |> Path.wildcard()
+      |> Enum.map(&Path.relative_to(&1, cwd))
     end
   end
 
