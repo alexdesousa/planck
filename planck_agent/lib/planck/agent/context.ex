@@ -261,10 +261,17 @@ defmodule Planck.Agent.Context do
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  @spec build_system_prompt(t(), Identity.t(), Hooks.t()) :: String.t()
-  defp build_system_prompt(context, identity, hooks)
+  @doc """
+  Assemble the full system prompt from context, identity, and hooks.
 
-  defp build_system_prompt(%__MODULE__{} = ctx, %Identity{} = identity, %Hooks{} = hooks) do
+  Same assembly the agent runs before every LLM turn (see
+  `Planck.Agent.SystemPrompt`); exposed so callers (e.g. UIs) can fetch the
+  prompt without duplicating the build logic.
+  """
+  @spec build_system_prompt(t(), Identity.t(), Hooks.t()) :: String.t()
+  def build_system_prompt(context, identity, hooks)
+
+  def build_system_prompt(%__MODULE__{} = ctx, %Identity{} = identity, %Hooks{} = hooks) do
     Planck.Agent.SystemPrompt.build(%{
       system_prompt: ctx.system_prompt,
       name: identity.name,

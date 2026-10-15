@@ -408,6 +408,17 @@ defmodule Planck.Agent do
     GenServer.call(agent, :estimate_tokens)
   end
 
+  @doc """
+  Return the fully assembled system prompt the agent would send on its next
+  turn, including prompt-hook output. Built fresh on each call — no caching.
+  """
+  @spec system_prompt(agent()) :: String.t()
+  def system_prompt(agent)
+
+  def system_prompt(agent) do
+    GenServer.call(agent, :get_system_prompt)
+  end
+
   @doc "Replace the model used for subsequent LLM turns without interrupting the current state."
   @spec change_model(agent(), Planck.AI.Model.t()) :: :ok
   def change_model(agent, model)
@@ -636,6 +647,10 @@ defmodule Planck.Agent do
 
   def handle_call(:estimate_tokens, _from, state) do
     {:reply, state.context.context_tokens, state}
+  end
+
+  def handle_call(:get_system_prompt, _from, state) do
+    {:reply, Context.build_system_prompt(state.context, state.identity, state.hooks), state}
   end
 
   def handle_call({:prompt, content, opts}, _from, state) when is_list(opts) do

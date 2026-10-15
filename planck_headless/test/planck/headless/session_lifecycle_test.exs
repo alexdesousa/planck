@@ -2769,6 +2769,25 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
   end
 
+  # --- system_prompt/1 ---
+
+  describe "system_prompt/1" do
+    test "returns the assembled prompt for a running agent", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "sysprompt-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+      agent_id = Agent.get_info(orch_pid).id
+
+      assert {:ok, prompt} = Headless.system_prompt(agent_id)
+      assert prompt =~ "You coordinate."
+    end
+
+    test "returns {:error, :agent_not_found} for an unknown agent id" do
+      assert Headless.system_prompt("deadbeefdeadbeef") == {:error, :agent_not_found}
+    end
+  end
+
   # --- register_tool / unregister_tool ---
 
   describe "register_tool/1 and unregister_tool/1" do

@@ -412,6 +412,20 @@ defmodule Planck.Headless do
     end
   end
 
+  @doc """
+  Fetch the fully assembled system prompt for a running agent — the same
+  prompt the agent would send on its next turn, built by the agent itself
+  (including prompt-hook output). Prefer this over rebuilding the prompt in
+  the caller, which can diverge from the agent's own assembly.
+  """
+  @spec system_prompt(agent_id()) :: {:ok, String.t()} | {:error, :agent_not_found}
+  def system_prompt(agent_id) when is_binary(agent_id) do
+    case Agent.whereis(agent_id) do
+      {:ok, pid} -> {:ok, Agent.system_prompt(pid)}
+      {:error, :not_found} -> {:error, :agent_not_found}
+    end
+  end
+
   @spec flatten_approval(Agent.Turn.running_entry(), agent_id()) :: approval()
   defp flatten_approval(entry, agent_id)
 

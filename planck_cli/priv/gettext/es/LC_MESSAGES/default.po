@@ -1031,12 +1031,12 @@ msgctxt "command kind"
 msgid "skill"
 msgstr "habilidad"
 
-#: lib/planck/web/live/sessions_sidebar.ex:88
+#: lib/planck/web/live/sessions_sidebar.ex:93
 #, elixir-autogen, elixir-format
 msgid "Dynamic"
 msgstr "Dinámico"
 
-#: lib/planck/web/live/sessions_sidebar.ex:87
+#: lib/planck/web/live/sessions_sidebar.ex:92
 #, elixir-autogen, elixir-format
 msgctxt "form option"
 msgid "%{team} (default)"

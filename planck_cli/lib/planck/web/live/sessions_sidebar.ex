@@ -79,15 +79,23 @@ defmodule Planck.Web.Live.SessionsSidebar do
 
   defp team_options(default, teams)
        when default in [nil, "dynamic"] do
-    [{"", pgettext("form option", "Dynamic (default)")} | Enum.map(teams, &{&1, &1})]
+    base = [{"dynamic", pgettext("form option", "Dynamic (default)")}]
+
+    teams
+    |> Stream.filter(&(&1 not in [default, "dynamic"]))
+    |> Enum.map(&{&1, &1})
+    |> then(fn teams -> base ++ teams end)
   end
 
   defp team_options(default, teams) do
     base = [
-      {"", pgettext("form option", "%{team} (default)", team: default)},
+      {default, pgettext("form option", "%{team} (default)", team: default)},
       {"dynamic", gettext("Dynamic")}
     ]
 
-    base ++ Enum.map(teams, &{&1, &1})
+    teams
+    |> Stream.filter(&(&1 not in [default, "dynamic"]))
+    |> Enum.map(&{&1, &1})
+    |> then(fn teams -> base ++ teams end)
   end
 end

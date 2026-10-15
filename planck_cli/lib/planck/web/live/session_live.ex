@@ -3,7 +3,6 @@ defmodule Planck.Web.SessionLive do
 
   alias Planck.Agent
   alias Planck.Agent.Session
-  alias Planck.Agent.SystemPrompt
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
   alias Planck.Web.Live.{AgentDetails, AgentsSidebar, ChatComponent, StatusBar}
@@ -657,9 +656,10 @@ defmodule Planck.Web.SessionLive do
     |> assign(:overlay_details, overlay_details)
   end
 
-  @spec build_agent_details(String.t()) :: {:ok, map()} | {:error, :not_found}
+  @spec build_agent_details(String.t()) :: {:ok, map()} | {:error, :not_found | :agent_not_found}
   defp build_agent_details(agent_id) do
-    with {:ok, pid} <- Agent.whereis(agent_id) do
+    with {:ok, pid} <- Agent.whereis(agent_id),
+         {:ok, prompt} <- Headless.system_prompt(agent_id) do
       state = Agent.get_state(pid)
       ctx = state.context
 
@@ -668,20 +668,6 @@ defmodule Planck.Web.SessionLive do
         |> Map.values()
         |> Enum.sort_by(& &1.name)
         |> Enum.map(&%{name: &1.name, description: &1.description})
-
-      prompt =
-        SystemPrompt.build(%{
-          system_prompt: ctx.system_prompt,
-          name: state.identity.name,
-          type: state.identity.type,
-          tools: ctx.tools,
-          skill_pool: ctx.skills_pool,
-          ranked_skill_names: ctx.skills_ranked,
-          top_skills: ctx.skills_top_n,
-          prompt_hook: state.hooks.prompt,
-          session_id: state.identity.session_id,
-          sidecar_node: state.hooks.sidecar_node
-        })
 
       {:ok,
        %{
