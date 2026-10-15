@@ -1,0 +1,96 @@
+<div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 md:p-8"
+     phx-window-keydown="close"
+     phx-key="Escape"
+     phx-target={@myself}>
+  <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
+               w-full max-w-2xl h-[85vh] overflow-hidden">
+    <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between gap-2 bg-card flex-shrink-0">
+      <p class="font-bold font-mono text-sm truncate flex-1 min-w-0">
+        <span class="truncate"><%= Map.get(@agents, @agent_id, %{}) |> Map.get(:name, "agent") %></span>
+      </p>
+      <div class="w-44 flex-shrink-0">
+        <.dropdown
+          id="worker-model-dropdown"
+          name="model"
+          options={@model_options}
+          selected={Map.get(@agents, @agent_id, %{})[:model_id]}
+          on_select="switch_worker_model"
+        />
+      </div>
+      <button
+        class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+               shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+               hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+        phx-click="close"
+        phx-target={@myself}
+      >
+        ✕
+      </button>
+    </div>
+    <div class="relative flex-1 min-h-0 flex flex-col">
+      <div class="flex-1 overflow-hidden min-h-0">
+        <.live_component
+          module={ChatComponent}
+          id="chat-overlay"
+          session_id={@session_id}
+          perspective_agent_id={@agent_id}
+          agents={@agents}
+        />
+      </div>
+      <div class="border-t-2 border-black bg-card px-4 py-2 flex items-center justify-between flex-shrink-0">
+        <button
+          class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                 shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                 hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                 bg-card flex items-center gap-1.5"
+          phx-click="open_details"
+          phx-target={@myself}
+        >
+          <span class="inline-flex items-center justify-center w-4 h-4 border-2 border-black text-[10px] font-bold leading-none">i</span>
+          <%= pgettext("agent overlay", "Details") %>
+        </button>
+        <%= if @active? do %>
+          <button
+            type="button"
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                   bg-destructive text-destructive-foreground"
+            phx-click="abort_worker"
+            phx-target={@myself}
+            title={pgettext("tooltip", "Stop")}
+          >
+            <%= pgettext("button label", "Stop") %>
+          </button>
+        <% end %>
+      </div>
+      <%= if @details do %>
+        <div class={[
+          "details-pane absolute inset-0 z-10 bg-background border-t-2 border-black p-4 overflow-y-auto flex flex-col",
+          if(@details.open, do: "open")
+        ]}>
+          <.live_component
+            module={AgentDetails}
+            id="overlay-agent-details"
+            tools={@details.tools}
+            hooks={@details.hooks}
+            skills={@details.skills}
+            commands={@details.commands}
+            show_commands={false}
+            system_prompt={@details.system_prompt}
+          />
+          <div class="flex justify-end mt-auto pt-4">
+            <button
+              class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     bg-primary text-primary-foreground"
+              phx-click="close_details"
+              phx-target={@myself}
+            >✕ <%= pgettext("agent overlay", "Close") %></button>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

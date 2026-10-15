@@ -87,6 +87,10 @@ defmodule Planck.Web.Live.AgentsSidebar do
     update_agent(socket, agent_id, &Map.put(&1, :status, :idle))
   end
 
+  defp handle_agent_event(socket, {:agent_event, :aborted, %{agent_id: agent_id}}) do
+    update_agent(socket, agent_id, &Map.put(&1, :status, :idle))
+  end
+
   defp handle_agent_event(
          socket,
          {:agent_event, :usage_delta, %{agent_id: agent_id, total: total} = event}

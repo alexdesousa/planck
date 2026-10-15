@@ -57,6 +57,7 @@ msgctxt "button label"
 msgid "Send"
 msgstr "Send"
 
+#: lib/planck/web/live/agent_overlay.html.heex:63
 #: lib/planck/web/live/prompt_input.html.heex:70
 #, elixir-autogen, elixir-format
 msgctxt "button label"
@@ -281,6 +282,7 @@ msgctxt "tool status"
 msgid "running…"
 msgstr "running…"
 
+#: lib/planck/web/live/agent_overlay.html.heex:61
 #: lib/planck/web/live/prompt_input.html.heex:68
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
@@ -989,13 +991,13 @@ msgctxt "agent details"
 msgid "runtime-assembled"
 msgstr ""
 
-#: lib/planck/web/live/session_live.html.heex:159
+#: lib/planck/web/live/agent_overlay.html.heex:90
 #, elixir-autogen, elixir-format
 msgctxt "agent overlay"
 msgid "Close"
 msgstr ""
 
-#: lib/planck/web/live/session_live.html.heex:134
+#: lib/planck/web/live/agent_overlay.html.heex:50
 #, elixir-autogen, elixir-format
 msgctxt "agent overlay"
 msgid "Details"

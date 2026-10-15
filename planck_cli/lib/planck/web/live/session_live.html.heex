@@ -85,84 +85,14 @@
 
   <%!-- Agent context overlay — centered panel, not full-screen on large displays --%>
   <%= if @overlay do %>
-    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 md:p-8"
-         phx-window-keydown="close_overlay"
-         phx-key="Escape">
-      <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
-                  w-full max-w-2xl h-[85vh] overflow-hidden">
-        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between gap-2 bg-card flex-shrink-0">
-          <p class="font-bold font-mono text-sm truncate flex-1 min-w-0">
-            <span class="truncate"><%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %></span>
-          </p>
-          <div class="w-44 flex-shrink-0">
-            <.dropdown
-              id="worker-model-dropdown"
-              name="model"
-              options={@model_options}
-              selected={Map.get(@agents, @overlay, %{})[:model_id]}
-              on_select="switch_worker_model"
-            />
-          </div>
-          <button
-            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
-                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
-            phx-click="close_overlay"
-          >
-            ✕
-          </button>
-        </div>
-        <div class="relative flex-1 min-h-0 flex flex-col">
-          <div class="flex-1 overflow-hidden min-h-0">
-            <.live_component
-              module={ChatComponent}
-              id="chat-overlay"
-              session_id={@active_session}
-              perspective_agent_id={@overlay}
-              agents={@agents}
-            />
-          </div>
-          <div class="border-t-2 border-black bg-card px-4 py-2 flex items-center justify-end flex-shrink-0">
-            <button
-              class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                     bg-card flex items-center gap-1.5"
-              phx-click="open_overlay_details"
-            >
-              <span class="inline-flex items-center justify-center w-4 h-4 border-2 border-black text-[10px] font-bold leading-none">i</span>
-              <%= pgettext("agent overlay", "Details") %>
-            </button>
-          </div>
-          <%= if @overlay_details do %>
-            <div class={[
-              "details-pane absolute inset-0 z-10 bg-background border-t-2 border-black p-4 overflow-y-auto flex flex-col",
-              if(@overlay_details.open, do: "open")
-            ]}>
-              <.live_component
-                module={AgentDetails}
-                id="overlay-agent-details"
-                tools={@overlay_details.tools}
-                hooks={@overlay_details.hooks}
-                skills={@overlay_details.skills}
-                commands={@overlay_details.commands}
-                show_commands={false}
-                system_prompt={@overlay_details.system_prompt}
-              />
-              <div class="flex justify-end mt-auto pt-4">
-                <button
-                  class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
-                         shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                         hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                         bg-primary text-primary-foreground"
-                  phx-click="close_overlay_details"
-                >✕ <%= pgettext("agent overlay", "Close") %></button>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      </div>
-    </div>
+    <.live_component
+      module={AgentOverlay}
+      id="agent-overlay"
+      agent_id={@overlay}
+      agents={@agents}
+      model_options={@model_options}
+      session_id={@active_session}
+    />
   <% end %>
 
   <%!-- Orchestrator info modal — tools, hooks, skills, commands, system prompt --%>
