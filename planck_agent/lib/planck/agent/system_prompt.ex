@@ -8,10 +8,16 @@ defmodule Planck.Agent.SystemPrompt do
 
   ## Assembly order
 
-  1. Identity line — "You are a <type>." / "You are <name>, a <type>."
-  2. Base system prompt from `spec.system_prompt`
+  1. `before_prompt` hook output
+  2. Identity line — "You are a <type>." / "You are <name>, a <type>."
   3. Per-tool guidance sections (one per inter-agent tool present)
   4. Skills section (from `skill_refresh_fn` if present)
+  5. Base system prompt from `spec.system_prompt` (includes `AGENTS.md` when
+     present — it is prepended to the custom prompt before `build/1` is called)
+  6. `after_prompt` hook output
+
+  The custom prompt is appended last so the agent's own instructions sit
+  closest to the conversation, where they are most salient.
   """
 
   alias Planck.Agent.Hooks
@@ -64,11 +70,12 @@ defmodule Planck.Agent.SystemPrompt do
         session_id: session_id,
         sidecar_node: sidecar_node
       }) do
-    base
-    |> run_prepend(hook, session_id, sidecar_node)
-    |> prepend_identity_line(name, type)
+    ""
+    |> append_identity_line(name, type)
     |> append_tool_sections(tools)
     |> append_skills(skill_pool, ranked_names, top_skills)
+    |> append_section(base || "")
+    |> run_prepend(hook, session_id, sidecar_node)
     |> run_append(hook, session_id, sidecar_node)
   end
 
@@ -78,38 +85,37 @@ defmodule Planck.Agent.SystemPrompt do
 
   @spec run_prepend(String.t(), module() | nil, String.t() | nil, atom() | nil) :: String.t()
   defp run_prepend(prompt, hook, session_id, sidecar_node) do
-    case Hooks.Prompt.before_prompt(hook, session_id, sidecar_node) do
-      nil -> prompt
-      "" -> prompt
-      section -> if prompt == "", do: section, else: section <> "\n\n" <> prompt
-    end
+    section = Hooks.Prompt.before_prompt(hook, session_id, sidecar_node)
+    prepend_section(prompt, section)
   end
 
   @spec run_append(String.t(), module() | nil, String.t() | nil, atom() | nil) :: String.t()
   defp run_append(prompt, hook, session_id, sidecar_node) do
-    case Hooks.Prompt.after_prompt(hook, session_id, sidecar_node) do
-      nil -> prompt
-      "" -> prompt
-      section -> append_section(prompt, section)
-    end
+    section = Hooks.Prompt.after_prompt(hook, session_id, sidecar_node)
+    append_section(prompt, section)
   end
 
   # ---------------------------------------------------------------------------
   # Identity
   # ---------------------------------------------------------------------------
 
-  @spec prepend_identity_line(String.t(), String.t() | nil, String.t() | nil) :: String.t()
-  defp prepend_identity_line(prompt, nil, nil), do: prompt
+  @spec append_identity_line(String.t(), String.t() | nil, String.t() | nil) :: String.t()
+  defp append_identity_line(prompt, nil, nil), do: prompt
 
-  defp prepend_identity_line(prompt, name, type) do
+  defp append_identity_line(prompt, name, type) do
     line =
       cond do
-        is_binary(name) and is_binary(type) and name != type -> "You are #{name}, a #{type}."
-        is_binary(type) -> "You are a #{type}."
-        true -> "You are #{name}."
+        is_binary(name) and is_binary(type) and name != type ->
+          "You are #{name}, a #{type}."
+
+        is_binary(type) ->
+          "You are a/an #{type}."
+
+        true ->
+          "You are #{name}."
       end
 
-    "#{line}\n\n" <> prompt
+    append_section(prompt, line)
   end
 
   # ---------------------------------------------------------------------------
@@ -220,81 +226,21 @@ defmodule Planck.Agent.SystemPrompt do
     """
     ### ask
 
-    Use when you need a fast, calibrated decision — routing, extraction, a
-    yes/no confidence check — instead of reasoning it out yourself in text.
+    A fast, calibrated decision from an RLCD model — use when you need
+    routing, extraction, or a yes/no confidence check instead of reasoning
+    it out yourself in text. Only models with `type: \"rlcd\"` are valid
+    (see `list_models`). Answers are probabilities or chosen values, not
+    prose. Each question in `questions` is one of three types:
 
-    Call `list_models` first — only models with `type: \"rlcd\"` are valid.
-    Pass `provider: \"typesafe\"`, the `model_id` from `list_models`, and
-    `base_url` (real URL for self-hosted, any placeholder for cloud).
-    `state` is the content to evaluate — plain text, or a JSON object/array.
-
-    The result is a probability or chosen value per question, not prose — do
-    not ask it to explain itself, and do not use it for anything that needs
-    multi-step reasoning or tool use.
-
-    Each entry in `questions` is one of three types. Choose by the shape of
-    the answer you need:
-
-    #### Choice
-
-    Use when state fits into exactly one of a fixed set of named categories
-    — routing to the right specialist, sorting an inbound message by intent.
-    `criteria` is required: an object naming the options. The answer is the
-    winning option's key and its probability.
-
-    ```json
-    {"route_to": {"type": "choice", "instructions": "Which team handles this?",
-      "criteria": {"billing": "Payments and refunds", "technical": "Bugs"}}}
-    ```
-
-    #### Score
-
-    Use when state falls somewhere on an ordered scale rather than a
-    discrete category — severity, quality, how well a draft matches a spec.
-    `criteria` is required: an array of 2-10 level descriptions, low to high.
-    Describe each level as a concrete situation, not a bare degree — "broken
-    feature but a workaround exists" gives the model something to match;
-    "minor" alone does not and splits the answer. Keep each Score question to
-    one dimension. The answer is a position on the scale that can fall between
-    two levels, plus a probability per level and a confidence.
-
-    ```json
-    {"severity": {"type": "score", "instructions": "How severe is the impact?",
-      "criteria": ["cosmetic, no user impact",
-                   "feature degraded but a workaround exists",
-                   "blocking, no workaround exists"]}}
-    ```
-
-    #### Boolean
-
-    Use as a yes/no confidence gate before a destructive or irreversible
-    action — "does this message clearly authorize a refund?" `criteria` is
-    optional, clarifying what counts as yes/no. The answer is the probability
-    the answer is yes.
-
-    ```json
-    {"urgent": {"type": "boolean", "instructions": "Is this urgent?"}}
-    ```
-
-    A full call puts all three under `questions`:
-
-    ```json
-    {
-      "provider": "typesafe",
-      "model_id": "<rlcd-model-id>",
-      "base_url": "http://localhost:8000",
-      "state": "Refund request: charged twice for order 42.",
-      "questions": {
-        "urgent": {"type": "boolean", "instructions": "Is this urgent?"},
-        "route_to": {"type": "choice", "instructions": "Which team?",
-          "criteria": {"billing": "Payments", "technical": "Bugs"}},
-        "severity": {"type": "score", "instructions": "How severe?",
-          "criteria": ["cosmetic, no user impact",
-                       "feature degraded but a workaround exists",
-                       "blocking, no workaround exists"]}
-      }
-    }
-    ```
+    - **choice** — pick exactly one of a fixed set of named options
+      (`criteria` names them). Use when the input falls into exactly one
+      category, e.g. routing an inbound message to the right specialist.
+    - **score** — rate the state on an ordered scale (`criteria` lists the
+      levels, low to high, as concrete situations). Use when the answer is
+      a position rather than a label, e.g. triaging bug severity.
+    - **boolean** — the probability the answer is yes. Use as a confidence
+      gate before a destructive or irreversible action, e.g. \"does this
+      message clearly authorize a refund?\"
     """
     |> String.trim_trailing()
   end
@@ -303,38 +249,18 @@ defmodule Planck.Agent.SystemPrompt do
     """
     ### ask_files
 
-    Use when you need the same fast, calibrated decision about many files
-    at once — triaging which files relate to a bug, which configs need a
-    migration — without reading them all yourself.
+    The same typed questions from `ask` applied to many files at once — use
+    for triage without reading them yourself, e.g. which files relate to a
+    bug or which configs need a migration.
 
-    Pass explicit file paths only (max 255, no globs or directories) and
-    one `questions` block shaped exactly like `ask`'s — the same three types
-    (`choice`, `score`, `boolean`), same `criteria` rules. Each readable file
-    gets one evaluation; unreadable files land in `skipped` with a reason
-    instead of failing the whole call.
-
-    ```json
-    {
-      "provider": "typesafe",
-      "model_id": "<rlcd-model-id>",
-      "base_url": "http://localhost:8000",
-      "paths": ["lib/billing.ex", "lib/webhook.ex"],
-      "questions": {
-        "bug_related": {
-          "type": "boolean",
-          "instructions": "Is this file related to the double-charge bug?"
-        }
-      }
-    }
-    ```
-
-    The result is `{results: [{path, answers}], skipped: [{path, reason}],
-    calls}` — `answers` is per-path, keyed by your own question IDs. A
-    `boolean` question here is upstream `noul`: its answer is the
-    probability the answer is yes.
+    `paths` accepts explicit file paths and glob patterns (e.g.
+    `[\"lib/app.ex\", \"src/**/*.js\"]`), up to 255 total. Each readable
+    file gets one evaluation with the same three question types as `ask`;
+    unreadable files and globs with no matches land in `skipped` with a
+    reason instead of failing the whole call.
 
     Gating recipe: ask one `boolean` question per triage, then act only
-    where that probability exceeds a cutoff you choose (e.g. `noul > 0.7`) —
+    where that probability exceeds a cutoff you choose (e.g. `> 0.7`) —
     `read` just those hits in full and leave the rest unread.
     """
     |> String.trim_trailing()
@@ -453,7 +379,23 @@ defmodule Planck.Agent.SystemPrompt do
   # Helpers
   # ---------------------------------------------------------------------------
 
-  @spec append_section(String.t(), String.t()) :: String.t()
-  defp append_section("", section), do: section
-  defp append_section(prompt, section), do: prompt <> "\n\n" <> section
+  @spec append_section(String.t(), nil | String.t()) :: String.t()
+  defp append_section(prompt, section)
+
+  defp append_section(prompt, nil) when is_binary(prompt), do: prompt
+  defp append_section(prompt, "") when is_binary(prompt), do: prompt
+  defp append_section("", section) when is_binary(section), do: section
+
+  defp append_section(prompt, section) when is_binary(prompt) and is_binary(section),
+    do: prompt <> "\n\n" <> section
+
+  @spec prepend_section(String.t(), nil | String.t()) :: String.t()
+  defp prepend_section(prompt, section)
+
+  defp prepend_section(prompt, nil) when is_binary(prompt), do: prompt
+  defp prepend_section(prompt, "") when is_binary(prompt), do: prompt
+  defp prepend_section("", section) when is_binary(section), do: section
+
+  defp prepend_section(prompt, section) when is_binary(prompt) and is_binary(section),
+    do: prompt <> "\n\n" <> section
 end

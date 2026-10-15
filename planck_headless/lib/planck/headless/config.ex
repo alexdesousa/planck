@@ -25,6 +25,7 @@ defmodule Planck.Headless.Config do
   | Env var                   | Config key           | Default                           |
   |---------------------------|----------------------|-----------------------------------|
   | `PLANCK_DEFAULT_MODEL`    | `:default_model`     | `nil`                             |
+  | `PLANCK_DEFAULT_TEAM`     | `:default_team`      | `nil` (dynamic)                   |
   | `PLANCK_SESSIONS_DIR`     | `:sessions_dir`      | `.planck/sessions`                |
   | `PLANCK_SKILLS_DIRS`      | `:skills_dirs`       | `.planck/skills:~/.planck/skills` |
   | `PLANCK_TEAMS_DIRS`       | `:teams_dirs`        | `.planck/teams:~/.planck/teams`   |
@@ -123,6 +124,7 @@ defmodule Planck.Headless.Config do
   """
   @type t :: %__MODULE__{
           default_model: String.t() | nil,
+          default_team: String.t() | nil,
           sessions_dir: Path.t(),
           skills_dirs: [Path.t()],
           commands_dirs: [Path.t()],
@@ -136,6 +138,7 @@ defmodule Planck.Headless.Config do
         }
 
   defstruct default_model: nil,
+            default_team: nil,
             sessions_dir: ".planck/sessions",
             skills_dirs: [".planck/skills", "~/.planck/skills"],
             commands_dirs: [".planck/commands", "~/.planck/commands"],
@@ -175,6 +178,15 @@ defmodule Planck.Headless.Config do
 
   @envdoc "Default model id within the default provider (e.g. claude-sonnet-4-6)."
   app_env :default_model, :planck, :default_model,
+    default: nil,
+    binding_order: @json
+
+  @envdoc """
+  Team used when a session is started without an explicit team — a team alias
+  from the teams dirs, or a path to a team directory. When absent (or when it
+  cannot be resolved) sessions fall back to the default dynamic team.
+  """
+  app_env :default_team, :planck, :default_team,
     default: nil,
     binding_order: @json
 
@@ -325,6 +337,7 @@ defmodule Planck.Headless.Config do
   def get do
     %__MODULE__{
       default_model: default_model!(),
+      default_team: default_team!(),
       sessions_dir: sessions_dir!(),
       skills_dirs: skills_dirs!(),
       commands_dirs: commands_dirs!(),

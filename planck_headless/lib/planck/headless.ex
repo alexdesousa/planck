@@ -103,8 +103,10 @@ defmodule Planck.Headless do
 
   ## Options
 
-  - `template:` — team alias, path to a TEAM.json directory, or `nil` for the
-    default dynamic team (lone orchestrator built from config defaults).
+  - `template:` — team alias, path to a TEAM.json directory, `"dynamic"` for
+    the built-in lone-orchestrator team, or `nil` for the default team: the
+    `default_team` config if set (falling back to dynamic when unresolvable),
+    otherwise the dynamic team.
   - `name:` — session name; auto-generated as `<adjective>-<noun>` if absent.
   - `cwd:` — working directory for the session (default: `File.cwd!()`).
   - `tools:` — extra `Planck.Agent.Tool.t()` list available only for this
@@ -133,7 +135,7 @@ defmodule Planck.Headless do
          {:ok, session_id} <- create_session(session_name),
          {:ok, team_id} <- materialize_team(session_id, team, cwd, session_tools: session_tools) do
       save_metadata(session_id, %{
-        template: template,
+        template: template || Config.default_team!(),
         session_name: session_name,
         cwd: cwd,
         team_id: team_id,
@@ -916,10 +918,35 @@ defmodule Planck.Headless do
   defp resolve_team(team_alias)
 
   defp resolve_team(nil) do
-    build_dynamic_team()
+    case Config.default_team!() do
+      team when team in [nil, "dynamic"] ->
+        build_dynamic_team()
+
+      default when is_binary(default) ->
+        resolve_team(default)
+    end
   end
 
   defp resolve_team(alias) when is_binary(alias) do
+    case load_team_any(alias) do
+      {:ok, team} ->
+        {:ok, team}
+
+      {:error, reason} ->
+        Logger.warning(
+          "default_team #{inspect(alias)} could not be resolved (#{inspect(reason)}) — " <>
+            "falling back to the dynamic team"
+        )
+
+        build_dynamic_team()
+    end
+  end
+
+  @spec load_team_any(String.t()) ::
+          {:ok, Team.t()}
+          | {:error, String.t()}
+          | {:error, {:team_not_found, String.t()}}
+  defp load_team_any(alias) do
     with {:error, :not_found} <- get_team(alias),
          expanded = Path.expand(alias),
          true <- File.dir?(expanded) || {:error, {:team_not_found, alias}} do

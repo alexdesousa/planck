@@ -160,7 +160,7 @@ msgctxt "form label"
 msgid "Team"
 msgstr "Equipo"
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:70
+#: lib/planck/web/live/sessions_sidebar.ex:82
 #, elixir-autogen, elixir-format
 msgctxt "form option"
 msgid "Dynamic (default)"
@@ -1030,3 +1030,14 @@ msgstr "comando"
 msgctxt "command kind"
 msgid "skill"
 msgstr "habilidad"
+
+#: lib/planck/web/live/sessions_sidebar.ex:88
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Dynamic"
+msgstr "Dinámico (predeterminado)"
+
+#: lib/planck/web/live/sessions_sidebar.ex:87
+#, elixir-autogen, elixir-format
+msgctxt "form option"
+msgid "%{team} (default)"
+msgstr "%{team} (predeterminado)"

@@ -591,14 +591,16 @@ defmodule Planck.Agent.Tools do
   # (mirrors upstream L8/L9: 64k total tokens, 4k headroom for questions,
   # roughly four chars per token).
   @ask_files_max_chars (64_000 - 4_000) * 4
+  @glob_metachars ~r/[*?\[]/
 
   @doc """
   Build the `ask_files` tool from a pre-filtered list of available models.
 
   Same RLCD gate as `ask/1` — see `rlcd_tools/1`. Asks one shared
-  `questions` block about many files at once: explicit paths only (no
-  globs, dirs, or recursion), one `evaluate/4` call per readable file,
-  at most #{@ask_files_concurrency} in flight, results in input order.
+  `questions` block about many files at once: explicit paths and glob
+  patterns (expanded against the agent's cwd), one `evaluate/4` call per
+  readable file, at most #{@ask_files_concurrency} in flight, results in
+  input order. Globs that match nothing land in `skipped` with a reason.
 
   Returns `{results: [{path, answers}], skipped: [{path, reason}],
   calls}` JSON — `calls` counts successful RLCD calls, so a follow-up
@@ -619,8 +621,8 @@ defmodule Planck.Agent.Tools do
       name: "ask_files",
       description:
         "Use to ask the same typed questions about many files at once without " <>
-          "reading them yourself. Pass explicit file paths only (max 255, no globs " <>
-          "or directories) plus a questions block shaped exactly like ask's. " <>
+          "reading them yourself. Pass explicit file paths and/or glob patterns " <>
+          "(e.g. \"src/**/*.js\") plus a questions block shaped exactly like ask's. " <>
           "Makes one RLCD call per readable file and returns " <>
           "{results: [{path, answers}], skipped: [{path, reason}], calls}. " <>
           "Call list_models first and pass the id of a model with type \"rlcd\".",
@@ -652,9 +654,10 @@ defmodule Planck.Agent.Tools do
             "items" => %{"type" => "string"},
             "maxItems" => @max_ask_files,
             "description" =>
-              "Explicit file paths to evaluate (absolute or relative to the " <>
-                "workspace, same rule as read). Max #{@max_ask_files}; no globs, " <>
-                "directories, or recursion."
+              "File paths to evaluate (absolute or relative to the workspace, " <>
+                "same rule as read). Glob patterns (\"*\", \"?\", \"[...]\") are " <>
+                "expanded to matching files. Max #{@max_ask_files} after " <>
+                "expansion; a glob matching nothing is reported in skipped."
           },
           "questions" => questions_schema()
         },
@@ -675,8 +678,9 @@ defmodule Planck.Agent.Tools do
 
         with {:ok, model} <-
                resolve_ask_model(provider, model_id, base_url, available_models),
-             :ok <- check_file_cap(paths) do
-          run_ask_files(model, paths, questions, options)
+             expanded <- expand_ask_paths(agent_id, paths),
+             :ok <- check_file_cap(expanded) do
+          run_ask_files(model, expanded, questions, options)
         end
       end
     )
@@ -848,20 +852,25 @@ defmodule Planck.Agent.Tools do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
   end
 
+  # `input` is the raw paths list, `expanded` the result of glob expansion.
+  # An empty input is an error; non-empty input whose globs all failed to
+  # match is not — the unmatched patterns are reported as skipped instead.
   @spec check_file_cap([Path.t()]) :: :ok | {:error, String.t()}
-  defp check_file_cap(paths)
+  defp check_file_cap(expanded)
 
   defp check_file_cap([]) do
-    reason = "Empty paths list: got 0, maximum is #{@max_ask_files} — nothing was read."
+    reason =
+      "Empty paths list or no matches. Maximum is #{@max_ask_files} files — nothing was read."
+
     {:error, reason}
   end
 
-  defp check_file_cap([_ | _] = paths) when is_list(paths) do
-    if length(paths) > @max_ask_files do
+  defp check_file_cap([_ | _] = expanded) do
+    if length(expanded) > @max_ask_files do
       reason =
-        "Too many paths: got #{length(paths)}, " <>
+        "Too many files: got #{length(expanded)} after glob expansion, " <>
           "maximum is #{@max_ask_files}. " <>
-          "Narrow the list before retrying — nothing was read."
+          "Narrow the patterns before retrying — nothing was read."
 
       {:error, reason}
     else
@@ -869,11 +878,56 @@ defmodule Planck.Agent.Tools do
     end
   end
 
+  @spec expand_ask_paths(String.t(), [String.t()]) :: [Path.t()]
+  defp expand_ask_paths(agent_id, paths)
+
+  defp expand_ask_paths(agent_id, paths) when is_binary(agent_id) and is_list(paths) do
+    cwd = agent_cwd(agent_id)
+    Enum.flat_map(paths, &maybe_expand_glob(&1, cwd))
+  end
+
+  @spec agent_cwd(String.t()) :: Path.t()
+  defp agent_cwd(agent_id)
+
+  defp agent_cwd(agent_id) when is_binary(agent_id) do
+    with {:ok, pid} <- Agent.whereis(agent_id),
+         cwd = Agent.get_state(pid).context.cwd,
+         true <- is_binary(cwd) and cwd != "" do
+      cwd
+    else
+      _ -> File.cwd!()
+    end
+  end
+
+  @spec maybe_expand_glob(Path.t(), Path.t()) :: [Path.t()]
+  defp maybe_expand_glob(path, cwd)
+
+  defp maybe_expand_glob(path, cwd)
+       when is_binary(path) and is_binary(cwd) do
+    if Regex.match?(@glob_metachars, path) do
+      expand_glob(path, cwd)
+    else
+      [path]
+    end
+  end
+
+  @spec expand_glob(Path.t(), Path.t()) :: [Path.t()]
+  defp expand_glob(path, cwd)
+
+  defp expand_glob(path, cwd)
+       when is_binary(path) and is_binary(cwd) do
+    if Path.type(path) == :absolute do
+      Path.wildcard(path)
+    else
+      Path.wildcard(path, cd: cwd)
+    end
+  end
+
   @spec run_ask_files(Model.t(), [Path.t()], map(), keyword()) :: {:ok, String.t()}
   defp run_ask_files(model, paths, questions, options)
 
-  defp run_ask_files(%Model{} = model, [_ | _] = paths, questions, options)
-       when is_map(questions) and is_list(options) do
+  defp run_ask_files(%Model{} = model, paths, questions, options)
+       when is_list(paths) and is_map(questions) and is_list(options) do
     read_tool = live_read_tool()
 
     reader =
@@ -942,8 +996,8 @@ defmodule Planck.Agent.Tools do
              error: map()
   defp do_read_ask_files(paths, options)
 
-  defp do_read_ask_files([_ | _] = paths, options)
-       when is_list(options) do
+  defp do_read_ask_files(paths, options)
+       when is_list(paths) and is_list(options) do
     paths
     |> Stream.map(&read_ask_file(&1, options[:reader]))
     |> Enum.split_with(&match?({:ok, _}, &1))

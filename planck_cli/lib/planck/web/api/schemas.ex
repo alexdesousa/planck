@@ -111,7 +111,9 @@ defmodule Planck.Web.API.Schemas do
       properties: %{
         template: %Schema{
           type: :string,
-          description: "Team alias or path. Omit for the default dynamic team."
+          description:
+            "Team alias or path. Pass \"dynamic\" for the built-in lone-orchestrator team. " <>
+              "Omit for the default team (default_team config, else dynamic)."
         },
         name: %Schema{
           type: :string,

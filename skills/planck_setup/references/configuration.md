@@ -38,6 +38,7 @@ when you control access at the infrastructure level.
 ```json
 {
   "default_model":  "sonnet",
+  "default_team":   "build-team",
   "sessions_dir":   ".planck/sessions",
   "skills_dirs":    [".planck/skills", "~/.planck/skills"],
   "teams_dirs":     [".planck/teams", "~/.planck/teams"],
@@ -51,6 +52,7 @@ when you control access at the infrastructure level.
 | Key | Env var | Description |
 |---|---|---|
 | `default_model` | `PLANCK_DEFAULT_MODEL` | Alias of the model used when no team template is specified |
+| `default_team` | `PLANCK_DEFAULT_TEAM` | Team used when a session is started without an explicit team — a team alias or a path to a team directory. When absent (or unresolvable), sessions fall back to the dynamic team. Pass `"dynamic"` explicitly to force a dynamic session |
 | `sessions_dir` | `PLANCK_SESSIONS_DIR` | Where SQLite session files are stored |
 | `skills_dirs` | `PLANCK_SKILLS_DIRS` (colon-separated) | Directories scanned for skills |
 | `teams_dirs` | `PLANCK_TEAMS_DIRS` (colon-separated) | Directories scanned for team templates |

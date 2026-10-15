@@ -29,7 +29,8 @@ defmodule Planck.Web.Live.SessionsSidebar do
      |> assign(:sessions, assigns[:sessions] || [])
      |> assign(:active_session, assigns[:active_session])
      |> assign(:left_open, assigns[:left_open] || false)
-     |> assign(:teams, assigns[:teams] || [])}
+     |> assign(:teams, assigns[:teams] || [])
+     |> assign(:default_team, Planck.Headless.config().default_team)}
   end
 
   @impl true
@@ -54,7 +55,10 @@ defmodule Planck.Web.Live.SessionsSidebar do
   end
 
   def handle_event("new_session", _params, socket) do
-    {:noreply, assign(socket, :show_new_session, true)}
+    {:noreply,
+     socket
+     |> assign(:show_new_session, true)
+     |> assign(:selected_team, socket.assigns.default_team || "")}
   end
 
   def handle_event("close_new_session", _params, socket) do
@@ -68,5 +72,22 @@ defmodule Planck.Web.Live.SessionsSidebar do
   def handle_event("create_session", %{"team" => team, "name" => name}, socket) do
     send(self(), {:create_session, team, name})
     {:noreply, assign(socket, :show_new_session, false)}
+  end
+
+  @spec team_options(String.t() | nil, [String.t()]) :: [{String.t(), String.t()}]
+  defp team_options(default, teams)
+
+  defp team_options(default, teams)
+       when default in [nil, "dynamic"] do
+    [{"", pgettext("form option", "Dynamic (default)")} | Enum.map(teams, &{&1, &1})]
+  end
+
+  defp team_options(default, teams) do
+    base = [
+      {"", pgettext("form option", "%{team} (default)", team: default)},
+      {"dynamic", gettext("Dynamic")}
+    ]
+
+    base ++ Enum.map(teams, &{&1, &1})
   end
 end
