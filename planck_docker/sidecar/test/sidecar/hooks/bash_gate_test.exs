@@ -64,7 +64,8 @@ defmodule Sidecar.Hooks.BashGateTest do
             verdict(false, 0.9, true, 0.99),
             verdict(true, 0.99, false, 0.0)
           ] do
-        refute match?({:deny, _}, BashGate.gate_bash(answers))
+        result = BashGate.gate_bash(answers)
+        assert match?(:ok, result) or match?({:await_approval, _}, result)
       end
     end
 

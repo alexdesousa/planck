@@ -2349,6 +2349,59 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert reconstructed_id == original_worker_id
     end
 
+    defmodule ResumePromptHook do
+      use Planck.Agent.Hooks.Prompt
+
+      @impl true
+      def before_prompt(_session_id), do: "resume hook before"
+    end
+
+    test "reconstructed dynamic worker inherits the orchestrator's hooks", %{tmp_dir: dir} do
+      team_dir = write_hooked_team(dir, "hook-inherit")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      # The orchestrator itself carries the hook.
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+      assert Agent.get_state(orch_pid).hooks.prompt == ResumePromptHook
+
+      call_id = "spawn-hook-1"
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, call_id, "spawn_agent",
+           %{
+             "type" => "reviewer",
+             "name" => "Reviewer",
+             "description" => "Reviews code.",
+             "system_prompt" => "You are a reviewer.",
+             "provider" => "openai",
+             "model_id" => "llama3.2",
+             "tools" => []
+           }}
+        ])
+      )
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [{:tool_result, call_id, "worker-hook-abc"}])
+      )
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      [{worker_pid, _} | _] = Registry.lookup(Agent.Registry, {new_meta["team_id"], "reviewer"})
+
+      hooks = Agent.get_state(worker_pid).hooks
+      assert hooks.prompt == ResumePromptHook
+      assert Agent.system_prompt(worker_pid) =~ "resume hook before"
+    end
+
     test "failed spawn_agent (error result) is skipped on reconstruct", %{tmp_dir: dir} do
       team_dir = write_team(dir, "failed-spawn")
       {:ok, session_id} = Headless.start_session(template: team_dir)
@@ -2694,6 +2747,30 @@ defmodule Planck.Headless.SessionLifecycleTest do
             "model_id" => "llama3.2",
             "system_prompt" => "You work alone.",
             "tools" => tools
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
+  defp write_hooked_team(dir, alias_name) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read"],
+            "prompt_hook" => "Planck.Headless.SessionLifecycleTest.ResumePromptHook"
           }
         ]
       })

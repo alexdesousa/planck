@@ -36,7 +36,7 @@ defmodule Planck.Agent.Tools do
   """
 
   alias Planck.Agent
-  alias Planck.Agent.{AIBehaviour, Skill, Tool}
+  alias Planck.Agent.{AIBehaviour, Hooks, Skill, Tool}
   alias Planck.AI.Model
 
   @doc """
@@ -389,7 +389,8 @@ defmodule Planck.Agent.Tools do
           session_id: session_id,
           team_id: team_id,
           orchestrator_id: agent_id,
-          cwd: cwd
+          cwd: cwd,
+          parent_hooks: fetch_parent_hooks(agent_id)
         }
 
         with {:ok, model} <-
@@ -1204,7 +1205,14 @@ defmodule Planck.Agent.Tools do
         ) ::
           keyword()
   defp build_spawn_start_opts(args, agent_id, model, granted_tools, granted_skills, ctx) do
-    %{session_id: session_id, team_id: team_id, orchestrator_id: orchestrator_id, cwd: cwd} = ctx
+    %{
+      session_id: session_id,
+      team_id: team_id,
+      orchestrator_id: orchestrator_id,
+      cwd: cwd,
+      parent_hooks: parent_hooks
+    } = ctx
+
     sender = %{id: agent_id, name: args["name"]}
 
     system_prompt =
@@ -1224,7 +1232,21 @@ defmodule Planck.Agent.Tools do
       team_id: team_id,
       delegator_id: orchestrator_id,
       tools: worker_tools(team_id, orchestrator_id, sender) ++ granted_tools
-    ]
+    ] ++ parent_hooks
+  end
+
+  # Tool tasks run outside the caller's GenServer, so reading the caller's
+  # state here is safe (no self-call). The spawned worker mirrors the
+  # parent's hook configuration — including sidecar_node — so sidecar-backed
+  # persistence, prompt injection, and turn/tool hooks apply to dynamic
+  # workers exactly as they do to the orchestrator. Falls back to no hooks
+  # when the caller cannot be resolved.
+  @spec fetch_parent_hooks(String.t()) :: keyword()
+  defp fetch_parent_hooks(agent_id) do
+    case Agent.whereis(agent_id) do
+      {:ok, pid} -> pid |> Agent.get_state() |> Map.fetch!(:hooks) |> Hooks.to_opts()
+      {:error, :not_found} -> []
+    end
   end
 
   @spec target_parameters() :: map()

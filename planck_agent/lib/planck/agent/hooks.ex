@@ -51,19 +51,49 @@ defmodule Planck.Agent.Hooks do
     }
   end
 
-  @doc "Return `before_prompt/1` injection text, or `nil`."
-  @spec before_prompt(t(), String.t() | nil) :: String.t() | nil
-  def before_prompt(hooks, session_id)
-
-  def before_prompt(%__MODULE__{prompt: module, sidecar_node: sidecar_node}, session_id) do
-    __MODULE__.Prompt.before_prompt(module, session_id, sidecar_node)
+  @doc """
+  Convert a `Hooks` struct back to the start-opts keyword list form, so a
+  spawned agent can inherit the parent's hook configuration verbatim.
+  """
+  @spec to_opts(t()) :: keyword()
+  def to_opts(%__MODULE__{} = hooks) do
+    [
+      compactor: hooks.compactor,
+      persistence: hooks.persistence,
+      prompt_hook: hooks.prompt,
+      turn_end_hook: hooks.turn_end,
+      turn_start_hook: hooks.turn_start,
+      tool_start_hook: hooks.tool_start,
+      tool_end_hook: hooks.tool_end,
+      sidecar_node: hooks.sidecar_node
+    ]
   end
 
-  @doc "Return `after_prompt/1` injection text, or `nil`."
-  @spec after_prompt(t(), String.t() | nil) :: String.t() | nil
-  def after_prompt(hooks, session_id)
+  @doc """
+  Convert a `Hooks` struct into the string-keyed spec-map form that
+  `Planck.Agent.AgentSpec.from_map/2` parses. Module atoms are reduced to
+  their dotted names (the inverse of the spec's `resolve_hook_module/1`) and
+  unset hooks are omitted, so a reconstructed dynamic worker inherits the
+  orchestrator's hooks through the normal spec-parsing path. `sidecar_node`
+  is intentionally excluded — it is resolved live, not from the spec.
+  """
+  @spec to_spec_args(t()) :: %{String.t() => String.t()}
+  def to_spec_args(%__MODULE__{} = hooks) do
+    [
+      compactor: hooks.compactor,
+      persistence: hooks.persistence,
+      prompt_hook: hooks.prompt,
+      turn_end_hook: hooks.turn_end,
+      turn_start_hook: hooks.turn_start,
+      tool_start_hook: hooks.tool_start,
+      tool_end_hook: hooks.tool_end
+    ]
+    |> Enum.reject(fn {_key, module} -> is_nil(module) end)
+    |> Map.new(fn {key, module} -> {to_string(key), module_name(module)} end)
+  end
 
-  def after_prompt(%__MODULE__{prompt: module, sidecar_node: sidecar_node}, session_id) do
-    __MODULE__.Prompt.after_prompt(module, session_id, sidecar_node)
+  @spec module_name(module()) :: String.t()
+  defp module_name(module) do
+    module |> inspect() |> String.replace_prefix("Elixir.", "")
   end
 end

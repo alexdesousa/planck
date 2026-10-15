@@ -47,29 +47,29 @@ defmodule Planck.Agent.HooksTest do
     end
   end
 
-  describe inspect({&Context.before_prompt/2, &Context.after_prompt/2}) do
-    test "should return nil when no prompt hook is configured" do
+  describe "to_spec_args/1" do
+    test "omits unset hooks and excludes sidecar_node" do
       hooks = Hooks.build([])
-
-      assert Hooks.before_prompt(hooks, "session-1") == nil
-      assert Hooks.after_prompt(hooks, "session-1") == nil
+      assert Hooks.to_spec_args(hooks) == %{"compactor" => "Planck.Agent.Hooks.Compactor.Default"}
     end
 
-    test "should delegate to the configured prompt hook module" do
-      defmodule TestPromptHook do
-        use Planck.Agent.Hooks.Prompt
+    test "reduces module atoms to dotted names, round-tripping resolve_hook_module" do
+      hooks =
+        Hooks.build(
+          prompt_hook: SomePrompt,
+          persistence: SomePersistence,
+          turn_start_hook: SomeTurnStart,
+          sidecar_node: :sidecar@localhost
+        )
 
-        @impl true
-        def before_prompt(_session_id), do: "before-text"
+      args = Hooks.to_spec_args(hooks)
+      assert args["prompt_hook"] == "SomePrompt"
+      assert args["persistence"] == "SomePersistence"
+      assert args["turn_start_hook"] == "SomeTurnStart"
+      refute Map.has_key?(args, "sidecar_node")
 
-        @impl true
-        def after_prompt(_session_id), do: "after-text"
-      end
-
-      hooks = Hooks.build(prompt_hook: TestPromptHook)
-
-      assert Hooks.before_prompt(hooks, "session-1") == "before-text"
-      assert Hooks.after_prompt(hooks, "session-1") == "after-text"
+      # The dotted name is exactly what resolve_hook_module expects back (inverse check).
+      assert :"Elixir.#{args["prompt_hook"]}" == SomePrompt
     end
   end
 end

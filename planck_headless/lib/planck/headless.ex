@@ -17,6 +17,7 @@ defmodule Planck.Headless do
   alias Planck.Agent.{
     AgentSpec,
     BuiltinTools,
+    Hooks,
     Message,
     Session,
     Skill,
@@ -1562,6 +1563,15 @@ defmodule Planck.Headless do
 
       store = ResourceStore.get()
 
+      # Reconstructed workers inherit the orchestrator's hooks. Injected as
+      # spec-map entries so `AgentSpec.from_map` resolves them through the
+      # normal path; sidecar_node stays live (resolved in do_start_dynamic_worker).
+      hook_args =
+        orch_pid
+        |> Agent.get_state()
+        |> Map.fetch!(:hooks)
+        |> Hooks.to_spec_args()
+
       orch_messages
       |> completed_spawn_calls()
       |> Enum.reject(fn {args, _id} ->
@@ -1576,6 +1586,7 @@ defmodule Planck.Headless do
         {type, name}
       end)
       |> Enum.each(fn {args, original_id} ->
+        args = Map.merge(args, hook_args)
         ctx = %{agent_id: original_id, args: args}
         start_dynamic_worker(session_id, team_id, orch_id, store, ctx)
       end)

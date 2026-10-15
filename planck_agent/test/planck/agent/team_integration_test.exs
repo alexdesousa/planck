@@ -521,6 +521,92 @@ defmodule Planck.Agent.TeamIntegrationTest do
     Agent.get_state(pid).context.tools
   end
 
+  defmodule InheritedPromptHook do
+    use Planck.Agent.Hooks.Prompt
+
+    @impl true
+    def before_prompt(_session_id), do: "inherited before"
+  end
+
+  # ---------------------------------------------------------------------------
+  # spawn_agent hook inheritance
+  # ---------------------------------------------------------------------------
+
+  describe "spawn_agent hook inheritance" do
+    test "spawned worker mirrors the orchestrator's hooks" do
+      team_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      orch =
+        start_dynamic(
+          id: unique_id(),
+          model: @model,
+          system_prompt: "orch",
+          prompt_hook: InheritedPromptHook,
+          sidecar_node: Node.self()
+        )
+
+      orch_id = Agent.get_info(orch).id
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
+
+      {:ok, worker_id} =
+        spawn_tool.execute_fn.(orch_id, "tc-spawn", %{
+          "type" => "reviewer",
+          "name" => "Reviewer",
+          "description" => "Reviews code",
+          "system_prompt" => "You are a reviewer.",
+          "provider" => "openai",
+          "model_id" => "llama3.2",
+          "base_url" => "http://localhost:11434"
+        })
+
+      {:ok, worker_pid} = Agent.whereis(worker_id)
+
+      on_exit(fn ->
+        if Process.alive?(worker_pid) do
+          DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, worker_pid)
+        end
+      end)
+
+      hooks = Agent.get_state(worker_pid).hooks
+      assert hooks.prompt == InheritedPromptHook
+      assert hooks.sidecar_node == Node.self()
+      assert Agent.system_prompt(worker_pid) =~ "inherited before"
+    end
+
+    test "no inheritance when the caller cannot be resolved" do
+      team_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
+
+      {:ok, worker_id} =
+        spawn_tool.execute_fn.(unique_id(), "tc-spawn", %{
+          "type" => "reviewer",
+          "name" => "Reviewer",
+          "description" => "Reviews code",
+          "system_prompt" => "You are a reviewer.",
+          "provider" => "openai",
+          "model_id" => "llama3.2",
+          "base_url" => "http://localhost:11434"
+        })
+
+      {:ok, worker_pid} = Agent.whereis(worker_id)
+
+      on_exit(fn ->
+        if Process.alive?(worker_pid) do
+          DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, worker_pid)
+        end
+      end)
+
+      hooks = Agent.get_state(worker_pid).hooks
+      assert hooks.prompt == nil
+      assert hooks.sidecar_node == nil
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # spawn_agent grantable tools
   # ---------------------------------------------------------------------------
