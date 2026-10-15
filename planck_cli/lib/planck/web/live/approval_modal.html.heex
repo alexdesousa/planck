@@ -26,22 +26,10 @@
                 <%= approval.reason %>
               </span>
             </div>
-            <button
-              class="border-2 border-black px-2 py-0.5 font-mono text-xs
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-background"
-              phx-click="toggle_collapse"
-              phx-value-call_id={approval.call_id}
-              phx-target={@myself}
-            >
-              ⌄
-            </button>
           </div>
 
           <div class="p-3">
-            <div class="border-2 border-black bg-background max-h-48 overflow-y-auto p-2">
-              <pre><code class="language-bash font-mono text-xs whitespace-pre-wrap"><%= Planck.Web.Live.ChatComponent.format_args(approval.tool_name, approval.args) %></code></pre>
-            </div>
+            <pre class="border-2 border-black font-mono text-xs overflow-auto max-h-48"><code class="language-bash whitespace-pre-wrap"><%= Planck.Web.Live.ChatComponent.format_args(approval.tool_name, approval.args) %></code></pre>
 
             <form
               phx-submit="deny"

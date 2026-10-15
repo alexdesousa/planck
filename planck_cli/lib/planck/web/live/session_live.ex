@@ -3,9 +3,10 @@ defmodule Planck.Web.SessionLive do
 
   alias Planck.Agent
   alias Planck.Agent.Session
+  alias Planck.Agent.SystemPrompt
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
-  alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
+  alias Planck.Web.Live.{AgentDetails, AgentsSidebar, ChatComponent, StatusBar}
 
   @impl true
   def mount(_params, session, socket) do
@@ -26,42 +27,16 @@ defmodule Planck.Web.SessionLive do
       |> assign(:teams, [])
       |> assign(:commands, [])
       |> assign(:setup_visible, false)
-      |> assign(:model_selector, nil)
+      |> assign(:agent_info, nil)
+      |> assign(:overlay_details, nil)
       |> assign(:available_models, [])
+      |> assign(:model_options, [])
       |> assign(:first_run, false)
       |> assign(:open_widget_id, nil)
       |> assign(:pending_approvals, [])
 
     if connected?(socket) do
-      # Restore locale for the LiveView process (the plug already set it for
-      # the HTTP request; LiveView runs in a separate process).
-      locale = session["locale"] || get_connect_params(socket)["locale"]
-      if locale, do: Gettext.put_locale(Planck.Web.Gettext, locale)
-
-      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
-      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:resources")
-
-      sessions = Headless.list_sessions()
-
-      socket =
-        case find_initial_session(sessions) do
-          {:ok, session_id} -> load_session(socket, session_id)
-          {:error, _} -> socket
-        end
-
-      teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
-      commands = build_command_list()
-      config = Headless.config()
-      first_run = config.providers == %{} and config.models == []
-
-      {:ok,
-       socket
-       |> assign(:sessions, Headless.list_sessions())
-       |> assign(:teams, teams)
-       |> assign(:commands, commands)
-       |> assign(:first_run, first_run)
-       |> assign(:setup_visible, first_run)
-       |> assign(:available_models, Headless.available_models())}
+      {:ok, do_connect(socket, session)}
     else
       {:ok, socket}
     end
@@ -303,30 +278,6 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_delete_session(session_id, socket)}
   end
 
-  def handle_info({:model_changed, agent_id, model_id}, socket) do
-    with %Planck.AI.Model{} = model <-
-           Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
-         {:ok, pid} <- Agent.whereis(agent_id) do
-      Agent.change_model(pid, model)
-
-      agents =
-        Map.update(socket.assigns.agents, agent_id, %{}, fn a ->
-          %{a | model: if(model.name != "", do: model.name, else: model.id), model_id: model.id}
-        end)
-
-      send_update(AgentsSidebar,
-        id: "agents-sidebar",
-        action: :refresh_agents,
-        agents: agents,
-        agent_order: socket.assigns.agent_order
-      )
-
-      {:noreply, socket |> assign(:model_selector, nil) |> assign(:agents, agents)}
-    else
-      _ -> {:noreply, assign(socket, :model_selector, nil)}
-    end
-  end
-
   def handle_info(:setup_complete, socket) do
     teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
     config = Headless.config()
@@ -339,6 +290,7 @@ defmodule Planck.Web.SessionLive do
       |> assign(:teams, teams)
       |> assign(:commands, build_command_list())
       |> assign(:available_models, Headless.available_models())
+      |> assign(:model_options, model_options())
 
     case Headless.start_session() do
       {:ok, session_id} ->
@@ -383,20 +335,65 @@ defmodule Planck.Web.SessionLive do
   @impl true
   def handle_event(event, params, socket)
 
-  def handle_event("open_model_selector", %{"id" => agent_id}, socket) do
+  def handle_event("open_agent_info", %{"id" => agent_id}, socket) do
     agent = Map.get(socket.assigns.agents, agent_id, %{})
 
-    model_selector = %{
-      agent_id: agent_id,
-      agent_name: agent[:name] || agent[:type] || "agent",
-      current_model: agent[:model_id] || ""
-    }
+    case build_agent_details(agent_id) do
+      {:ok, details} ->
+        agent_info =
+          details
+          |> Map.put(:agent_id, agent_id)
+          |> Map.put(:agent_name, agent[:name] || agent[:type] || "agent")
+          |> Map.put(:model_id, agent[:model_id] || "")
 
-    {:noreply, assign(socket, :model_selector, model_selector)}
+        {:noreply, assign(socket, overlay: nil, overlay_details: nil, agent_info: agent_info)}
+
+      {:error, _} ->
+        {:noreply, socket}
+    end
   end
 
-  def handle_event("close_model_selector", _params, socket) do
-    {:noreply, assign(socket, :model_selector, nil)}
+  def handle_event("close_agent_info", _params, socket) do
+    {:noreply, assign(socket, :agent_info, nil)}
+  end
+
+  def handle_event("open_overlay_details", _params, socket) do
+    if agent_id = socket.assigns.overlay do
+      case build_agent_details(agent_id) do
+        {:ok, details} ->
+          {:noreply, assign(socket, :overlay_details, Map.put(details, :open, true))}
+
+        {:error, _} ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_overlay_details", _params, socket) do
+    case socket.assigns.overlay_details do
+      %{open: true} = details ->
+        {:noreply, assign(socket, :overlay_details, Map.put(details, :open, false))}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("switch_orchestrator_model", %{"value" => model_id}, socket) do
+    case socket.assigns.agent_info do
+      %{agent_id: agent_id} -> {:noreply, do_switch_model(socket, agent_id, model_id)}
+      nil -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("switch_worker_model", %{"value" => model_id}, socket) do
+    if agent_id = socket.assigns.overlay do
+      {:noreply, do_switch_model(socket, agent_id, model_id)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("close_widget", _params, socket) do
@@ -449,7 +446,15 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_event("close_overlay", _params, socket) do
-    {:noreply, assign(socket, :overlay, nil)}
+    # Escape closes the details pane first; the overlay only closes when the
+    # pane is not covering it.
+    case socket.assigns.overlay_details do
+      %{open: true} = details ->
+        {:noreply, assign(socket, :overlay_details, Map.put(details, :open, false))}
+
+      _ ->
+        {:noreply, assign(socket, overlay: nil, overlay_details: nil)}
+    end
   end
 
   def handle_event("toggle_left", _params, socket) do
@@ -467,6 +472,42 @@ defmodule Planck.Web.SessionLive do
   # ---------------------------------------------------------------------------
   # Private events
   # ---------------------------------------------------------------------------
+
+  @spec do_connect(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
+  defp do_connect(socket, session)
+
+  defp do_connect(%Phoenix.LiveView.Socket{} = socket, session)
+       when is_map(session) do
+    # Restore locale for the LiveView process (the plug already set it for
+    # the HTTP request; LiveView runs in a separate process).
+    locale = session["locale"] || get_connect_params(socket)["locale"]
+    if locale, do: Gettext.put_locale(Planck.Web.Gettext, locale)
+
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:resources")
+
+    sessions = Headless.list_sessions()
+
+    socket =
+      case find_initial_session(sessions) do
+        {:ok, session_id} -> load_session(socket, session_id)
+        {:error, _} -> socket
+      end
+
+    teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+    commands = build_command_list()
+    config = Headless.config()
+    first_run = config.providers == %{} and config.models == []
+
+    socket
+    |> assign(:sessions, Headless.list_sessions())
+    |> assign(:teams, teams)
+    |> assign(:commands, commands)
+    |> assign(:first_run, first_run)
+    |> assign(:setup_visible, first_run)
+    |> assign(:available_models, Headless.available_models())
+    |> assign(:model_options, model_options())
+  end
 
   @spec do_refresh_agents(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp do_refresh_agents(socket) do
@@ -602,7 +643,124 @@ defmodule Planck.Web.SessionLive do
       streaming_agent_id: if(streaming, do: agent_id)
     )
 
-    assign(socket, :overlay, agent_id)
+    # Details are built eagerly (but only once per modal open) so the pane DOM
+    # node exists hidden and the slide-up/slide-down transition can run.
+    overlay_details =
+      case build_agent_details(agent_id) do
+        {:ok, details} -> Map.put(details, :open, false)
+        {:error, _} -> nil
+      end
+
+    socket
+    |> assign(:agent_info, nil)
+    |> assign(:overlay, agent_id)
+    |> assign(:overlay_details, overlay_details)
+  end
+
+  @spec build_agent_details(String.t()) :: {:ok, map()} | {:error, :not_found}
+  defp build_agent_details(agent_id) do
+    with {:ok, pid} <- Agent.whereis(agent_id) do
+      state = Agent.get_state(pid)
+      ctx = state.context
+
+      tools =
+        ctx.tools
+        |> Map.values()
+        |> Enum.sort_by(& &1.name)
+        |> Enum.map(&%{name: &1.name, description: &1.description})
+
+      prompt =
+        SystemPrompt.build(%{
+          system_prompt: ctx.system_prompt,
+          name: state.identity.name,
+          type: state.identity.type,
+          tools: ctx.tools,
+          skill_pool: ctx.skills_pool,
+          ranked_skill_names: ctx.skills_ranked,
+          top_skills: ctx.skills_top_n,
+          prompt_hook: state.hooks.prompt,
+          session_id: state.identity.session_id,
+          sidecar_node: state.hooks.sidecar_node
+        })
+
+      {:ok,
+       %{
+         tools: tools,
+         hooks: build_hooks_list(state.hooks),
+         # Skills are the agent's own context; commands are the user-facing
+         # trigger surface (builtins + custom + every store skill), so a skill
+         # may legitimately appear in both lists.
+         skills: build_skills_list(ctx),
+         commands: build_command_list(),
+         system_prompt: prompt
+       }}
+    end
+  end
+
+  @spec build_hooks_list(Planck.Agent.Hooks.t()) :: [map()]
+  defp build_hooks_list(hooks) do
+    [
+      compactor: hooks.compactor,
+      persistence: hooks.persistence,
+      prompt: hooks.prompt,
+      turn_start: hooks.turn_start,
+      turn_end: hooks.turn_end,
+      tool_start: hooks.tool_start,
+      tool_end: hooks.tool_end
+    ]
+    |> Enum.reject(fn {_kind, module} -> is_nil(module) end)
+    |> Enum.map(fn {kind, module} ->
+      %{kind: kind, module: inspect(module), node: hooks.sidecar_node}
+    end)
+  end
+
+  @spec build_skills_list(Planck.Agent.Context.t()) :: [map()]
+  defp build_skills_list(ctx) do
+    ctx.skills_pool
+    |> Enum.sort_by(& &1.name)
+    |> Enum.map(
+      &%{
+        name: &1.name,
+        description: &1.description,
+        always_present: &1.always_present,
+        granted: &1.name in ctx.skills_names
+      }
+    )
+  end
+
+  # RLCD models are decision-only (Planck.AI.evaluate/4) and cannot be
+  # assigned to agents, so they are excluded from the switcher.
+  @spec model_options() :: [{String.t(), String.t()}]
+  defp model_options do
+    Headless.available_models()
+    |> Enum.filter(&(&1.type == :llm))
+    |> Enum.map(&{&1.id, if(&1.name in [nil, ""], do: &1.id, else: &1.name)})
+  end
+
+  @spec do_switch_model(Phoenix.LiveView.Socket.t(), String.t(), String.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp do_switch_model(socket, agent_id, model_id) do
+    with %Planck.AI.Model{} = model <-
+           Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
+         {:ok, pid} <- Agent.whereis(agent_id) do
+      Agent.change_model(pid, model)
+
+      agents =
+        Map.update(socket.assigns.agents, agent_id, %{}, fn a ->
+          %{a | model: if(model.name != "", do: model.name, else: model.id), model_id: model.id}
+        end)
+
+      send_update(AgentsSidebar,
+        id: "agents-sidebar",
+        action: :refresh_agents,
+        agents: agents,
+        agent_order: socket.assigns.agent_order
+      )
+
+      assign(socket, :agents, agents)
+    else
+      _ -> socket
+    end
   end
 
   # A fresh Agent.get_state/1 lookup, not socket.assigns.agents[agent_id][:status] —
@@ -861,9 +1019,7 @@ defmodule Planck.Web.SessionLive do
     assign(socket, :pending_approvals, [])
   end
 
-  defp fetch_pending_approvals(
-         %{assigns: %{active_session: session_id}} = socket
-       )
+  defp fetch_pending_approvals(%{assigns: %{active_session: session_id}} = socket)
        when is_binary(session_id) do
     case Headless.list_all_pending_approvals(session_id) do
       {:ok, approvals} -> assign(socket, :pending_approvals, approvals)

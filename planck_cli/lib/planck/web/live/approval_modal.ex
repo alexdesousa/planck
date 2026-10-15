@@ -3,10 +3,10 @@ defmodule Planck.Web.Live.ApprovalModal do
   Modal listing parked tool calls awaiting human approval.
 
   Fed by `:tool_blocked` events and `list_all_pending_approvals/1` on refresh.
-  Each entry shows the tool name, reason, and a collapsible fixed-height
-  scrollable markdown code block with the command/args. Per-item Approve
-  and Deny buttons call Headless passthroughs. Deny carries an optional
-  custom reason; empty means the default denial message.
+  Each entry shows the tool name, reason, and a fixed-height scrollable
+  markdown code block with the command/args. Per-item Approve and Deny
+  buttons call Headless passthroughs. Deny carries an optional custom
+  reason; empty means the default denial message.
   """
 
   use Planck.Web, :live_component
@@ -37,10 +37,5 @@ defmodule Planck.Web.Live.ApprovalModal do
     reason = Map.get(params, "reason", "")
     send(self(), {:deny_tool_call, call_id, agent_id, reason})
     {:noreply, socket}
-  end
-
-  def handle_event("toggle_collapse", %{"call_id" => call_id}, socket) do
-    key = String.to_atom("expanded_#{call_id}")
-    {:noreply, assign(socket, key, !socket.assigns[key])}
   end
 end

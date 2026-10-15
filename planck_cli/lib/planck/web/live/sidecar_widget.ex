@@ -38,7 +38,7 @@ defmodule Planck.Web.Live.SidecarWidget do
       # No phx-target — the close button (rendered inside this component's
       # own chrome, at the SessionLive template level) bubbles directly to
       # the owning LiveView, matching how every other modal's close button
-      # in this codebase works (e.g. ModelSelectorModal's close_model_selector).
+      # in this codebase works (e.g. the orchestrator info modal's close_agent_info).
       def handle_event("close_widget", _params, socket) do
         if id = socket.assigns.open_widget_id do
           Phoenix.PubSub.unsubscribe(Planck.Agent.PubSub, "sidecar:widget:\#{id}")
@@ -57,7 +57,7 @@ defmodule Planck.Web.Live.SidecarWidget do
   ## Modal chrome lives here, not in the host template
 
   This component renders its own backdrop/box/close-button chrome (mirroring
-  `Planck.Web.Live.ModelSelectorModal`'s), rather than `SessionLive`'s
+  the orchestrator info modal in `SessionLive`'s template), rather than `SessionLive`'s
   template wrapping an otherwise-bare content component. `:modal` is the
   only container kind actually implemented as of this version — see
   `specs/widgets.md`'s "Container type" section — so there is no dispatch on

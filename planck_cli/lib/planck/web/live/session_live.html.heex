@@ -90,21 +90,19 @@
          phx-key="Escape">
       <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
                   w-full max-w-2xl h-[85vh] overflow-hidden">
-        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card flex-shrink-0">
-          <p class="font-bold font-mono text-sm flex items-center gap-2 flex-1 min-w-0">
+        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between gap-2 bg-card flex-shrink-0">
+          <p class="font-bold font-mono text-sm truncate flex-1 min-w-0">
             <span class="truncate"><%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %></span>
-            <button
-              class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                     bg-card flex-shrink-0 flex items-center gap-1"
-              phx-click="open_model_selector"
-              phx-value-id={@overlay}
-            >
-              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model, "—") %>
-              <span class="text-sm">⇄</span>
-            </button>
           </p>
+          <div class="w-44 flex-shrink-0">
+            <.dropdown
+              id="worker-model-dropdown"
+              name="model"
+              options={@model_options}
+              selected={Map.get(@agents, @overlay, %{})[:model_id]}
+              on_select="switch_worker_model"
+            />
+          </div>
           <button
             class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
                    shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
@@ -114,29 +112,97 @@
             ✕
           </button>
         </div>
-        <div class="flex-1 overflow-hidden min-h-0">
-          <.live_component
-            module={Planck.Web.Live.ChatComponent}
-            id="chat-overlay"
-            session_id={@active_session}
-            perspective_agent_id={@overlay}
-            agents={@agents}
-          />
+        <div class="relative flex-1 min-h-0 flex flex-col">
+          <div class="flex-1 overflow-hidden min-h-0">
+            <.live_component
+              module={ChatComponent}
+              id="chat-overlay"
+              session_id={@active_session}
+              perspective_agent_id={@overlay}
+              agents={@agents}
+            />
+          </div>
+          <div class="border-t-2 border-black bg-card px-4 py-2 flex items-center justify-end flex-shrink-0">
+            <button
+              class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                     bg-card flex items-center gap-1.5"
+              phx-click="open_overlay_details"
+            >
+              <span class="inline-flex items-center justify-center w-4 h-4 border-2 border-black text-[10px] font-bold leading-none">i</span>
+              <%= pgettext("agent overlay", "Details") %>
+            </button>
+          </div>
+          <%= if @overlay_details do %>
+            <div class={[
+              "details-pane absolute inset-0 z-10 bg-background border-t-2 border-black p-4 overflow-y-auto flex flex-col",
+              if(@overlay_details.open, do: "open")
+            ]}>
+              <.live_component
+                module={AgentDetails}
+                id="overlay-agent-details"
+                tools={@overlay_details.tools}
+                hooks={@overlay_details.hooks}
+                skills={@overlay_details.skills}
+                commands={@overlay_details.commands}
+                show_commands={false}
+                system_prompt={@overlay_details.system_prompt}
+              />
+              <div class="flex justify-end mt-auto pt-4">
+                <button
+                  class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                         shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                         hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                         bg-primary text-primary-foreground"
+                  phx-click="close_overlay_details"
+                >✕ <%= pgettext("agent overlay", "Close") %></button>
+              </div>
+            </div>
+          <% end %>
         </div>
       </div>
     </div>
   <% end %>
 
-  <%!-- Model selector modal --%>
-  <%= if @model_selector do %>
-    <.live_component
-      module={Planck.Web.Live.ModelSelectorModal}
-      id="model-selector-modal"
-      agent_id={@model_selector.agent_id}
-      agent_name={@model_selector.agent_name}
-      current_model={@model_selector.current_model}
-      available_models={@available_models}
-    />
+  <%!-- Orchestrator info modal — tools, hooks, skills, commands, system prompt --%>
+  <%= if @agent_info do %>
+    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 md:p-8"
+         phx-window-keydown="close_agent_info"
+         phx-key="Escape">
+      <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
+                  w-full max-w-2xl max-h-[85vh] overflow-hidden">
+        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between gap-2 bg-card flex-shrink-0">
+          <p class="font-bold font-mono text-sm truncate flex-1 min-w-0"><%= @agent_info.agent_name %></p>
+          <div class="w-44 flex-shrink-0">
+            <.dropdown
+              id="orchestrator-model-dropdown"
+              name="model"
+              options={@model_options}
+              selected={@agent_info.model_id}
+              on_select="switch_orchestrator_model"
+            />
+          </div>
+          <button
+            class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
+                   shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                   hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+            phx-click="close_agent_info"
+          >✕</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 min-h-0">
+          <.live_component
+            module={AgentDetails}
+            id="orchestrator-agent-details"
+            tools={@agent_info.tools}
+            hooks={@agent_info.hooks}
+            skills={@agent_info.skills}
+            commands={@agent_info.commands}
+            system_prompt={@agent_info.system_prompt}
+          />
+        </div>
+      </div>
+    </div>
   <% end %>
 
   <%!-- Sidecar widget modal — one fixed instance, retargeted at whichever widget is open --%>

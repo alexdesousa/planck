@@ -1,5 +1,5 @@
 @import "tailwindcss" source(none);
-@import "../node_modules/highlight.js/styles/atom-one-dark.min.css";
+@import "../node_modules/highlight.js/styles/atom-one-light.min.css";
 @source "../css";
 @source "../js";
 @source "../../lib/planck/web";
@@ -25,6 +25,17 @@
   --destructive: #EF4444;
   --destructive-foreground: #fff;
   --border: #3a3a3a;
+  /* hljs syntax palette — atom-one-light */
+  --code-bg: #fafafa;
+  --code-fg: #383a42;
+  --code-muted: #a0a1a7;
+  --code-cyan: #0184bb;
+  --code-blue: #4078f2;
+  --code-purple: #a626a4;
+  --code-green: #50a14f;
+  --code-red: #e45649;
+  --code-orange: #986801;
+  --code-gold: #c18401;
 }
 
 /* RetroUI color tokens — dark */
@@ -45,6 +56,17 @@
   --destructive: #EF4444;
   --destructive-foreground: #fff;
   --border: #2e2e32;
+  /* hljs syntax palette — atom-one-dark */
+  --code-bg: #282c34;
+  --code-fg: #abb2bf;
+  --code-muted: #5c6370;
+  --code-cyan: #56b6c2;
+  --code-blue: #61aeee;
+  --code-purple: #c678dd;
+  --code-green: #98c379;
+  --code-red: #e06c75;
+  --code-orange: #d19a66;
+  --code-gold: #e6c07b;
 }
 
 /* Tailwind theme extension via CSS variables */
@@ -74,6 +96,18 @@
 
 /* Dark mode via data-theme attribute */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* hljs token colors driven by theme vars (overrides the imported atom-one-light) */
+.hljs { color: var(--code-fg); background: var(--code-bg); }
+.hljs-comment, .hljs-quote { color: var(--code-muted); }
+.hljs-doctag, .hljs-keyword, .hljs-formula { color: var(--code-purple); }
+.hljs-section, .hljs-name, .hljs-selector-tag, .hljs-deletion, .hljs-subst { color: var(--code-red); }
+.hljs-literal { color: var(--code-cyan); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: var(--code-green); }
+.hljs-attr, .hljs-variable, .hljs-template-variable, .hljs-type, .hljs-selector-class,
+.hljs-selector-attr, .hljs-selector-pseudo, .hljs-number { color: var(--code-orange); }
+.hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-selector-id, .hljs-title { color: var(--code-blue); }
+.hljs-built_in, .hljs-title.class_, .hljs-class .hljs-title { color: var(--code-gold); }
 
 /* LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
@@ -148,24 +182,14 @@
   border: 1px solid var(--border);
 }
 
-/* Code blocks — always dark for readability, horizontal scroll on overflow */
+/* Code blocks — theme-aware via --code-* vars. No padding here so the
+   code element's own 1em padding lets the themed background reach the border. */
 .chat-prose pre {
-  background: #1e2024;
-  color: #abb2bf;
   border: 2px solid var(--border);
-  padding: 0.75rem 1rem;
   overflow-x: auto;
   margin: 0.5rem 0;
   font-size: 0.82rem;
   line-height: 1.55;
-}
-
-.chat-prose pre code {
-  background: transparent;
-  color: inherit;
-  padding: 0;
-  border: none;
-  font-size: inherit;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -175,4 +199,19 @@
   min-height: 2.5rem;
   max-height: 25vh;
   overflow-y: auto;
+}
+
+/* ── Agent details pane — slides up over the worker overlay contents ──────── */
+/* visibility is delayed on close so the slide-out transition stays visible   */
+
+.details-pane {
+  transform: translateY(100%);
+  visibility: hidden;
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 280ms;
+}
+
+.details-pane.open {
+  transform: translateY(0);
+  visibility: visible;
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
 }

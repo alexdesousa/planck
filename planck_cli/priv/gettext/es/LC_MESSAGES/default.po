@@ -428,24 +428,6 @@ msgctxt "setup label"
 msgid "(optional)"
 msgstr "(opcional)"
 
-#: lib/planck/web/live/model_selector_modal.html.heex:35
-#, elixir-autogen, elixir-format
-msgctxt "model selector"
-msgid "Cancel"
-msgstr "Cancelar"
-
-#: lib/planck/web/live/model_selector_modal.html.heex:8
-#, elixir-autogen, elixir-format
-msgctxt "model selector"
-msgid "Change model"
-msgstr "Cambiar modelo"
-
-#: lib/planck/web/live/model_selector_modal.html.heex:43
-#, elixir-autogen, elixir-format
-msgctxt "model selector"
-msgid "Save"
-msgstr "Guardar"
-
 #: lib/planck/web/live/setup_modal/provider_model_step.ex:739
 #: lib/planck/web/live/setup_modal/provider_model_step.ex:922
 #, elixir-autogen, elixir-format
@@ -961,3 +943,90 @@ msgstr "manual"
 msgctxt "chat label"
 msgid "conversation cleared"
 msgstr "conversación borrada"
+
+#: lib/planck/web/live/agent_details.ex:200
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Commands"
+msgstr "Comandos"
+
+#: lib/planck/web/live/agent_details.ex:122
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Hooks"
+msgstr "Hooks"
+
+#: lib/planck/web/live/agent_details.ex:97
+#: lib/planck/web/live/agent_details.ex:129
+#: lib/planck/web/live/agent_details.ex:165
+#: lib/planck/web/live/agent_details.ex:207
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "None"
+msgstr "Ninguno"
+
+#: lib/planck/web/live/agent_details.ex:158
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Skills"
+msgstr "Habilidades"
+
+#: lib/planck/web/live/agent_details.html.heex:29
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "System Prompt"
+msgstr "Prompt del sistema"
+
+#: lib/planck/web/live/agent_details.ex:90
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Tools"
+msgstr "Herramientas"
+
+#: lib/planck/web/live/agent_details.html.heex:30
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "runtime-assembled"
+msgstr "ensamblado en runtime"
+
+#: lib/planck/web/live/session_live.html.heex:159
+#, elixir-autogen, elixir-format
+msgctxt "agent overlay"
+msgid "Close"
+msgstr "Cerrar"
+
+#: lib/planck/web/live/session_live.html.heex:134
+#, elixir-autogen, elixir-format
+msgctxt "agent overlay"
+msgid "Details"
+msgstr "Detalles"
+
+#: lib/planck/web/live/agent_details.ex:177
+#, elixir-autogen, elixir-format
+msgctxt "badge"
+msgid "always"
+msgstr "siempre"
+
+#: lib/planck/web/live/agent_details.ex:181
+#, elixir-autogen, elixir-format
+msgctxt "badge"
+msgid "granted"
+msgstr "concedido"
+
+#: lib/planck/web/live/agent_details.ex:259
+#, elixir-autogen, elixir-format
+msgctxt "command kind"
+msgid "builtin"
+msgstr "integrado"
+
+#: lib/planck/web/live/agent_details.ex:260
+#, elixir-autogen, elixir-format
+msgctxt "command kind"
+msgid "command"
+msgstr "comando"
+
+#: lib/planck/web/live/agent_details.ex:261
+#, elixir-autogen, elixir-format
+msgctxt "command kind"
+msgid "skill"
+msgstr "habilidad"
