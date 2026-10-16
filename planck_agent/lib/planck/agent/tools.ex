@@ -612,11 +612,16 @@ defmodule Planck.Agent.Tools do
   absent, each file is read through the live `"read"` tool from the
   resource store when one is registered (e.g. the sidecar's, once it
   connects), falling back to local reads with identical path semantics.
+  Also accepts `:cwd` — a base directory override for relative paths and
+  globs, used when the agent has no live cwd (tests). Without it, a
+  missing agent cwd falls back to the process cwd, which is VM-global and
+  races with test-file compilation.
   """
   @spec ask_files([Model.t()]) :: Tool.t()
   @spec ask_files([Model.t()], keyword()) :: Tool.t()
   def ask_files(available_models, opts \\ []) do
     reader = Keyword.get(opts, :reader)
+    cwd_override = Keyword.get(opts, :cwd)
 
     Tool.new(
       name: "ask_files",
@@ -670,16 +675,18 @@ defmodule Planck.Agent.Tools do
         base_url = Map.get(args, "base_url")
         paths = Map.get(args, "paths", [])
         questions = Map.get(args, "questions")
+        cwd = agent_cwd(agent_id, cwd_override)
 
         options = [
           agent_id: agent_id,
           call_id: call_id,
-          reader: reader
+          reader: reader,
+          cwd: cwd
         ]
 
         with {:ok, model} <-
                resolve_ask_model(provider, model_id, base_url, available_models),
-             expanded <- expand_ask_paths(agent_id, paths),
+             expanded <- expand_ask_paths(paths, cwd),
              :ok <- check_file_cap(expanded) do
           run_ask_files(model, expanded, questions, options)
         end
@@ -879,27 +886,25 @@ defmodule Planck.Agent.Tools do
     end
   end
 
-  @spec expand_ask_paths(String.t(), [String.t()]) :: [Path.t()]
-  defp expand_ask_paths(agent_id, paths)
+  @spec expand_ask_paths([String.t()], Path.t()) :: [Path.t()]
+  defp expand_ask_paths(paths, cwd)
 
-  defp expand_ask_paths(agent_id, paths) when is_binary(agent_id) and is_list(paths) do
-    cwd = agent_cwd(agent_id)
-
+  defp expand_ask_paths(paths, cwd) when is_list(paths) and is_binary(cwd) do
     paths
     |> Enum.flat_map(&maybe_expand_glob(&1, cwd))
     |> Enum.uniq()
   end
 
-  @spec agent_cwd(String.t()) :: Path.t()
-  defp agent_cwd(agent_id)
+  @spec agent_cwd(String.t(), Path.t() | nil) :: Path.t()
+  defp agent_cwd(agent_id, cwd_override)
 
-  defp agent_cwd(agent_id) when is_binary(agent_id) do
+  defp agent_cwd(agent_id, cwd_override) when is_binary(agent_id) do
     with {:ok, pid} <- Agent.whereis(agent_id),
          cwd = Agent.get_state(pid).context.cwd,
          true <- is_binary(cwd) and cwd != "" do
       cwd
     else
-      _ -> File.cwd!()
+      _ -> cwd_override || File.cwd!()
     end
   end
 
@@ -943,7 +948,7 @@ defmodule Planck.Agent.Tools do
           read_tool.execute_fn.(
             options[:agent_id],
             options[:call_id],
-            %{"path" => path}
+            %{"path" => Path.expand(path, options[:cwd])}
           )
         end
 

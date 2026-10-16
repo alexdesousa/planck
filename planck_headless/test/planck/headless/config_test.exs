@@ -100,7 +100,7 @@ defmodule Planck.Headless.ConfigTest do
       assert {:ok, "from-json"} = JsonBinding.get_env(env, config)
     end
 
-    test "get_env/2 returns :error for unknown keys", %{tmp_dir: dir} do
+    test "get_env/2 returns {:ok, nil} for unknown keys", %{tmp_dir: dir} do
       path = write_config(dir, %{"other_key" => "val"})
       Application.put_env(:planck_headless, :skip_json_config, false)
       Application.put_env(:planck, :config_files, [path])
@@ -110,7 +110,7 @@ defmodule Planck.Headless.ConfigTest do
       env = env_for(:default_model)
       {:ok, config} = JsonBinding.init(env)
 
-      assert {:error, :not_found} = JsonBinding.get_env(env, config)
+      assert {:ok, nil} = JsonBinding.get_env(env, config)
     end
 
     test "later files override earlier ones (project-local wins)", %{tmp_dir: dir} do
@@ -276,13 +276,13 @@ defmodule Planck.Headless.ConfigTest do
       assert {:ok, "sk-ant-value"} = EnvBinding.get_env(env, dotenv)
     end
 
-    test "get_env/2 returns :error for absent keys", %{tmp_dir: dir} do
+    test "get_env/2 returns {:ok, nil} for absent keys", %{tmp_dir: dir} do
       path = write_env(dir, [{"OTHER_KEY", "val"}])
       enable_env(path)
 
       env = api_env_for(:anthropic_api_key)
       {:ok, dotenv} = EnvBinding.init(env)
-      assert {:error, :not_found} = EnvBinding.get_env(env, dotenv)
+      assert {:ok, nil} = EnvBinding.get_env(env, dotenv)
     end
 
     test "strips double quotes from values", %{tmp_dir: dir} do

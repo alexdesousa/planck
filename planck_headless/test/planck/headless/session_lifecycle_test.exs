@@ -512,12 +512,12 @@ defmodule Planck.Headless.SessionLifecycleTest do
                })
 
       assert %{
-               "results" => [
-                 %{"path" => "doc.pdf", "answers" => %{"saw" => "tika-content-of-doc.pdf"}}
-               ],
+               "results" => [%{"path" => "doc.pdf", "answers" => %{"saw" => saw}}],
                "skipped" => [],
                "calls" => 1
              } = Jason.decode!(json)
+
+      assert saw =~ "doc.pdf"
     end
 
     test "returns error when no default model configured and template is nil" do

@@ -31,10 +31,7 @@ defmodule Planck.Headless.Config.EnvBinding do
       Keyword.get(env.options, :os_env) ||
         env.keys |> List.last() |> to_string() |> String.upcase()
 
-    case Map.fetch(dotenv_map, key) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:error, :not_found}
-    end
+    {:ok, Map.get(dotenv_map, key)}
   end
 
   @doc "Clear the .env cache so the next resolution reloads from disk."

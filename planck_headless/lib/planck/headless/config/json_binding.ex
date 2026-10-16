@@ -7,7 +7,7 @@ defmodule Planck.Headless.Config.JsonBinding do
   #
   # Set `config :planck_headless, :skip_json_config, true` in test envs to
   # skip this binding entirely: `init/1` returns `:error` so Skogsra bypasses
-  # the binding without emitting `:not_found` warnings for every key.
+  # the binding.
   #
   # Call invalidate/0 before ResourceStore.reload/0 to pick up file changes.
 
@@ -30,10 +30,7 @@ defmodule Planck.Headless.Config.JsonBinding do
   def get_env(env, config) do
     key = env.keys |> List.last() |> to_string()
 
-    case Map.fetch(config, key) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:error, :not_found}
-    end
+    {:ok, Map.get(config, key)}
   end
 
   @doc "Clear the JSON config cache so the next resolution reloads from disk."

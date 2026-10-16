@@ -621,18 +621,16 @@ defmodule Planck.Agent.ToolTest do
         {:ok, %{object: %{"echo" => path}}}
       end)
 
-      tool = Tools.ask_files([@rlcd_model], reader: reader)
+      tool = Tools.ask_files([@rlcd_model], reader: reader, cwd: dir)
 
       assert {:ok, json} =
-               File.cd!(dir, fn ->
-                 tool.execute_fn.("agent-1", "tc-1", %{
-                   "provider" => "typesafe",
-                   "model_id" => "jev-latest",
-                   "base_url" => "",
-                   "paths" => ["*.ex"],
-                   "questions" => %{}
-                 })
-               end)
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["*.ex"],
+                 "questions" => %{}
+               })
 
       assert %{"results" => results, "skipped" => [], "calls" => 2} = Jason.decode!(json)
       assert Enum.map(results, & &1["path"]) == ["a.ex", "b.ex"]
@@ -643,18 +641,16 @@ defmodule Planck.Agent.ToolTest do
       reader = fn _path -> raise "must not read" end
       expect(MockAI, :evaluate, 0, fn _m, _s, _q, _o -> {:ok, %{object: %{}}} end)
 
-      tool = Tools.ask_files([@rlcd_model], reader: reader)
+      tool = Tools.ask_files([@rlcd_model], reader: reader, cwd: dir)
 
       assert {:error, message} =
-               File.cd!(dir, fn ->
-                 tool.execute_fn.("agent-1", "tc-1", %{
-                   "provider" => "typesafe",
-                   "model_id" => "jev-latest",
-                   "base_url" => "",
-                   "paths" => ["nothing-*.ex"],
-                   "questions" => %{}
-                 })
-               end)
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["nothing-*.ex"],
+                 "questions" => %{}
+               })
 
       assert message =~ "no matches"
     end
@@ -669,18 +665,16 @@ defmodule Planck.Agent.ToolTest do
         {:ok, %{object: %{"echo" => path}}}
       end)
 
-      tool = Tools.ask_files([@rlcd_model], reader: reader)
+      tool = Tools.ask_files([@rlcd_model], reader: reader, cwd: dir)
 
       assert {:ok, json} =
-               File.cd!(dir, fn ->
-                 tool.execute_fn.("agent-1", "tc-1", %{
-                   "provider" => "typesafe",
-                   "model_id" => "jev-latest",
-                   "base_url" => "",
-                   "paths" => ["a.ex", "*.ex"],
-                   "questions" => %{}
-                 })
-               end)
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["a.ex", "*.ex"],
+                 "questions" => %{}
+               })
 
       assert %{"results" => results, "calls" => 1} = Jason.decode!(json)
       assert Enum.map(results, & &1["path"]) == ["a.ex"]
@@ -693,18 +687,16 @@ defmodule Planck.Agent.ToolTest do
       reader = fn _path -> raise "must not read" end
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @rlcd_model} end)
 
-      tool = Tools.ask_files([@rlcd_model], reader: reader)
+      tool = Tools.ask_files([@rlcd_model], reader: reader, cwd: dir)
 
       assert {:error, message} =
-               File.cd!(dir, fn ->
-                 tool.execute_fn.("agent-1", "tc-1", %{
-                   "provider" => "typesafe",
-                   "model_id" => "jev-latest",
-                   "base_url" => "",
-                   "paths" => ["*.ex"],
-                   "questions" => %{}
-                 })
-               end)
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["*.ex"],
+                 "questions" => %{}
+               })
 
       assert message =~ "255"
       assert message =~ "glob expansion"
@@ -785,18 +777,16 @@ defmodule Planck.Agent.ToolTest do
         {:ok, %{object: %{"len" => String.length(c)}}}
       end)
 
-      tool = Tools.ask_files([@rlcd_model])
+      tool = Tools.ask_files([@rlcd_model], cwd: dir)
 
       assert {:ok, json} =
-               File.cd!(dir, fn ->
-                 tool.execute_fn.("agent-1", "tc-1", %{
-                   "provider" => "typesafe",
-                   "model_id" => "jev-latest",
-                   "base_url" => "",
-                   "paths" => ["a.ex", "b.ex", "missing.ex", dir],
-                   "questions" => %{}
-                 })
-               end)
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["a.ex", "b.ex", "missing.ex", dir],
+                 "questions" => %{}
+               })
 
       assert %{"results" => results, "skipped" => skipped, "calls" => 2} =
                Jason.decode!(json)
