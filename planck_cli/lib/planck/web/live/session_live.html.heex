@@ -85,58 +85,54 @@
 
   <%!-- Agent context overlay — centered panel, not full-screen on large displays --%>
   <%= if @overlay do %>
+    <.live_component
+      module={AgentOverlay}
+      id="agent-overlay"
+      agent_id={@overlay}
+      agents={@agents}
+      model_options={@model_options}
+      session_id={@active_session}
+    />
+  <% end %>
+
+  <%!-- Orchestrator info modal — tools, hooks, skills, commands, system prompt --%>
+  <%= if @agent_info do %>
     <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 md:p-8"
-         phx-window-keydown="close_overlay"
+         phx-window-keydown="close_agent_info"
          phx-key="Escape">
       <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
-                  w-full max-w-2xl h-[85vh] overflow-hidden">
-        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card flex-shrink-0">
-          <p class="font-bold font-mono text-sm flex items-center gap-2 flex-1 min-w-0">
-            <span class="truncate"><%= Map.get(@agents, @overlay, %{}) |> Map.get(:name, "agent") %></span>
-            <button
-              class="border-2 border-black px-2 py-0.5 font-mono text-xs font-bold
-                     shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
-                     hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
-                     bg-card flex-shrink-0 flex items-center gap-1"
-              phx-click="open_model_selector"
-              phx-value-id={@overlay}
-            >
-              <%= Map.get(@agents, @overlay, %{}) |> Map.get(:model, "—") %>
-              <span class="text-sm">⇄</span>
-            </button>
-          </p>
+                  w-full max-w-2xl max-h-[85vh] overflow-hidden">
+        <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between gap-2 bg-card flex-shrink-0">
+          <p class="font-bold font-mono text-sm truncate flex-1 min-w-0"><%= @agent_info.agent_name %></p>
+          <div class="w-44 flex-shrink-0">
+            <.dropdown
+              id="orchestrator-model-dropdown"
+              name="model"
+              options={@model_options}
+              selected={@agent_info.model_id}
+              on_select="switch_orchestrator_model"
+            />
+          </div>
           <button
             class="border-2 border-black px-3 py-1 font-mono text-xs font-bold
                    shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
                    hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
-            phx-click="close_overlay"
-          >
-            ✕
-          </button>
+            phx-click="close_agent_info"
+          >✕</button>
         </div>
-        <div class="flex-1 overflow-hidden min-h-0">
+        <div class="flex-1 overflow-y-auto p-4 min-h-0">
           <.live_component
-            module={Planck.Web.Live.ChatComponent}
-            id="chat-overlay"
-            session_id={@active_session}
-            perspective_agent_id={@overlay}
-            agents={@agents}
+            module={AgentDetails}
+            id="orchestrator-agent-details"
+            tools={@agent_info.tools}
+            hooks={@agent_info.hooks}
+            skills={@agent_info.skills}
+            commands={@agent_info.commands}
+            system_prompt={@agent_info.system_prompt}
           />
         </div>
       </div>
     </div>
-  <% end %>
-
-  <%!-- Model selector modal --%>
-  <%= if @model_selector do %>
-    <.live_component
-      module={Planck.Web.Live.ModelSelectorModal}
-      id="model-selector-modal"
-      agent_id={@model_selector.agent_id}
-      agent_name={@model_selector.agent_name}
-      current_model={@model_selector.current_model}
-      available_models={@available_models}
-    />
   <% end %>
 
   <%!-- Sidecar widget modal — one fixed instance, retargeted at whichever widget is open --%>
@@ -167,4 +163,13 @@
       text={@edit_message.text}
     />
   <% end %>
+
+  <%!-- Approval modal — shown when tool calls are parked awaiting approval --%>
+  <%= if @pending_approvals not in [nil, []] do %>
+    <.live_component
+      module={Planck.Web.Live.ApprovalModal}
+      id="approval-modal"
+      approvals={@pending_approvals}
+      agent_id={@orchestrator_id}
+    />  <% end %>
 </div>

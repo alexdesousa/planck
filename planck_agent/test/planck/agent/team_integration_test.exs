@@ -521,6 +521,92 @@ defmodule Planck.Agent.TeamIntegrationTest do
     Agent.get_state(pid).context.tools
   end
 
+  defmodule InheritedPromptHook do
+    use Planck.Agent.Hooks.Prompt
+
+    @impl true
+    def before_prompt(_session_id), do: "inherited before"
+  end
+
+  # ---------------------------------------------------------------------------
+  # spawn_agent hook inheritance
+  # ---------------------------------------------------------------------------
+
+  describe "spawn_agent hook inheritance" do
+    test "spawned worker mirrors the orchestrator's hooks" do
+      team_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      orch =
+        start_dynamic(
+          id: unique_id(),
+          model: @model,
+          system_prompt: "orch",
+          prompt_hook: InheritedPromptHook,
+          sidecar_node: Node.self()
+        )
+
+      orch_id = Agent.get_info(orch).id
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
+
+      {:ok, worker_id} =
+        spawn_tool.execute_fn.(orch_id, "tc-spawn", %{
+          "type" => "reviewer",
+          "name" => "Reviewer",
+          "description" => "Reviews code",
+          "system_prompt" => "You are a reviewer.",
+          "provider" => "openai",
+          "model_id" => "llama3.2",
+          "base_url" => "http://localhost:11434"
+        })
+
+      {:ok, worker_pid} = Agent.whereis(worker_id)
+
+      on_exit(fn ->
+        if Process.alive?(worker_pid) do
+          DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, worker_pid)
+        end
+      end)
+
+      hooks = Agent.get_state(worker_pid).hooks
+      assert hooks.prompt == InheritedPromptHook
+      assert hooks.sidecar_node == Node.self()
+      assert Agent.system_prompt(worker_pid) =~ "inherited before"
+    end
+
+    test "no inheritance when the caller cannot be resolved" do
+      team_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [])
+
+      {:ok, worker_id} =
+        spawn_tool.execute_fn.(unique_id(), "tc-spawn", %{
+          "type" => "reviewer",
+          "name" => "Reviewer",
+          "description" => "Reviews code",
+          "system_prompt" => "You are a reviewer.",
+          "provider" => "openai",
+          "model_id" => "llama3.2",
+          "base_url" => "http://localhost:11434"
+        })
+
+      {:ok, worker_pid} = Agent.whereis(worker_id)
+
+      on_exit(fn ->
+        if Process.alive?(worker_pid) do
+          DynamicSupervisor.terminate_child(Planck.Agent.AgentSupervisor, worker_pid)
+        end
+      end)
+
+      hooks = Agent.get_state(worker_pid).hooks
+      assert hooks.prompt == nil
+      assert hooks.sidecar_node == nil
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # spawn_agent grantable tools
   # ---------------------------------------------------------------------------
@@ -639,26 +725,26 @@ defmodule Planck.Agent.TeamIntegrationTest do
   end
 
   # ---------------------------------------------------------------------------
-  # classify gating (orchestrator-automatic, worker opt-in)
+  # ask gating (orchestrator-automatic, worker opt-in)
   # ---------------------------------------------------------------------------
 
-  describe "classify gating" do
-    test "orchestrator_tools/6 includes classify when an :rlcd model is available" do
+  describe "ask gating" do
+    test "orchestrator_tools/6 includes ask when an :rlcd model is available" do
       tools = Tools.orchestrator_tools(unique_id(), unique_id(), [@model, @rlcd_model])
-      assert Enum.any?(tools, &(&1.name == "classify"))
+      assert Enum.any?(tools, &(&1.name == "ask"))
     end
 
-    test "orchestrator_tools/6 omits classify when no :rlcd model is available" do
+    test "orchestrator_tools/6 omits ask when no :rlcd model is available" do
       tools = Tools.orchestrator_tools(unique_id(), unique_id(), [@model])
-      refute Enum.any?(tools, &(&1.name == "classify"))
+      refute Enum.any?(tools, &(&1.name == "ask"))
     end
 
-    test "worker_tools/3 never includes classify, regardless of available models" do
+    test "worker_tools/3 never includes ask, regardless of available models" do
       tools = Tools.worker_tools(unique_id(), unique_id())
-      refute Enum.any?(tools, &(&1.name == "classify"))
+      refute Enum.any?(tools, &(&1.name == "ask"))
     end
 
-    test "a spawned worker does not receive classify automatically, even with an :rlcd model configured" do
+    test "a spawned worker does not receive ask automatically, even with an :rlcd model configured" do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
@@ -667,20 +753,41 @@ defmodule Planck.Agent.TeamIntegrationTest do
       spawn_tool = Tools.spawn_agent(unique_id(), team_id, [@rlcd_model], [])
       tools = call_spawn(spawn_tool, orch_id)
 
-      refute Map.has_key?(tools, "classify")
+      refute Map.has_key?(tools, "ask")
     end
 
-    test "a spawned worker receives classify when it's granted, like any other tool" do
+    test "a spawned worker receives ask when it's granted, like any other tool" do
       team_id = unique_id()
       orch_id = unique_id()
       stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
       stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
 
-      classify_tool = Tools.classify([@rlcd_model])
-      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [classify_tool])
-      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["classify"]})
+      ask_tool = Tools.ask([@rlcd_model])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [ask_tool])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["ask"]})
 
-      assert Map.has_key?(tools, "classify")
+      assert Map.has_key?(tools, "ask")
+    end
+
+    test "orchestrator_tools/6 includes ask_files exactly when ask is included" do
+      with_rlcd = Tools.orchestrator_tools(unique_id(), unique_id(), [@model, @rlcd_model])
+      without_rlcd = Tools.orchestrator_tools(unique_id(), unique_id(), [@model])
+
+      assert Enum.any?(with_rlcd, &(&1.name == "ask_files"))
+      refute Enum.any?(without_rlcd, &(&1.name == "ask_files"))
+    end
+
+    test "a spawned worker receives ask_files when it's granted, like any other tool" do
+      team_id = unique_id()
+      orch_id = unique_id()
+      stub(MockAI, :get_model, fn _provider, _model_id -> {:ok, @model} end)
+      stub(MockAI, :get_model, fn _provider, _model_id, _opts -> {:ok, @model} end)
+
+      ask_files_tool = Tools.ask_files([@rlcd_model])
+      spawn_tool = Tools.spawn_agent(unique_id(), team_id, [], [ask_files_tool])
+      tools = call_spawn(spawn_tool, orch_id, %{"tools" => ["ask_files"]})
+
+      assert Map.has_key?(tools, "ask_files")
     end
   end
 

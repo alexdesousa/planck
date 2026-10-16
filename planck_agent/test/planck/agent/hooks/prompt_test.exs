@@ -125,6 +125,20 @@ defmodule Planck.Agent.Hooks.PromptTest do
   end
 
   # ---------------------------------------------------------------------------
+  # before_prompt/3 and after_prompt/3 — unloaded module, nil node
+  # ---------------------------------------------------------------------------
+
+  describe "before_prompt/3 and after_prompt/3 with unloaded module and nil node" do
+    test "before_prompt returns nil instead of raising" do
+      assert Prompt.before_prompt(:"Elixir.NotARealSidecarHook", "s1", nil) == nil
+    end
+
+    test "after_prompt returns nil instead of raising" do
+      assert Prompt.after_prompt(:"Elixir.NotARealSidecarHook", "s1", nil) == nil
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # before_prompt/3 and after_prompt/3 — remote dispatch (same-node simulation)
   # ---------------------------------------------------------------------------
 

@@ -1,0 +1,38 @@
+<div class="space-y-4">
+  <.tools_card
+    tools={@tools}
+    collapsed={@collapsed.tools}
+    target={@myself}
+  />
+
+  <.hooks_card
+    hooks={@hooks}
+    collapsed={@collapsed.hooks}
+    target={@myself}
+  />
+
+  <.skills_card
+    skills={@skills}
+    collapsed={@collapsed.skills}
+    target={@myself}
+  />
+
+  <.commands_card
+    :if={@show_commands}
+    commands={@commands}
+    collapsed={@collapsed.commands}
+    target={@myself}
+  />
+
+  <div id={"#{@id}-prompt-highlight"} phx-hook="Highlight">
+    <p class="font-mono text-xs font-bold mb-1.5 flex items-center gap-2">
+      <%= pgettext("agent details", "System Prompt") %>
+      <span class="text-muted-foreground font-normal"><%= pgettext("agent details", "runtime-assembled") %></span>
+    </p>
+    <pre
+      class={[
+        "border-2 border-black shadow-[4px_4px_0px_#000]",
+        "font-mono text-xs leading-relaxed overflow-auto",
+        "max-h-72"]}><code class="language-markdown whitespace-pre-wrap"><%= @system_prompt %></code></pre>
+  </div>
+</div>

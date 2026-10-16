@@ -1,0 +1,76 @@
+<div id="approval-modal"
+     class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 md:p-8"
+     phx-window-keydown="deny"
+     phx-key="Escape"
+     phx-hook="Highlight"
+     phx-target={@myself}>
+  <div class="flex flex-col bg-background border-2 border-black shadow-[8px_8px_0px_#000]
+              w-full max-w-2xl overflow-hidden max-h-[80vh]">
+
+    <div class="border-b-2 border-border px-4 py-2 flex items-center justify-between bg-card flex-shrink-0">
+      <p class="font-bold font-mono text-sm">Tool approval required</p>
+      <span class="font-mono text-xs text-muted-foreground">
+        <%= length(@approvals) %> pending
+      </span>
+    </div>
+
+    <div class="overflow-y-auto flex-1 p-4 space-y-3">
+      <%= for approval <- @approvals do %>
+        <div class="border-2 border-black bg-card">
+          <div class="px-3 py-2 border-b-2 border-black flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-xs font-bold bg-primary text-primary-foreground px-2 py-0.5">
+                <%= approval.tool_name %>
+              </span>
+              <span class="font-mono text-xs text-muted-foreground">
+                <%= approval.reason %>
+              </span>
+            </div>
+          </div>
+
+          <div class="p-3">
+            <pre class="border-2 border-black font-mono text-xs overflow-auto max-h-48"><code class="language-bash whitespace-pre-wrap"><%= Planck.Web.Live.ChatComponent.format_args(approval.tool_name, approval.args) %></code></pre>
+
+            <form
+              phx-submit="deny"
+              phx-target={@myself}
+              class="mt-3 space-y-2"
+            >
+              <input type="hidden" name="call_id" value={approval.call_id} />
+              <input type="hidden" name="agent_id" value={approval.agent_id || @agent_id} />
+              <input
+                type="text"
+                name="reason"
+                placeholder="Reason (optional)"
+                class="w-full border-2 border-black bg-background px-2 py-1.5 font-mono text-xs"
+              />
+              <div class="flex justify-end gap-2">
+                <button
+                  type="submit"
+                  class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                         shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                         hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all bg-card"
+                >
+                  Deny
+                </button>
+                <button
+                  type="button"
+                  class="border-2 border-black px-4 py-1.5 font-bold font-mono text-sm
+                         shadow-[2px_2px_0px_#000] hover:shadow-[4px_4px_0px_#000]
+                         hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all
+                         bg-primary text-primary-foreground"
+                  phx-click="approve"
+                  phx-value-call_id={approval.call_id}
+                  phx-value-agent_id={approval.agent_id || @agent_id}
+                  phx-target={@myself}
+                >
+                  Approve
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

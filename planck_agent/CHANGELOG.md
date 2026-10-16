@@ -1,5 +1,86 @@
 # Changelog
 
+## v0.3.1
+
+### Breaking: `classify` renamed to `ask`
+
+The RLCD decision tool is now `ask` — same schema, same typed questions
+(choice/score/boolean), same orchestrator auto-include when an RLCD model
+is available, same worker-grant path via `TEAM.json`. No `classify` alias
+is kept: sessions and teams referencing it fail loudly with an unknown-tool
+error, which is the point. This rename is the reason for the minor bump.
+
+### `ask_files` — batch RLCD judgment over files
+
+New core tool with the same RLCD gate as `ask`: hand it a list of file
+paths (explicit paths and/or glob patterns) and one question per batch,
+and it returns calibrated per-file verdicts without loading any file into
+the conversation — e.g. triage 40 candidates and only `read` the 3 with
+high confidence. One RLCD call per file, 16 concurrent, capped at 255
+files after glob expansion (a glob matching nothing is reported in
+`skipped`, never silently dropped). Content is read through the *live*
+`read` tool from the agent's tool map — a sidecar-shadowed `read` wins —
+with the builtin as fallback, so sandboxed or extraction-aware readers
+apply to `ask_files` too. Both `ask` and `ask_files` are grantable to
+workers via `TEAM.json`, closing a gap where the RLCD grant silently
+skipped them.
+
+### Three new hook behaviours: `ToolStart`, `ToolEnd`, `TurnStart`
+
+- `Hooks.ToolStart` — its `proceed/3` callback is a synchronous gate per
+  tool call, after argument validation (schema-invalid calls never spend a
+  gate evaluation): `:ok`, `{:deny, reason}`, or `{:await_approval, reason}`.
+- `Hooks.ToolEnd` — its `transform/4` callback is a synchronous result
+  transformer after execution; can rewrite result text or attach UI side
+  effects, including alongside errors.
+- `Hooks.TurnStart` — its `notify/2` callback is an async observer fired
+  when a turn begins (memory warmup, metrics); cannot block or inject —
+  `Prompt` remains the sole synchronous injector.
+
+The tool pipeline is now validate → gate → execute → loop-nudge →
+transform → UI extraction. `nil` hooks keep the old code path at zero
+overhead. Tool results gained an additive error shape, `{:error, reason,
+%{ui: ui}}` — existing 2-tuple errors flow through unchanged.
+
+### Approval loop — park and resume gated calls
+
+`{:await_approval, reason}` from a `ToolStart` hook parks the call in
+`turn.running` (no task spawned, turn pauses) and broadcasts the new
+`:tool_blocked` event (`id`, `name`, `args`, `reason`, `mode`). New
+public API resolves parked calls: `Planck.Agent.approve_tool_call/2`,
+`deny_tool_call/3`, and `list_pending_approvals/1` (the latter also
+rehydrates the UI after a refresh). Approval is strictly one-shot: the
+stored `execute_fn` runs with the *exact* parked arguments — a second
+resolve of the same `call_id` returns `:not_found`, so approving once
+can never authorize a later, different command. Denial completes as a
+plain denial error the model is told not to work around. Rewind/stop
+drops parked entries silently.
+
+### Dynamic workers inherit the orchestrator's hooks
+
+Workers spawned mid-session (`spawn_agent`) previously started with an
+empty hook set, so a session's `tool_start_hook`/`tool_end_hook`/etc.
+silently did not apply to them — a gated session ran its workers' `bash`
+ungated. Dynamic workers now inherit the orchestrator's resolved hooks at
+spawn time.
+
+### Session deletion goes through the persistence hook
+
+`Planck.Agent.Session.delete/2` stops a running session and removes its
+SQLite file; `delete_session/4` is dispatched through
+`Hooks.Persistence.delete_session` so a custom persistence backend
+removes its own data (the callback is optional — `use` defaults to the
+built-in file removal).
+
+### Misc
+
+- `Planck.Agent.system_prompt/1` returns the agent's assembled system
+  prompt (backs the UI's agent-details view; fixes the prompt rendering
+  stale in the web UI).
+- System prompt reworked: clearer tool guidance, `ask`/`ask_files`
+  sections, RLCD equivalence notes (`boolean` question type kept —
+  documented as equivalent to upstream's `noul`).
+
 ## v0.3.0
 
 ### Custom slash commands — `Planck.Agent.command/3`, `Planck.Agent.load_skill/3`, `Planck.Agent.cancel_queued/2`, `Planck.Agent.clear/1`, `Planck.Agent.compact/2`

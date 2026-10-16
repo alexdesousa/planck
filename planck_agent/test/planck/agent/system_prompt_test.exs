@@ -61,6 +61,16 @@ defmodule Planck.Agent.SystemPromptTest do
     def after_prompt(_session_id), do: ""
   end
 
+  defmodule BothHook do
+    use Planck.Agent.Hooks.Prompt
+
+    @impl true
+    def before_prompt(_session_id), do: "HOOK_BEFORE"
+
+    @impl true
+    def after_prompt(_session_id), do: "HOOK_AFTER"
+  end
+
   # --- identity line ---
 
   describe "identity line" do
@@ -69,9 +79,9 @@ defmodule Planck.Agent.SystemPromptTest do
       assert prompt == "base prompt"
     end
 
-    test "type only produces \"You are a <type>.\"" do
+    test "type only produces \"You are a/an <type>.\"" do
       prompt = base_opts(%{type: "coding agent"}) |> SystemPrompt.build()
-      assert String.starts_with?(prompt, "You are a coding agent.\n\n")
+      assert String.starts_with?(prompt, "You are a/an coding agent.\n\n")
     end
 
     test "name and different type produces \"You are <name>, a <type>.\"" do
@@ -81,7 +91,7 @@ defmodule Planck.Agent.SystemPromptTest do
 
     test "name equal to type is treated as type-only" do
       prompt = base_opts(%{name: "orchestrator", type: "orchestrator"}) |> SystemPrompt.build()
-      assert String.starts_with?(prompt, "You are a orchestrator.\n\n")
+      assert String.starts_with?(prompt, "You are a/an orchestrator.\n\n")
     end
 
     test "name only (no type) produces \"You are <name>.\"" do
@@ -106,7 +116,7 @@ defmodule Planck.Agent.SystemPromptTest do
 
     test "each known tool renders its own section" do
       for tool <-
-            ~w(list_team list_skills load_skill list_models classify spawn_agent call_agent send_agent respond_agent interrupt_agent destroy_agent) do
+            ~w(list_team list_skills load_skill list_models ask ask_files spawn_agent call_agent send_agent respond_agent interrupt_agent destroy_agent) do
         prompt = with_tools([tool]) |> SystemPrompt.build()
         assert prompt =~ "### #{tool}", "expected a section for #{tool}"
       end
@@ -124,16 +134,16 @@ defmodule Planck.Agent.SystemPromptTest do
       assert positions == Enum.sort(positions)
     end
 
-    test "classify's section only appears when classify is in the agent's tools" do
-      without_classify = with_tools(~w(list_models)) |> SystemPrompt.build()
-      with_classify = with_tools(~w(list_models classify)) |> SystemPrompt.build()
+    test "ask's section only appears when ask is in the agent's tools" do
+      without_ask = with_tools(~w(list_models)) |> SystemPrompt.build()
+      with_ask = with_tools(~w(list_models ask)) |> SystemPrompt.build()
 
-      refute without_classify =~ "### classify"
-      assert with_classify =~ "### classify"
+      refute without_ask =~ "### ask"
+      assert with_ask =~ "### ask"
     end
 
-    test "classify's section teaches the discriminated question types" do
-      prompt = with_tools(~w(classify)) |> SystemPrompt.build() |> String.downcase()
+    test "ask's section teaches the discriminated question types" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build() |> String.downcase()
 
       assert prompt =~ "choice"
       assert prompt =~ "score"
@@ -141,19 +151,33 @@ defmodule Planck.Agent.SystemPromptTest do
       assert prompt =~ "rlcd"
     end
 
-    test "classify's section has an H4 subsection per question type with when-to-use guidance" do
-      prompt = with_tools(~w(classify)) |> SystemPrompt.build()
+    test "ask's section covers the three question types with when-to-use guidance" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build()
 
-      assert prompt =~ "#### Choice"
-      assert prompt =~ "#### Score"
-      assert prompt =~ "#### Boolean"
+      assert prompt =~ "**choice**"
+      assert prompt =~ "**score**"
+      assert prompt =~ "**boolean**"
 
-      choice_at = :binary.match(prompt, "#### Choice") |> elem(0)
-      score_at = :binary.match(prompt, "#### Score") |> elem(0)
-      boolean_at = :binary.match(prompt, "#### Boolean") |> elem(0)
+      choice_at = :binary.match(prompt, "**choice**") |> elem(0)
+      score_at = :binary.match(prompt, "**score**") |> elem(0)
+      boolean_at = :binary.match(prompt, "**boolean**") |> elem(0)
 
       assert choice_at < score_at
       assert score_at < boolean_at
+    end
+
+    test "ask's section stays concise — no code examples" do
+      prompt = with_tools(~w(ask)) |> SystemPrompt.build()
+
+      refute prompt =~ "```"
+    end
+
+    test "ask_files' section documents glob support and the shared question types" do
+      prompt = with_tools(~w(ask_files)) |> SystemPrompt.build()
+
+      assert prompt =~ "glob"
+      assert prompt =~ "src/**/*.js"
+      assert prompt =~ "same three question types as `ask`"
     end
 
     test "list_models' section mentions type guidance" do
@@ -164,15 +188,43 @@ defmodule Planck.Agent.SystemPromptTest do
       assert prompt =~ "\"rlcd\""
     end
 
-    test "section ordering places classify immediately after list_models and before spawn_agent" do
-      prompt = with_tools(~w(list_models classify spawn_agent)) |> SystemPrompt.build()
+    test "section ordering places ask immediately after list_models and before spawn_agent" do
+      prompt = with_tools(~w(list_models ask spawn_agent)) |> SystemPrompt.build()
 
       list_models_at = :binary.match(prompt, "### list_models") |> elem(0)
-      classify_at = :binary.match(prompt, "### classify") |> elem(0)
+      ask_at = :binary.match(prompt, "### ask") |> elem(0)
       spawn_agent_at = :binary.match(prompt, "### spawn_agent") |> elem(0)
 
-      assert list_models_at < classify_at
-      assert classify_at < spawn_agent_at
+      assert list_models_at < ask_at
+      assert ask_at < spawn_agent_at
+    end
+
+    test "ask_files' section only appears when ask_files is in the agent's tools" do
+      without = with_tools(~w(list_models ask)) |> SystemPrompt.build()
+      with_files = with_tools(~w(list_models ask ask_files)) |> SystemPrompt.build()
+
+      refute without =~ "### ask_files"
+      assert with_files =~ "### ask_files"
+    end
+
+    test "ask_files' section documents skipped entries and the gating recipe" do
+      prompt = with_tools(~w(ask_files)) |> SystemPrompt.build() |> String.downcase()
+
+      assert prompt =~ "skipped"
+      assert prompt =~ "gating recipe"
+      assert prompt =~ "boolean"
+      refute prompt =~ "```"
+    end
+
+    test "section ordering places ask_files immediately after ask and before spawn_agent" do
+      prompt = with_tools(~w(list_models ask ask_files spawn_agent)) |> SystemPrompt.build()
+
+      ask_at = :binary.match(prompt, "### ask\n") |> elem(0)
+      ask_files_at = :binary.match(prompt, "### ask_files") |> elem(0)
+      spawn_agent_at = :binary.match(prompt, "### spawn_agent") |> elem(0)
+
+      assert ask_at < ask_files_at
+      assert ask_files_at < spawn_agent_at
     end
   end
 
@@ -261,6 +313,51 @@ defmodule Planck.Agent.SystemPromptTest do
       skills_at = :binary.match(prompt, "## Skills") |> elem(0)
 
       assert inter_agent_at < skills_at
+    end
+  end
+
+  # --- assembly order ---
+
+  describe "assembly order" do
+    test "hook → identity → tools → skills → custom prompt → hook" do
+      prompt =
+        base_opts(%{
+          prompt_hook: BothHook,
+          type: "orchestrator",
+          tools: tools(~w(list_team)),
+          skill_pool: [skill("elixir-dev", always_present: true)]
+        })
+        |> SystemPrompt.build()
+
+      positions = [
+        :binary.match(prompt, "HOOK_BEFORE") |> elem(0),
+        :binary.match(prompt, "You are a/an orchestrator.") |> elem(0),
+        :binary.match(prompt, "## Inter-agent tools") |> elem(0),
+        :binary.match(prompt, "## Skills") |> elem(0),
+        :binary.match(prompt, "base prompt") |> elem(0),
+        :binary.match(prompt, "HOOK_AFTER") |> elem(0)
+      ]
+
+      assert positions == Enum.sort(positions)
+    end
+
+    test "custom prompt is appended after skills, not before them" do
+      prompt =
+        base_opts(%{skill_pool: [skill("elixir-dev", always_present: true)]})
+        |> SystemPrompt.build()
+
+      skills_at = :binary.match(prompt, "## Skills") |> elem(0)
+      base_at = :binary.match(prompt, "base prompt") |> elem(0)
+
+      assert skills_at < base_at
+    end
+
+    test "empty base prompt does not leave stray separators" do
+      prompt =
+        base_opts(%{system_prompt: "", type: "solo"})
+        |> SystemPrompt.build()
+
+      assert prompt == "You are a/an solo."
     end
   end
 

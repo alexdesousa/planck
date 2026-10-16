@@ -391,6 +391,31 @@ defmodule Planck.Agent.SessionTest do
     end
   end
 
+  describe "delete/2" do
+    test "stops a running session and removes its file", %{tmp_dir: dir} do
+      {id, pid} = start_session(dir: dir)
+      assert {:ok, _path, _} = Session.find_by_id(dir, id)
+
+      assert :ok = Session.delete(dir, id)
+      refute Process.alive?(pid)
+      assert {:error, :not_found} = Session.whereis(id)
+      assert {:error, :not_found} = Session.find_by_id(dir, id)
+    end
+
+    test "removes the file of an already-stopped session", %{tmp_dir: dir} do
+      {id, _pid} = start_session(dir: dir)
+      :ok = Session.stop(id)
+      Process.sleep(50)
+
+      assert :ok = Session.delete(dir, id)
+      assert {:error, :not_found} = Session.find_by_id(dir, id)
+    end
+
+    test "unknown session is a no-op", %{tmp_dir: dir} do
+      assert :ok = Session.delete(dir, "deadbeef")
+    end
+  end
+
   describe "save_metadata/2 and get_metadata/1" do
     test "saves and retrieves metadata", %{tmp_dir: dir} do
       {id, _pid} = start_session(dir: dir)

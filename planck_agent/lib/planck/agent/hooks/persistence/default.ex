@@ -36,4 +36,12 @@ defmodule Planck.Agent.Hooks.Persistence.Default do
   @impl true
   def load_session_messages(session_id, _opts),
     do: Session.messages(session_id)
+
+  @impl true
+  def delete_session(session_id, opts) do
+    case Keyword.fetch(opts, :dir) do
+      {:ok, dir} -> Session.delete(dir, session_id)
+      :error -> {:error, :missing_sessions_dir}
+    end
+  end
 end

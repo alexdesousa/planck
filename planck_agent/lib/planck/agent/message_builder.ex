@@ -45,13 +45,18 @@ defmodule Planck.Agent.MessageBuilder do
   @doc """
   Build a tool-result message from a list of `{call_id, result}` pairs.
 
-  Results must be in `{:ok, string} | {:ok, string, _} | {:error, reason}` form.
-  Each value is truncated to #{@max_tool_output_lines} lines / 
-  #{@max_tool_output_bytes} bytes.
+  Results must be in
+  `{:ok, string} | {:ok, string, _} | {:error, reason} | {:error, reason, _}`
+  form. Each value is truncated to
+  #{@max_tool_output_lines} lines / #{@max_tool_output_bytes} bytes.
   """
   @spec build_tool_result([tool_result]) :: Message.t()
         when call_id: String.t(),
-             result: {:ok, term()} | {:ok, term(), map()} | {:error, term()},
+             result:
+               {:ok, term()}
+               | {:ok, term(), map()}
+               | {:error, term()}
+               | {:error, term(), map()},
              tool_result: {call_id, result}
   def build_tool_result(results)
 
@@ -66,6 +71,8 @@ defmodule Planck.Agent.MessageBuilder do
             {:ok, v, _} -> inspect(v)
             {:error, reason} when is_binary(reason) -> "Error: #{reason}"
             {:error, reason} -> "Error: #{inspect(reason)}"
+            {:error, reason, _} when is_binary(reason) -> "Error: #{reason}"
+            {:error, reason, _} -> "Error: #{inspect(reason)}"
           end
 
         {:tool_result, id, truncate_tool_output(value)}

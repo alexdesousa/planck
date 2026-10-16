@@ -63,6 +63,7 @@ msgctxt "button label"
 msgid "Send"
 msgstr ""
 
+#: lib/planck/web/live/agent_overlay.html.heex:63
 #: lib/planck/web/live/prompt_input.html.heex:70
 #, elixir-autogen, elixir-format
 msgctxt "button label"
@@ -124,7 +125,7 @@ msgctxt "chat label"
 msgid "thinking…"
 msgstr ""
 
-#: lib/planck/web/live/chat_component.ex:457
+#: lib/planck/web/live/chat_component.ex:460
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "you"
@@ -166,7 +167,7 @@ msgctxt "form label"
 msgid "Team"
 msgstr ""
 
-#: lib/planck/web/live/sessions_sidebar.html.heex:70
+#: lib/planck/web/live/sessions_sidebar.ex:82
 #, elixir-autogen, elixir-format
 msgctxt "form option"
 msgid "Dynamic (default)"
@@ -287,6 +288,7 @@ msgctxt "tool status"
 msgid "running…"
 msgstr ""
 
+#: lib/planck/web/live/agent_overlay.html.heex:61
 #: lib/planck/web/live/prompt_input.html.heex:68
 #, elixir-autogen, elixir-format
 msgctxt "tooltip"
@@ -432,24 +434,6 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgctxt "setup label"
 msgid "(optional)"
-msgstr ""
-
-#: lib/planck/web/live/model_selector_modal.html.heex:35
-#, elixir-autogen, elixir-format
-msgctxt "model selector"
-msgid "Cancel"
-msgstr ""
-
-#: lib/planck/web/live/model_selector_modal.html.heex:8
-#, elixir-autogen, elixir-format
-msgctxt "model selector"
-msgid "Change model"
-msgstr ""
-
-#: lib/planck/web/live/model_selector_modal.html.heex:43
-#, elixir-autogen, elixir-format
-msgctxt "model selector"
-msgid "Save"
 msgstr ""
 
 #: lib/planck/web/live/setup_modal/provider_model_step.ex:739
@@ -966,4 +950,102 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgctxt "chat label"
 msgid "conversation cleared"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:200
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Commands"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:122
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Hooks"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:97
+#: lib/planck/web/live/agent_details.ex:129
+#: lib/planck/web/live/agent_details.ex:165
+#: lib/planck/web/live/agent_details.ex:207
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "None"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:158
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Skills"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.html.heex:29
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "System Prompt"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:90
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "Tools"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.html.heex:30
+#, elixir-autogen, elixir-format
+msgctxt "agent details"
+msgid "runtime-assembled"
+msgstr ""
+
+#: lib/planck/web/live/agent_overlay.html.heex:90
+#, elixir-autogen, elixir-format
+msgctxt "agent overlay"
+msgid "Close"
+msgstr ""
+
+#: lib/planck/web/live/agent_overlay.html.heex:50
+#, elixir-autogen, elixir-format
+msgctxt "agent overlay"
+msgid "Details"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:177
+#, elixir-autogen, elixir-format
+msgctxt "badge"
+msgid "always"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:181
+#, elixir-autogen, elixir-format
+msgctxt "badge"
+msgid "granted"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:259
+#, elixir-autogen, elixir-format
+msgctxt "command kind"
+msgid "builtin"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:260
+#, elixir-autogen, elixir-format
+msgctxt "command kind"
+msgid "command"
+msgstr ""
+
+#: lib/planck/web/live/agent_details.ex:261
+#, elixir-autogen, elixir-format
+msgctxt "command kind"
+msgid "skill"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.ex:93
+#, elixir-autogen, elixir-format
+msgid "Dynamic"
+msgstr ""
+
+#: lib/planck/web/live/sessions_sidebar.ex:92
+#, elixir-autogen, elixir-format
+msgctxt "form option"
+msgid "%{team} (default)"
 msgstr ""

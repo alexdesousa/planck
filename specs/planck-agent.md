@@ -447,12 +447,15 @@ in `planck_headless`. Callers pass the resolved dirs explicitly to `load_all/1`.
 
 Conversation storage is pluggable via `Planck.Agent.Hooks.Persistence` —
 `Planck.Agent` never calls `Planck.Agent.Session`/`SessionStore` directly, only
-the six `Hooks.Persistence.*` dispatcher functions, which resolve
+the `Hooks.Persistence.*` dispatcher functions, which resolve
 `state.hooks.persistence` (`nil` = `Hooks.Persistence.Default`) and dispatch locally
 or via `sidecar_node` RPC, same shape as the compactor/prompt/turn-end hooks.
-The rest of this section describes `Default`'s built-in strategy — what every
-agent uses unless a custom `AgentSpec.persistence` module is declared. See
-`specs/sidecar.md` and `skills/planck_setup/references/hooks.md` for the
+`delete_session/4` is also dispatched through this hook but by `planck_headless`
+on session deletion, not by `Planck.Agent` — the backend that owns the session's
+data removes it (the callback is optional; `use` defaults to the built-in SQLite
+file removal). The rest of this section describes `Default`'s built-in strategy —
+what every agent uses unless a custom `AgentSpec.persistence` module is declared.
+See `specs/sidecar.md` and `skills/planck_setup/references/hooks.md` for the
 behaviour, callbacks, and how to implement a custom backend.
 
 `Planck.Agent.Session` is a GenServer backed by SQLite, registered globally as
@@ -492,6 +495,11 @@ Additional Session API:
 # Agent.rewind_to_message/2 and re-prompt.
 @spec Session.truncate_after(session_id(), db_id :: pos_integer()) ::
         :ok | {:error, :not_found}
+
+# Permanently delete the session: stop it if running, then remove its SQLite
+# file. Called by Hooks.Persistence.Default.delete_session/2 when a session
+# is deleted for good (see planck_headless.delete_session/1).
+@spec Session.delete(sessions_dir :: Path.t(), session_id()) :: :ok | {:error, term()}
 ```
 
 ## Compaction

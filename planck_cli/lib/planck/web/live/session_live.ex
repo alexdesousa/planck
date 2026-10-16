@@ -5,7 +5,8 @@ defmodule Planck.Web.SessionLive do
   alias Planck.Agent.Session
   alias Planck.Headless
   alias Planck.Headless.SidecarManager
-  alias Planck.Web.Live.{AgentsSidebar, ChatComponent, StatusBar}
+  alias Planck.Web.AgentInfo
+  alias Planck.Web.Live.{AgentDetails, AgentOverlay, AgentsSidebar, ChatComponent, StatusBar}
 
   @impl true
   def mount(_params, session, socket) do
@@ -26,41 +27,15 @@ defmodule Planck.Web.SessionLive do
       |> assign(:teams, [])
       |> assign(:commands, [])
       |> assign(:setup_visible, false)
-      |> assign(:model_selector, nil)
+      |> assign(:agent_info, nil)
       |> assign(:available_models, [])
+      |> assign(:model_options, [])
       |> assign(:first_run, false)
       |> assign(:open_widget_id, nil)
+      |> assign(:pending_approvals, [])
 
     if connected?(socket) do
-      # Restore locale for the LiveView process (the plug already set it for
-      # the HTTP request; LiveView runs in a separate process).
-      locale = session["locale"] || get_connect_params(socket)["locale"]
-      if locale, do: Gettext.put_locale(Planck.Web.Gettext, locale)
-
-      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
-      Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:resources")
-
-      sessions = Headless.list_sessions()
-
-      socket =
-        case find_initial_session(sessions) do
-          {:ok, session_id} -> load_session(socket, session_id)
-          {:error, _} -> socket
-        end
-
-      teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
-      commands = build_command_list()
-      config = Headless.config()
-      first_run = config.providers == %{} and config.models == []
-
-      {:ok,
-       socket
-       |> assign(:sessions, Headless.list_sessions())
-       |> assign(:teams, teams)
-       |> assign(:commands, commands)
-       |> assign(:first_run, first_run)
-       |> assign(:setup_visible, first_run)
-       |> assign(:available_models, Headless.available_models())}
+      {:ok, do_connect(socket, session)}
     else
       {:ok, socket}
     end
@@ -102,6 +77,19 @@ defmodule Planck.Web.SessionLive do
     {:noreply, socket}
   end
 
+  def handle_info(
+        {:agent_event, :tool_blocked, %{agent_id: agent_id, mode: :await_approval}} = event,
+        socket
+      ) do
+    send_to_chats(socket, agent_id, event)
+    {:noreply, fetch_pending_approvals(socket)}
+  end
+
+  def handle_info({:agent_event, :tool_blocked, _payload} = event, socket) do
+    send_to_chats(socket, nil, event)
+    {:noreply, socket}
+  end
+
   def handle_info({:agent_event, :tool_end, _payload} = event, socket) do
     send_to_chats(socket, nil, event)
     {:noreply, socket}
@@ -109,6 +97,7 @@ defmodule Planck.Web.SessionLive do
 
   def handle_info({:agent_event, :error, %{agent_id: agent_id}} = event, socket) do
     send_to_chats(socket, agent_id, event)
+    notify_overlay_active(socket, agent_id, false)
 
     if orchestrator_event?(agent_id, socket) do
       {:noreply, socket |> assign(:streaming, false) |> assign(:waiting, false)}
@@ -150,6 +139,10 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_refresh_agents(socket)}
   end
 
+  def handle_info(:close_overlay, socket) do
+    {:noreply, assign(socket, :overlay, nil)}
+  end
+
   def handle_info({:agent_event, :cleared, %{agent_id: agent_id}} = event, socket) do
     send_to_chats(socket, agent_id, event)
 
@@ -158,6 +151,18 @@ defmodule Planck.Web.SessionLive do
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info({:approve_tool_call, call_id, agent_id}, socket) do
+    handle_event("approve_tool_call", %{"call_id" => call_id, "agent_id" => agent_id}, socket)
+  end
+
+  def handle_info({:deny_tool_call, call_id, agent_id, reason}, socket) do
+    handle_event(
+      "deny_tool_call",
+      %{"call_id" => call_id, "agent_id" => agent_id, "reason" => reason},
+      socket
+    )
   end
 
   def handle_info({:agent_event, _type, _payload}, socket), do: {:noreply, socket}
@@ -197,7 +202,7 @@ defmodule Planck.Web.SessionLive do
     {:noreply,
      socket
      |> assign(:teams, teams)
-     |> assign(:commands, build_command_list())}
+     |> assign(:commands, AgentInfo.command_list())}
   end
 
   # ---------------------------------------------------------------------------
@@ -277,30 +282,6 @@ defmodule Planck.Web.SessionLive do
     {:noreply, do_delete_session(session_id, socket)}
   end
 
-  def handle_info({:model_changed, agent_id, model_id}, socket) do
-    with %Planck.AI.Model{} = model <-
-           Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
-         {:ok, pid} <- Agent.whereis(agent_id) do
-      Agent.change_model(pid, model)
-
-      agents =
-        Map.update(socket.assigns.agents, agent_id, %{}, fn a ->
-          %{a | model: if(model.name != "", do: model.name, else: model.id), model_id: model.id}
-        end)
-
-      send_update(AgentsSidebar,
-        id: "agents-sidebar",
-        action: :refresh_agents,
-        agents: agents,
-        agent_order: socket.assigns.agent_order
-      )
-
-      {:noreply, socket |> assign(:model_selector, nil) |> assign(:agents, agents)}
-    else
-      _ -> {:noreply, assign(socket, :model_selector, nil)}
-    end
-  end
-
   def handle_info(:setup_complete, socket) do
     teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
     config = Headless.config()
@@ -311,8 +292,9 @@ defmodule Planck.Web.SessionLive do
       |> assign(:setup_visible, false)
       |> assign(:first_run, first_run)
       |> assign(:teams, teams)
-      |> assign(:commands, build_command_list())
+      |> assign(:commands, AgentInfo.command_list())
       |> assign(:available_models, Headless.available_models())
+      |> assign(:model_options, model_options())
 
     case Headless.start_session() do
       {:ok, session_id} ->
@@ -357,20 +339,41 @@ defmodule Planck.Web.SessionLive do
   @impl true
   def handle_event(event, params, socket)
 
-  def handle_event("open_model_selector", %{"id" => agent_id}, socket) do
+  def handle_event("open_agent_info", %{"id" => agent_id}, socket) do
     agent = Map.get(socket.assigns.agents, agent_id, %{})
 
-    model_selector = %{
-      agent_id: agent_id,
-      agent_name: agent[:name] || agent[:type] || "agent",
-      current_model: agent[:model_id] || ""
-    }
+    case AgentInfo.build(agent_id) do
+      {:ok, details} ->
+        agent_info =
+          details
+          |> Map.put(:agent_id, agent_id)
+          |> Map.put(:agent_name, agent[:name] || agent[:type] || "agent")
+          |> Map.put(:model_id, agent[:model_id] || "")
 
-    {:noreply, assign(socket, :model_selector, model_selector)}
+        {:noreply, assign(socket, overlay: nil, agent_info: agent_info)}
+
+      {:error, _} ->
+        {:noreply, socket}
+    end
   end
 
-  def handle_event("close_model_selector", _params, socket) do
-    {:noreply, assign(socket, :model_selector, nil)}
+  def handle_event("close_agent_info", _params, socket) do
+    {:noreply, assign(socket, :agent_info, nil)}
+  end
+
+  def handle_event("switch_orchestrator_model", %{"value" => model_id}, socket) do
+    case socket.assigns.agent_info do
+      %{agent_id: agent_id} -> {:noreply, do_switch_model(socket, agent_id, model_id)}
+      nil -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("switch_worker_model", %{"value" => model_id}, socket) do
+    if agent_id = socket.assigns.overlay do
+      {:noreply, do_switch_model(socket, agent_id, model_id)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("close_widget", _params, socket) do
@@ -379,6 +382,31 @@ defmodule Planck.Web.SessionLive do
     end
 
     {:noreply, assign(socket, :open_widget_id, nil)}
+  end
+
+  def handle_event("approve_tool_call", %{"call_id" => call_id, "agent_id" => agent_id}, socket) do
+    if session_id = socket.assigns.active_session do
+      Headless.approve_tool_call(session_id, agent_id, call_id)
+    end
+
+    {:noreply, fetch_pending_approvals(socket)}
+  end
+
+  def handle_event(
+        "deny_tool_call",
+        %{"call_id" => call_id, "agent_id" => agent_id, "reason" => reason},
+        socket
+      ) do
+    if session_id = socket.assigns.active_session do
+      Headless.deny_tool_call(
+        session_id,
+        agent_id,
+        call_id,
+        if(reason == "", do: nil, else: reason)
+      )
+    end
+
+    {:noreply, fetch_pending_approvals(socket)}
   end
 
   def handle_event("open_setup", _params, socket) do
@@ -394,11 +422,7 @@ defmodule Planck.Web.SessionLive do
   end
 
   def handle_event("open_agent", %{"id" => agent_id}, socket) do
-    {:noreply, do_open_agent(agent_id, socket)}
-  end
-
-  def handle_event("close_overlay", _params, socket) do
-    {:noreply, assign(socket, :overlay, nil)}
+    {:noreply, socket |> assign(:agent_info, nil) |> assign(:overlay, agent_id)}
   end
 
   def handle_event("toggle_left", _params, socket) do
@@ -416,6 +440,42 @@ defmodule Planck.Web.SessionLive do
   # ---------------------------------------------------------------------------
   # Private events
   # ---------------------------------------------------------------------------
+
+  @spec do_connect(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
+  defp do_connect(socket, session)
+
+  defp do_connect(%Phoenix.LiveView.Socket{} = socket, session)
+       when is_map(session) do
+    # Restore locale for the LiveView process (the plug already set it for
+    # the HTTP request; LiveView runs in a separate process).
+    locale = session["locale"] || get_connect_params(socket)["locale"]
+    if locale, do: Gettext.put_locale(Planck.Web.Gettext, locale)
+
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:sidecar")
+    Phoenix.PubSub.subscribe(Planck.Agent.PubSub, "planck:resources")
+
+    sessions = Headless.list_sessions()
+
+    socket =
+      case find_initial_session(sessions) do
+        {:ok, session_id} -> load_session(socket, session_id)
+        {:error, _} -> socket
+      end
+
+    teams = Planck.Headless.ResourceStore.get().teams |> Map.keys() |> Enum.sort()
+    commands = AgentInfo.command_list()
+    config = Headless.config()
+    first_run = config.providers == %{} and config.models == []
+
+    socket
+    |> assign(:sessions, Headless.list_sessions())
+    |> assign(:teams, teams)
+    |> assign(:commands, commands)
+    |> assign(:first_run, first_run)
+    |> assign(:setup_visible, first_run)
+    |> assign(:available_models, Headless.available_models())
+    |> assign(:model_options, model_options())
+  end
 
   @spec do_refresh_agents(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp do_refresh_agents(socket) do
@@ -445,6 +505,7 @@ defmodule Planck.Web.SessionLive do
   defp do_turn_start(agent_id, event, socket) do
     send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
+    notify_overlay_active(socket, agent_id, true)
 
     if orchestrator_event?(agent_id, socket) do
       socket |> assign(:streaming, true) |> assign(:waiting, false)
@@ -458,6 +519,7 @@ defmodule Planck.Web.SessionLive do
   defp do_turn_end(agent_id, event, socket) do
     send_to_sidebar(event)
     send_to_chats(socket, agent_id, event)
+    notify_overlay_active(socket, agent_id, false)
 
     if orchestrator_event?(agent_id, socket) do
       socket |> assign(:streaming, false) |> assign(:waiting, false)
@@ -537,32 +599,38 @@ defmodule Planck.Web.SessionLive do
     end
   end
 
-  @spec do_open_agent(String.t(), Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  defp do_open_agent(agent_id, socket) do
-    streaming = agent_active?(agent_id)
-
-    send_update(ChatComponent,
-      id: "chat-overlay",
-      action: :load,
-      session_id: socket.assigns.active_session,
-      perspective_agent_id: agent_id,
-      agents: socket.assigns.agents,
-      streaming: streaming,
-      streaming_agent_id: if(streaming, do: agent_id)
-    )
-
-    assign(socket, :overlay, agent_id)
+  # RLCD models are decision-only (Planck.AI.evaluate/4) and cannot be
+  # assigned to agents, so they are excluded from the switcher.
+  @spec model_options() :: [{String.t(), String.t()}]
+  defp model_options do
+    Headless.available_models()
+    |> Enum.filter(&(&1.type == :llm))
+    |> Enum.map(&{&1.id, if(&1.name in [nil, ""], do: &1.id, else: &1.name)})
   end
 
-  # A fresh Agent.get_state/1 lookup, not socket.assigns.agents[agent_id][:status] —
-  # that map is only refreshed on session load or :worker_spawned/:worker_exit, not
-  # on every turn_start/turn_end, so it can be stale by the time a worker's card is
-  # clicked mid-turn.
-  @spec agent_active?(String.t()) :: boolean()
-  defp agent_active?(agent_id) do
-    case Agent.whereis(agent_id) do
-      {:ok, pid} -> Agent.get_state(pid).turn.status in [:streaming, :executing_tools]
-      _ -> false
+  @spec do_switch_model(Phoenix.LiveView.Socket.t(), String.t(), String.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp do_switch_model(socket, agent_id, model_id) do
+    with %Planck.AI.Model{} = model <-
+           Enum.find(socket.assigns.available_models, &(&1.id == model_id)),
+         {:ok, pid} <- Agent.whereis(agent_id) do
+      Agent.change_model(pid, model)
+
+      agents =
+        Map.update(socket.assigns.agents, agent_id, %{}, fn a ->
+          %{a | model: if(model.name != "", do: model.name, else: model.id), model_id: model.id}
+        end)
+
+      send_update(AgentsSidebar,
+        id: "agents-sidebar",
+        action: :refresh_agents,
+        agents: agents,
+        agent_order: socket.assigns.agent_order
+      )
+
+      assign(socket, :agents, agents)
+    else
+      _ -> socket
     end
   end
 
@@ -751,6 +819,8 @@ defmodule Planck.Web.SessionLive do
       |> assign(:waiting, false)
       |> assign(:overlay, nil)
 
+    socket = fetch_pending_approvals(socket)
+
     if sidecar_status == :connected, do: maybe_sync_sidecar_tools(socket), else: socket
   end
 
@@ -796,6 +866,25 @@ defmodule Planck.Web.SessionLive do
       _ ->
         {nil, false}
     end
+  end
+
+  @spec fetch_pending_approvals(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp fetch_pending_approvals(socket)
+
+  defp fetch_pending_approvals(%{assigns: %{active_session: nil}} = socket) do
+    assign(socket, :pending_approvals, [])
+  end
+
+  defp fetch_pending_approvals(%{assigns: %{active_session: session_id}} = socket)
+       when is_binary(session_id) do
+    case Headless.list_all_pending_approvals(session_id) do
+      {:ok, approvals} -> assign(socket, :pending_approvals, approvals)
+      _ -> assign(socket, :pending_approvals, [])
+    end
+  end
+
+  defp fetch_pending_approvals(socket) do
+    assign(socket, :pending_approvals, [])
   end
 
   @spec orchestrator_active?(%{String.t() => map()}, String.t() | nil) :: boolean()
@@ -848,6 +937,15 @@ defmodule Planck.Web.SessionLive do
   defp map_sidecar_status(_), do: :idle
 
   @inter_agent_tools ~w(call_agent send_agent respond_agent interrupt_agent)
+
+  @spec notify_overlay_active(Phoenix.LiveView.Socket.t(), String.t(), boolean()) :: :ok
+  defp notify_overlay_active(socket, agent_id, active) do
+    if socket.assigns.overlay == agent_id do
+      send_update(AgentOverlay, id: "agent-overlay", action: :worker_active, active: active)
+    end
+
+    :ok
+  end
 
   @spec abort_agent(String.t() | nil) :: :ok
   defp abort_agent(nil), do: :ok
@@ -953,55 +1051,5 @@ defmodule Planck.Web.SessionLive do
         cost: acc.cost + agent.cost
       }
     end)
-  end
-
-  @builtin_commands [
-    %{
-      name: "clear",
-      description: "Delete all messages in the session.",
-      kind: :builtin,
-      disable_model_invocation: true,
-      help: "/clear"
-    },
-    %{
-      name: "compact",
-      description: "Compact the session using the compactor.",
-      kind: :builtin,
-      disable_model_invocation: true,
-      help: "/compact [prompt]"
-    }
-  ]
-
-  @spec build_command_list() :: [map()]
-  defp build_command_list do
-    store = Planck.Headless.ResourceStore.get()
-
-    commands =
-      store.commands
-      |> Enum.map(
-        &%{
-          name: &1.name,
-          description: &1.description,
-          kind: :command,
-          disable_model_invocation: &1.disable_model_invocation,
-          help: &1.help
-        }
-      )
-      |> Enum.sort_by(& &1.name)
-
-    skills =
-      store.skills
-      |> Enum.map(
-        &%{
-          name: &1.name,
-          description: &1.description,
-          kind: :skill,
-          disable_model_invocation: &1.disable_model_invocation,
-          help: nil
-        }
-      )
-      |> Enum.sort_by(& &1.name)
-
-    @builtin_commands ++ commands ++ skills
   end
 end

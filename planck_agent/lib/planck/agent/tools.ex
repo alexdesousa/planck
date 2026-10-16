@@ -31,11 +31,12 @@ defmodule Planck.Agent.Tools do
   | `destroy_agent` | orchestrator only | no |
   | `interrupt_agent` | orchestrator only | no |
   | `list_models` | orchestrator only | no |
-  | `classify` | orchestrator only when there's a :rlcd model configured | no |
+  | `ask` | orchestrator only when there's a :rlcd model configured | no |
+  | `ask_files` | orchestrator only when there's a :rlcd model configured | no |
   """
 
   alias Planck.Agent
-  alias Planck.Agent.{AIBehaviour, Skill, Tool}
+  alias Planck.Agent.{AIBehaviour, Hooks, Skill, Tool}
   alias Planck.AI.Model
 
   @doc """
@@ -60,8 +61,8 @@ defmodule Planck.Agent.Tools do
 
   @doc """
   Returns the orchestrator-only tools: `spawn_agent`, `destroy_agent`,
-  `interrupt_agent`, `list_models`, plus `classify` when at least one
-  configured model has `type: :rlcd`.
+  `interrupt_agent`, `list_models`, plus `ask` and `ask_files` when at
+  least one configured model has `type: :rlcd`.
 
   These tools, combined with `worker_tools/2`, make up the full orchestrator set.
   The presence of `spawn_agent` in the tool list is what marks an agent as an
@@ -94,10 +95,23 @@ defmodule Planck.Agent.Tools do
       list_models(available_models)
     ]
 
+    base ++ rlcd_tools(available_models)
+  end
+
+  @doc """
+  Returns the RLCD-gated tools — `ask` and `ask_files` — when at least
+  one configured model has `type: :rlcd`, otherwise `[]`.
+
+  Single shared predicate for both tools: `orchestrator_tools/6`
+  auto-includes them together, and `planck_headless` uses this to build
+  the grantable pool so workers can be granted either one.
+  """
+  @spec rlcd_tools([Model.t()]) :: [Tool.t()]
+  def rlcd_tools(available_models) do
     if Enum.any?(available_models, &(&1.type == :rlcd)) do
-      base ++ [classify(available_models)]
+      [ask(available_models), ask_files(available_models)]
     else
-      base
+      []
     end
   end
 
@@ -375,7 +389,8 @@ defmodule Planck.Agent.Tools do
           session_id: session_id,
           team_id: team_id,
           orchestrator_id: agent_id,
-          cwd: cwd
+          cwd: cwd,
+          parent_hooks: fetch_parent_hooks(agent_id)
         }
 
         with {:ok, model} <-
@@ -505,17 +520,17 @@ defmodule Planck.Agent.Tools do
   end
 
   @doc """
-  Build the `classify` tool from a pre-filtered list of available models.
+  Build the `ask` tool from a pre-filtered list of available models.
 
   Automatic for the orchestrator when at least one available model has
   `type: :rlcd` — see `orchestrator_tools/6`. Not automatic for workers:
   a worker only gets it if granted like any other tool, via `TEAM.json`'s
   `tools` list or `spawn_agent`'s `tools:` param.
   """
-  @spec classify([Model.t()]) :: Tool.t()
-  def classify(available_models) do
+  @spec ask([Model.t()]) :: Tool.t()
+  def ask(available_models) do
     Tool.new(
-      name: "classify",
+      name: "ask",
       description:
         "Use to get a fast, calibrated decision (routing, extraction, " <>
           "yes/no confidence) from an RLCD model instead of asking a general " <>
@@ -549,76 +564,7 @@ defmodule Planck.Agent.Tools do
               "The content to evaluate — plain text, or a JSON object/array for " <>
                 "structured data such as a chat log or a record."
           },
-          "questions" => %{
-            "type" => "object",
-            "description" =>
-              "Named typed questions to ask about state. Choose your own key " <>
-                "for each question — its answer comes back under the same key.",
-            "additionalProperties" => %{
-              "oneOf" => [
-                %{
-                  "properties" => %{
-                    "type" => %{
-                      "enum" => ["choice"],
-                      "description" => "Pick exactly one option from criteria."
-                    },
-                    "instructions" => %{
-                      "type" => "string",
-                      "description" =>
-                        "What the model should decide between the given criteria options."
-                    },
-                    "criteria" => %{
-                      "type" => "object",
-                      "description" => "Option key -> description. Up to 255 options."
-                    }
-                  },
-                  "required" => ["type", "instructions", "criteria"]
-                },
-                %{
-                  "properties" => %{
-                    "type" => %{
-                      "enum" => ["score"],
-                      "description" => "Rate state against the ordered levels in criteria."
-                    },
-                    "instructions" => %{
-                      "type" => "string",
-                      "description" => "What the model should rate, in natural language."
-                    },
-                    "criteria" => %{
-                      "type" => "array",
-                      "items" => %{"type" => "string"},
-                      "minItems" => 2,
-                      "maxItems" => 10,
-                      "description" => "Ordered level descriptions, low to high."
-                    }
-                  },
-                  "required" => ["type", "instructions", "criteria"]
-                },
-                %{
-                  "properties" => %{
-                    "type" => %{
-                      "enum" => ["boolean"],
-                      "description" =>
-                        "A yes/no question — returns the probability the answer is yes."
-                    },
-                    "instructions" => %{
-                      "type" => "string",
-                      "description" => "The yes/no question to evaluate, in natural language."
-                    },
-                    "criteria" => %{
-                      "type" => "object",
-                      "properties" => %{
-                        "true" => %{"type" => "string"},
-                        "false" => %{"type" => "string"}
-                      },
-                      "description" => "Optional — clarifies what counts as yes/no."
-                    }
-                  },
-                  "required" => ["type", "instructions"]
-                }
-              ]
-            }
-          }
+          "questions" => questions_schema()
         },
         "required" => ["provider", "model_id", "base_url", "state", "questions"]
       },
@@ -631,10 +577,118 @@ defmodule Planck.Agent.Tools do
         questions = Map.get(args, "questions")
 
         with {:ok, model} <-
-               resolve_classify_model(provider, model_id, base_url, available_models),
+               resolve_ask_model(provider, model_id, base_url, available_models),
              {:ok, response} <-
                AIBehaviour.client().evaluate(model, state, questions, []) do
           {:ok, Jason.encode!(response.object)}
+        end
+      end
+    )
+  end
+
+  @max_ask_files 255
+  @ask_files_concurrency 16
+  # Shared RLCD token budget for one file's content plus the question block
+  # (mirrors upstream L8/L9: 64k total tokens, 4k headroom for questions,
+  # roughly four chars per token).
+  @ask_files_max_chars (64_000 - 4_000) * 4
+  @glob_metachars ~r/[*?\[]/
+
+  @doc """
+  Build the `ask_files` tool from a pre-filtered list of available models.
+
+  Same RLCD gate as `ask/1` — see `rlcd_tools/1`. Asks one shared
+  `questions` block about many files at once: explicit paths and glob
+  patterns (expanded against the agent's cwd), one `evaluate/4` call per
+  readable file, at most #{@ask_files_concurrency} in flight, results in
+  input order. Globs that match nothing land in `skipped` with a reason.
+
+  Returns `{results: [{path, answers}], skipped: [{path, reason}],
+  calls}` JSON — `calls` counts successful RLCD calls, so a follow-up
+  `ask` choice keyed by path can pick-first.
+
+  `opts` accepts `:reader` — an injected `path -> {:ok, content} |
+  {:error, reason}` function used instead of all file IO (tests). When
+  absent, each file is read through the live `"read"` tool from the
+  resource store when one is registered (e.g. the sidecar's, once it
+  connects), falling back to local reads with identical path semantics.
+  Also accepts `:cwd` — a base directory override for relative paths and
+  globs, used when the agent has no live cwd (tests). Without it, a
+  missing agent cwd falls back to the process cwd, which is VM-global and
+  races with test-file compilation.
+  """
+  @spec ask_files([Model.t()]) :: Tool.t()
+  @spec ask_files([Model.t()], keyword()) :: Tool.t()
+  def ask_files(available_models, opts \\ []) do
+    reader = Keyword.get(opts, :reader)
+    cwd_override = Keyword.get(opts, :cwd)
+
+    Tool.new(
+      name: "ask_files",
+      description:
+        "Use to ask the same typed questions about many files at once without " <>
+          "reading them yourself. Pass explicit file paths and/or glob patterns " <>
+          "(e.g. \"src/**/*.js\") plus a questions block shaped exactly like ask's. " <>
+          "Makes one RLCD call per readable file and returns " <>
+          "{results: [{path, answers}], skipped: [{path, reason}], calls}. " <>
+          "Call list_models first and pass the id of a model with type \"rlcd\".",
+      parameters: %{
+        "type" => "object",
+        "properties" => %{
+          "provider" => %{
+            "type" => "string",
+            "description" => "RLCD provider",
+            "enum" => ["typesafe"]
+          },
+          "model_id" => %{
+            "type" => "string",
+            "description" =>
+              "The id of an RLCD model to use, from list_models — only a model " <>
+                "with type \"rlcd\" is valid. Call list_models first if you don't " <>
+                "already have one."
+          },
+          "base_url" => %{
+            "type" => "string",
+            "description" =>
+              "Server URL for a self-hosted or Typesafe-compatible endpoint (e.g. " <>
+                "\"http://localhost:8000\"), passed alongside \"provider\" — still " <>
+                "\"typesafe\", distinguished only by base_url. Ignored for a real " <>
+                "cloud account — pass any placeholder value."
+          },
+          "paths" => %{
+            "type" => "array",
+            "items" => %{"type" => "string"},
+            "maxItems" => @max_ask_files,
+            "description" =>
+              "File paths to evaluate (absolute or relative to the workspace, " <>
+                "same rule as read). Glob patterns (\"*\", \"?\", \"[...]\") are " <>
+                "expanded to matching files. Max #{@max_ask_files} after " <>
+                "expansion; a glob matching nothing is reported in skipped."
+          },
+          "questions" => questions_schema()
+        },
+        "required" => ["provider", "model_id", "base_url", "paths", "questions"]
+      },
+      execute_fn: fn agent_id, call_id, args ->
+        provider = String.to_existing_atom(args["provider"])
+        model_id = Map.get(args, "model_id")
+        base_url = Map.get(args, "base_url")
+        paths = Map.get(args, "paths", [])
+        questions = Map.get(args, "questions")
+        cwd = agent_cwd(agent_id, cwd_override)
+
+        options = [
+          agent_id: agent_id,
+          call_id: call_id,
+          reader: reader,
+          cwd: cwd
+        ]
+
+        with {:ok, model} <-
+               resolve_ask_model(provider, model_id, base_url, available_models),
+             expanded <- expand_ask_paths(paths, cwd),
+             :ok <- check_file_cap(expanded) do
+          run_ask_files(model, expanded, questions, options)
         end
       end
     )
@@ -717,6 +771,79 @@ defmodule Planck.Agent.Tools do
   # Private helpers
   # ---------------------------------------------------------------------------
 
+  @spec questions_schema() :: map()
+  defp questions_schema do
+    %{
+      "type" => "object",
+      "description" =>
+        "Named typed questions to ask about state. Choose your own key " <>
+          "for each question — its answer comes back under the same key.",
+      "additionalProperties" => %{
+        "oneOf" => [
+          %{
+            "properties" => %{
+              "type" => %{
+                "enum" => ["choice"],
+                "description" => "Pick exactly one option from criteria."
+              },
+              "instructions" => %{
+                "type" => "string",
+                "description" =>
+                  "What the model should decide between the given criteria options."
+              },
+              "criteria" => %{
+                "type" => "object",
+                "description" => "Option key -> description. Up to 255 options."
+              }
+            },
+            "required" => ["type", "instructions", "criteria"]
+          },
+          %{
+            "properties" => %{
+              "type" => %{
+                "enum" => ["score"],
+                "description" => "Rate state against the ordered levels in criteria."
+              },
+              "instructions" => %{
+                "type" => "string",
+                "description" => "What the model should rate, in natural language."
+              },
+              "criteria" => %{
+                "type" => "array",
+                "items" => %{"type" => "string"},
+                "minItems" => 2,
+                "maxItems" => 10,
+                "description" => "Ordered level descriptions, low to high."
+              }
+            },
+            "required" => ["type", "instructions", "criteria"]
+          },
+          %{
+            "properties" => %{
+              "type" => %{
+                "enum" => ["boolean"],
+                "description" => "A yes/no question — returns the probability the answer is yes."
+              },
+              "instructions" => %{
+                "type" => "string",
+                "description" => "The yes/no question to evaluate, in natural language."
+              },
+              "criteria" => %{
+                "type" => "object",
+                "properties" => %{
+                  "true" => %{"type" => "string"},
+                  "false" => %{"type" => "string"}
+                },
+                "description" => "Optional — clarifies what counts as yes/no."
+              }
+            },
+            "required" => ["type", "instructions"]
+          }
+        ]
+      }
+    }
+  end
+
   @spec resolve_target(String.t(), map()) :: {:ok, pid()} | {:error, String.t()}
   defp resolve_target(_team_id, %{"agent_id" => id}) when is_binary(id) and id != "" do
     with {:error, :not_found} <- Agent.whereis(id) do
@@ -733,12 +860,251 @@ defmodule Planck.Agent.Tools do
     Enum.flat_map(names, &List.wrap(Map.get(pool_map, &1)))
   end
 
-  @spec resolve_classify_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::
+  # `input` is the raw paths list, `expanded` the result of glob expansion.
+  # An empty input is an error; non-empty input whose globs all failed to
+  # match is not — the unmatched patterns are reported as skipped instead.
+  @spec check_file_cap([Path.t()]) :: :ok | {:error, String.t()}
+  defp check_file_cap(expanded)
+
+  defp check_file_cap([]) do
+    reason =
+      "Empty paths list or no matches. Maximum is #{@max_ask_files} files — nothing was read."
+
+    {:error, reason}
+  end
+
+  defp check_file_cap([_ | _] = expanded) do
+    if length(expanded) > @max_ask_files do
+      reason =
+        "Too many files: got #{length(expanded)} after glob expansion, " <>
+          "maximum is #{@max_ask_files}. " <>
+          "Narrow the patterns before retrying — nothing was read."
+
+      {:error, reason}
+    else
+      :ok
+    end
+  end
+
+  @spec expand_ask_paths([String.t()], Path.t()) :: [Path.t()]
+  defp expand_ask_paths(paths, cwd)
+
+  defp expand_ask_paths(paths, cwd) when is_list(paths) and is_binary(cwd) do
+    paths
+    |> Enum.flat_map(&maybe_expand_glob(&1, cwd))
+    |> Enum.uniq()
+  end
+
+  @spec agent_cwd(String.t(), Path.t() | nil) :: Path.t()
+  defp agent_cwd(agent_id, cwd_override)
+
+  defp agent_cwd(agent_id, cwd_override) when is_binary(agent_id) do
+    with {:ok, pid} <- Agent.whereis(agent_id),
+         cwd = Agent.get_state(pid).context.cwd,
+         true <- is_binary(cwd) and cwd != "" do
+      cwd
+    else
+      _ -> cwd_override || File.cwd!()
+    end
+  end
+
+  @spec maybe_expand_glob(Path.t(), Path.t()) :: [Path.t()]
+  defp maybe_expand_glob(path, cwd)
+
+  defp maybe_expand_glob(path, cwd)
+       when is_binary(path) and is_binary(cwd) do
+    if Regex.match?(@glob_metachars, path) do
+      expand_glob(path, cwd)
+    else
+      [path]
+    end
+  end
+
+  @spec expand_glob(Path.t(), Path.t()) :: [Path.t()]
+  defp expand_glob(path, cwd)
+
+  defp expand_glob(path, cwd)
+       when is_binary(path) and is_binary(cwd) do
+    if Path.type(path) == :absolute do
+      Path.wildcard(path)
+    else
+      cwd
+      |> Path.join(path)
+      |> Path.wildcard()
+      |> Enum.map(&Path.relative_to(&1, cwd))
+    end
+  end
+
+  @spec run_ask_files(Model.t(), [Path.t()], map(), keyword()) :: {:ok, String.t()}
+  defp run_ask_files(model, paths, questions, options)
+
+  defp run_ask_files(%Model{} = model, paths, questions, options)
+       when is_list(paths) and is_map(questions) and is_list(options) do
+    read_tool = live_read_tool()
+
+    reader =
+      options[:reader] ||
+        fn path ->
+          read_tool.execute_fn.(
+            options[:agent_id],
+            options[:call_id],
+            %{"path" => Path.expand(path, options[:cwd])}
+          )
+        end
+
+    {files, skipped} = do_read_ask_files(paths, reader: reader)
+
+    {results, extra_skipped} =
+      files
+      |> Task.async_stream(
+        fn {path, content} -> evaluate_ask_file(model, path, content, questions) end,
+        max_concurrency: @ask_files_concurrency,
+        ordered: true
+      )
+      |> Enum.reduce({[], []}, fn
+        {:ok, {:ok, result}}, {results, skipped} ->
+          {[result | results], skipped}
+
+        {:ok, {:error, entry}}, {results, skipped} ->
+          {results, [entry | skipped]}
+
+        {:exit, reason}, {results, skipped} ->
+          {results,
+           [%{"path" => "unknown", "reason" => "call failed: #{inspect(reason)}"} | skipped]}
+      end)
+
+    results = Enum.reverse(results)
+    skipped = skipped ++ Enum.reverse(extra_skipped)
+
+    Jason.encode!(%{
+      "results" =>
+        Enum.map(results, fn {path, answers} -> %{"path" => path, "answers" => answers} end),
+      "skipped" => skipped,
+      "calls" => length(results)
+    })
+    |> then(&{:ok, &1})
+  end
+
+  @spec evaluate_ask_file(Model.t(), String.t(), String.t(), map()) ::
+          {:ok, {String.t(), map()}} | {:error, map()}
+  defp evaluate_ask_file(model, path, content, questions) do
+    case AIBehaviour.client().evaluate(model, %{path: path, content: content}, questions, []) do
+      {:ok, response} ->
+        {:ok, {path, response.object}}
+
+      {:error, reason} ->
+        {:error, %{"path" => path, "reason" => "call failed: #{format_ask_error(reason)}"}}
+    end
+  end
+
+  @spec format_ask_error(term()) :: String.t()
+  defp format_ask_error(reason)
+
+  defp format_ask_error(reason) when is_binary(reason), do: reason
+  defp format_ask_error(reason), do: inspect(reason)
+
+  @spec do_read_ask_files([Path.t()], keyword()) :: {[file], [error]}
+        when file: {Path.t(), String.t()},
+             error: map()
+  defp do_read_ask_files(paths, options)
+
+  defp do_read_ask_files(paths, options)
+       when is_list(paths) and is_list(options) do
+    paths
+    |> Stream.map(&read_ask_file(&1, options[:reader]))
+    |> Enum.split_with(&match?({:ok, _}, &1))
+    |> then(fn {readable, skipped} ->
+      files = Enum.map(readable, fn {:ok, file} -> file end)
+      skipped = Enum.map(skipped, fn {:error, entry} -> entry end)
+      {files, skipped}
+    end)
+  end
+
+  @spec read_ask_file(Path.t(), function()) ::
+          {:ok, {Path.t(), String.t()}}
+          | {:error, map()}
+  defp read_ask_file(path, options)
+
+  defp read_ask_file(path, reader_fn)
+       when is_binary(path) and is_function(reader_fn, 1) do
+    case reader_fn.(path) do
+      {:ok, content} when is_binary(content) ->
+        check_ask_content(path, content)
+
+      {:error, reason} ->
+        reason = format_ask_error(reason)
+        {:error, %{"path" => path, "reason" => reason}}
+    end
+  rescue
+    e ->
+      reason = "call failed: #{Exception.message(e)}"
+      {:error, %{"path" => path, "reason" => reason}}
+  catch
+    _, reason ->
+      reason = "call failed: #{inspect(reason)}"
+      {:error, %{"path" => path, "reason" => reason}}
+  end
+
+  # The live "read" wrapper is resolved per call from the resource store,
+  # which RPCs to whatever sidecar is connected *now* — so sessions that
+  # started before the sidecar landed still get sidecar reads once it
+  # arrives. Optional runtime lookup only: planck_agent must not depend
+  # on planck_headless at compile time.
+  @spec live_read_tool() :: Tool.t()
+  defp live_read_tool do
+    store = Planck.Headless.ResourceStore
+
+    with true <- Code.ensure_loaded?(store),
+         %{tools: tools} <- apply(store, :get, []),
+         %Tool{} = read <- Enum.find(tools, &(&1.name == "read")) do
+      read
+    else
+      _ ->
+        Planck.Agent.BuiltinTools.read()
+    end
+  rescue
+    _ ->
+      Planck.Agent.BuiltinTools.read()
+  catch
+    _, _ ->
+      Planck.Agent.BuiltinTools.read()
+  end
+
+  @spec check_ask_content(Path.t(), String.t()) ::
+          {:ok, {Path.t(), String.t()}}
+          | {:error, map()}
+  defp check_ask_content(path, content)
+
+  defp check_ask_content(path, content)
+       when is_binary(path) and is_binary(content) do
+    cond do
+      byte_size(content) == 0 ->
+        {:error, %{"path" => path, "reason" => "empty"}}
+
+      byte_size(content) > @ask_files_max_chars ->
+        reason = "too large, #{byte_size(content)} bytes"
+        {:error, %{"path" => path, "reason" => reason}}
+
+      binary_sniff?(content) ->
+        {:error, %{"path" => path, "reason" => "binary"}}
+
+      true ->
+        {:ok, {path, content}}
+    end
+  end
+
+  @spec binary_sniff?(String.t()) :: boolean()
+  defp binary_sniff?(content) do
+    head = binary_part(content, 0, min(byte_size(content), 8_192))
+    match?({_, _}, :binary.match(head, <<0>>))
+  end
+
+  @spec resolve_ask_model(atom(), String.t(), String.t() | nil, [Model.t()]) ::
           {:ok, Model.t(:rlcd)}
           | {:error, String.t()}
-  defp resolve_classify_model(provider, model_id, base_url, available_models)
+  defp resolve_ask_model(provider, model_id, base_url, available_models)
 
-  defp resolve_classify_model(provider, model_id, base_url, available_models)
+  defp resolve_ask_model(provider, model_id, base_url, available_models)
        when is_atom(provider) and is_binary(model_id) do
     with {:error, _} <- find_model(provider, model_id, available_models, :rlcd) do
       find_model_live(provider, model_id, base_url, :rlcd)
@@ -844,7 +1210,14 @@ defmodule Planck.Agent.Tools do
         ) ::
           keyword()
   defp build_spawn_start_opts(args, agent_id, model, granted_tools, granted_skills, ctx) do
-    %{session_id: session_id, team_id: team_id, orchestrator_id: orchestrator_id, cwd: cwd} = ctx
+    %{
+      session_id: session_id,
+      team_id: team_id,
+      orchestrator_id: orchestrator_id,
+      cwd: cwd,
+      parent_hooks: parent_hooks
+    } = ctx
+
     sender = %{id: agent_id, name: args["name"]}
 
     system_prompt =
@@ -864,7 +1237,21 @@ defmodule Planck.Agent.Tools do
       team_id: team_id,
       delegator_id: orchestrator_id,
       tools: worker_tools(team_id, orchestrator_id, sender) ++ granted_tools
-    ]
+    ] ++ parent_hooks
+  end
+
+  # Tool tasks run outside the caller's GenServer, so reading the caller's
+  # state here is safe (no self-call). The spawned worker mirrors the
+  # parent's hook configuration — including sidecar_node — so sidecar-backed
+  # persistence, prompt injection, and turn/tool hooks apply to dynamic
+  # workers exactly as they do to the orchestrator. Falls back to no hooks
+  # when the caller cannot be resolved.
+  @spec fetch_parent_hooks(String.t()) :: keyword()
+  defp fetch_parent_hooks(agent_id) do
+    case Agent.whereis(agent_id) do
+      {:ok, pid} -> pid |> Agent.get_state() |> Map.fetch!(:hooks) |> Hooks.to_opts()
+      {:error, :not_found} -> []
+    end
   end
 
   @spec target_parameters() :: map()

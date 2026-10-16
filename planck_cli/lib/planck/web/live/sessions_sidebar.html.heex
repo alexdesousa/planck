@@ -67,7 +67,7 @@
           <.dropdown
             id="new-session-team"
             name="team"
-            options={[{"", pgettext("form option", "Dynamic (default)")} | Enum.map(@teams, &{&1, &1})]}
+            options={team_options(@default_team, @teams)}
             selected={@selected_team}
             on_select="select_team"
             target={@myself}

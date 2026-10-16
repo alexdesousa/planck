@@ -204,7 +204,9 @@ defmodule Planck.AITest do
       model = %{@rlcd_model | base_url: "http://localhost:8377", has_api_key: false}
 
       expect(Planck.AI.MockReqLLM, :evaluate, fn model_spec, _state, _questions, opts ->
-        assert model_spec == %{provider: :typesafe, id: "jev-latest"}
+        assert model_spec.provider == :typesafe
+        assert model_spec.id == "jev-latest"
+        assert get_in(model_spec, [:execution, :evaluate, :family]) == "typesafe_systemone"
         assert opts[:base_url] == "http://localhost:8377"
         assert opts[:api_key] == "not-needed"
         {:ok, %{object: %{}}}

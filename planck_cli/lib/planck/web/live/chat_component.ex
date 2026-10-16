@@ -112,8 +112,11 @@ defmodule Planck.Web.Live.ChatComponent do
   end
 
   def handle_event("delete_pending_command", %{"id" => id}, socket) do
-    session_id = socket.assigns.session_id
-    _ = Headless.cancel_queued_message(session_id, id)
+    case socket.assigns.session_id do
+      session_id when is_binary(session_id) -> Headless.cancel_queued_message(session_id, id)
+      _ -> :ok
+    end
+
     pending = Enum.reject(socket.assigns.pending_entries, &(&1.id == id))
     {:noreply, assign(socket, :pending_entries, pending)}
   end

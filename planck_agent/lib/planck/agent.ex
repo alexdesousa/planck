@@ -27,6 +27,7 @@ defmodule Planck.Agent do
   | `:thinking_delta` | `text` |
   | `:usage_delta` | `delta` (`input_tokens`, `output_tokens`, `cost`), `total` (`input_tokens`, `output_tokens`, `cost`), `context_tokens` |
   | `:tool_start` | `id`, `name`, `args` |
+  | `:tool_blocked` | `id`, `name`, `args`, `reason`, `mode` (`:deny` or `:await_approval`) |
   | `:tool_end` | `id`, `name`, `result`, `error` |
   | `:worker_spawned` | — |
   | `:worker_exit` | `pid`, `reason` |
@@ -102,7 +103,10 @@ defmodule Planck.Agent do
   - `opts` — pass-through keyword options (e.g. `tool_timeout`)
 
   Turn fields (grouped in `turn`):
-  - `status` — `:idle`, `:streaming`, or `:executing_tools`
+  - `status` — `:idle`, `:streaming`, or `:executing_tools`. A parked tool call
+    keeps the status `:executing_tools`; whether approval is pending is
+    derived from the parked entries in `turn.running` (see
+    `list_pending_approvals/1`), not from `status`.
   - `index` / `checkpoints` — monotonically increasing turn counter and checkpoint stack
   - `stream_task` / `stream_ref` — in-flight async LLM stream
   - `stream_start` — length of `context.messages` when the current stream began; used to
@@ -404,6 +408,17 @@ defmodule Planck.Agent do
     GenServer.call(agent, :estimate_tokens)
   end
 
+  @doc """
+  Return the fully assembled system prompt the agent would send on its next
+  turn, including prompt-hook output. Built fresh on each call — no caching.
+  """
+  @spec system_prompt(agent()) :: String.t()
+  def system_prompt(agent)
+
+  def system_prompt(agent) do
+    GenServer.call(agent, :get_system_prompt)
+  end
+
   @doc "Replace the model used for subsequent LLM turns without interrupting the current state."
   @spec change_model(agent(), Planck.AI.Model.t()) :: :ok
   def change_model(agent, model)
@@ -444,6 +459,55 @@ defmodule Planck.Agent do
 
   def remove_tool(agent, name) when is_binary(name) do
     GenServer.cast(agent, {:remove_tool, name})
+  end
+
+  @doc """
+  Approve a parked tool call, running it with the exact arguments the gate
+  saw.
+
+  The pending entry is one-shot: unknown or already-resolved `call_id`
+  returns `{:error, :not_found}` and nothing executes. Approval always
+  executes the stored arguments seen at park time, so it can never be
+  redirected to a different call. Returns `:ok`
+  once the execution is kicked off — the result arrives asynchronously
+  through the normal `:tool_end` event and turn continuation.
+  """
+  @spec approve_tool_call(agent(), String.t()) :: :ok | {:error, :not_found}
+  def approve_tool_call(agent, call_id)
+
+  def approve_tool_call(agent, call_id) when is_binary(call_id) do
+    GenServer.call(agent, {:approve_tool_call, call_id})
+  end
+
+  @doc """
+  Deny a parked tool call with an optional reason.
+
+  The call completes as a plain-string error (no UI re-attaches, so no
+  approval modal re-opens) and the turn continues once nothing else is
+  running or parked. Unknown or already-resolved `call_id` returns
+  `{:error, :not_found}`.
+  """
+  @spec deny_tool_call(agent(), String.t(), String.t() | nil) ::
+          :ok
+          | {:error, :not_found}
+  def deny_tool_call(agent, call_id, reason \\ nil)
+
+  def deny_tool_call(agent, call_id, reason)
+      when is_binary(call_id) and is_binary(reason)
+      when is_binary(call_id) and is_nil(reason) do
+    GenServer.call(agent, {:deny_tool_call, call_id, reason})
+  end
+
+  @doc """
+  List parked tool calls awaiting human approval, for UIs rendering
+  approval prompts (including after a refresh, when the `:tool_blocked`
+  event was missed).
+  """
+  @spec list_pending_approvals(agent()) :: [Turn.running_entry()]
+  def list_pending_approvals(agent)
+
+  def list_pending_approvals(agent) do
+    GenServer.call(agent, :list_pending_approvals)
   end
 
   @doc """
@@ -585,6 +649,10 @@ defmodule Planck.Agent do
     {:reply, state.context.context_tokens, state}
   end
 
+  def handle_call(:get_system_prompt, _from, state) do
+    {:reply, Context.build_system_prompt(state.context, state.identity, state.hooks), state}
+  end
+
   def handle_call({:prompt, content, opts}, _from, state) when is_list(opts) do
     case Keyword.fetch(opts, :edit) do
       {:ok, id} -> do_edit_queued(id, content, state)
@@ -624,6 +692,18 @@ defmodule Planck.Agent do
     do_compact(state, args)
   end
 
+  def handle_call({:approve_tool_call, call_id}, _from, state) do
+    do_approve(call_id, state)
+  end
+
+  def handle_call({:deny_tool_call, call_id, reason}, _from, state) do
+    do_deny(call_id, reason, state)
+  end
+
+  def handle_call(:list_pending_approvals, _from, state) do
+    {:reply, Turn.list_pending(state.turn), state}
+  end
+
   @impl true
   def handle_cast(event, state)
 
@@ -637,7 +717,12 @@ defmodule Planck.Agent do
 
   def handle_cast({:rewind_to_message, message_id}, state) do
     if state.identity.session_id do
-      {:noreply, reload_messages_from_session(state, message_id)}
+      state =
+        state
+        |> abort_turn()
+        |> reload_messages_from_session(message_id)
+
+      {:noreply, state}
     else
       {:noreply, state}
     end
@@ -670,11 +755,12 @@ defmodule Planck.Agent do
 
   def handle_continue({:run_llm, :new_turn}, state) do
     broadcast(state, :turn_start, %{index: state.turn.index})
+    fire_turn_start_hook(state)
     {:noreply, do_run_llm(state, :new_turn)}
   end
 
-  def handle_continue({:execute_tools, calls}, state) do
-    {:noreply, start_tool_tasks(calls, state)}
+  def handle_continue(:execute_tools, state) do
+    {:noreply, start_tool_tasks(state)}
   end
 
   def handle_continue({:compact, args}, state) do
@@ -719,8 +805,8 @@ defmodule Planck.Agent do
 
   @impl true
   def terminate(_reason, state) do
-    Turn.cancel_stream(state.turn)
-    Turn.cancel_all_tools(state.turn)
+    abort_turn(state)
+    :ok
   end
 
   # ---------------------------------------------------------------------------
@@ -993,61 +1079,117 @@ defmodule Planck.Agent do
     %{state | turn: turn}
   end
 
-  @spec start_tool_tasks([map()], t()) :: t()
-  defp start_tool_tasks(tool_calls, state) do
-    parent = self()
+  @spec start_tool_tasks(t()) :: t()
+  defp start_tool_tasks(state)
 
-    Enum.reduce(tool_calls, state, fn tool_call, state ->
-      start_tool_task(parent, tool_call, state)
+  defp start_tool_tasks(%__MODULE__{} = state) do
+    turn =
+      Turn.prepare_calls(
+        state.turn,
+        state.identity,
+        state.context,
+        state.hooks
+      )
+
+    state = %{state | turn: turn}
+
+    Enum.reduce(turn.running, state, fn {_call_id, entry}, state ->
+      start_tool_task(entry, state)
     end)
   end
 
-  @spec start_tool_task(pid(), tool_call, t()) :: t()
-        when tool_call: %{:id => String.t(), :name => String.t(), args: map()}
-  defp start_tool_task(parent, tool_call, state)
+  @spec start_tool_task(Turn.running_entry(), t()) :: t()
+  defp start_tool_task(call, state)
 
-  defp start_tool_task(parent, tool_call, %__MODULE__{} = state)
-       when is_pid(parent) and is_map(tool_call) do
-    {turn, tool_call_fn} =
-      Turn.prepare_call(
-        state.turn,
-        state.context.tools,
-        state.identity.id,
-        tool_call
-      )
+  defp start_tool_task(%{approved: false} = entry, %__MODULE__{} = state) do
+    broadcast(state, :tool_blocked, %{
+      id: entry.tool_call.id,
+      name: entry.tool_call.name,
+      args: entry.tool_call.args,
+      reason: entry.metadata[:reason],
+      mode: :await_approval
+    })
+
+    state
+  end
+
+  defp start_tool_task(
+         %{approved: true, metadata: %{reason: reason, kind: :deny}} = entry,
+         %__MODULE__{} = state
+       )
+       when is_binary(reason) do
+    parent = self()
+
+    broadcast(state, :tool_start, entry.tool_call)
+
+    broadcast(state, :tool_blocked, %{
+      id: entry.tool_call.id,
+      name: entry.tool_call.name,
+      args: entry.tool_call.args,
+      reason: reason,
+      mode: :deny
+    })
 
     {:ok, pid} =
       Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
-        result = tool_call_fn.()
-        send(parent, {:tool_done, tool_call.id, tool_call.name, result})
+        result = entry.function.(reason)
+        send(parent, {:tool_done, entry.tool_call.id, entry.tool_call.name, result})
       end)
 
-    broadcast(state, :tool_start, tool_call)
-
-    turn = Turn.register_call(turn, tool_call, pid)
+    turn = Turn.register_running(state.turn, entry.tool_call.id, pid)
 
     %{state | turn: turn}
   end
 
+  defp start_tool_task(%{approved: true} = entry, %__MODULE__{} = state) do
+    parent = self()
+
+    broadcast(state, :tool_start, entry.tool_call)
+
+    {:ok, pid} =
+      Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
+        result = entry.function.(nil)
+        send(parent, {:tool_done, entry.tool_call.id, entry.tool_call.name, result})
+      end)
+
+    turn = Turn.register_running(state.turn, entry.tool_call.id, pid)
+
+    %{state | turn: turn}
+  end
+
+  @spec mark_tool_done(t(), String.t(), term()) ::
+          {:ok, t()}
+          | {:error, :not_running}
+  defp mark_tool_done(state, call_id, result)
+
+  defp mark_tool_done(%__MODULE__{} = state, call_id, result)
+       when is_binary(call_id) do
+    with {:ok, turn} <- Turn.mark_tool_done(state.turn, call_id, result) do
+      {:ok, %{state | turn: turn}}
+    end
+  end
+
   @spec maybe_finish_tool_executions(t()) ::
-          {:noreply, t()}
-          | {:noreply, t(), {:continue, :run_llm}}
+          {:continue, t()}
+          | {:stop, t()}
   defp maybe_finish_tool_executions(state)
 
   defp maybe_finish_tool_executions(%__MODULE__{} = state) do
     if Turn.tool_done?(state.turn) do
-      finish_tool_execution(state)
+      {:continue, complete_tool_execution(state)}
     else
-      {:noreply, state}
+      {:stop, state}
     end
   end
 
-  @spec finish_tool_execution(t()) ::
-          {:noreply, t(), {:continue, :run_llm}}
-  defp finish_tool_execution(state)
+  @spec complete_tool_execution(t()) :: t()
+  defp complete_tool_execution(state)
 
-  defp finish_tool_execution(%__MODULE__{} = state) do
-    results = Enum.reverse(state.turn.results)
+  defp complete_tool_execution(%__MODULE__{} = state) do
+    results =
+      Enum.map(state.turn.results, fn {call_id, entry} ->
+        {call_id, entry.result}
+      end)
 
     tool_result_message = MessageBuilder.build_tool_result(results)
 
@@ -1058,30 +1200,31 @@ defmodule Planck.Agent do
           message = Message.new({:custom, :ui}, [], metadata)
           [message | acc]
 
+        {id, {:error, _reason, %{ui: content}}}, acc ->
+          metadata = %{tool_call_id: id, ui: content}
+          message = Message.new({:custom, :ui}, [], metadata)
+          [message | acc]
+
         {_id, _result}, acc ->
           acc
       end)
 
     messages = [tool_result_message | ui_messages]
 
-    state = append_messages(state, messages, persist: true)
-
-    {:noreply, state, {:continue, :run_llm}}
+    append_messages(state, messages, persist: true)
   end
 
   @spec do_stream_done(t()) ::
           {:noreply, t()}
-          | {:noreply, t(), {:continue, {:execute_tools, [map()]}}}
+          | {:noreply, t(), {:continue, :execute_tools}}
   defp do_stream_done(state)
 
   defp do_stream_done(%__MODULE__{} = state) do
-    pending = state.turn.buffer_calls
-
     assistant_message = MessageBuilder.build_assistant(state.turn)
     state = append_messages(state, [assistant_message], persist: true)
     state = %{state | turn: Turn.reset_streaming(state.turn)}
 
-    case pending do
+    case state.turn.buffer_calls do
       [] ->
         turn_messages = turn_messages(state)
 
@@ -1095,8 +1238,8 @@ defmodule Planck.Agent do
         |> fire_turn_end_hook(turn_messages)
         |> maybe_turn_start()
 
-      [_ | _] = calls ->
-        {:noreply, state, {:continue, {:execute_tools, calls}}}
+      [_ | _] = _calls ->
+        {:noreply, state, {:continue, :execute_tools}}
     end
   end
 
@@ -1167,7 +1310,7 @@ defmodule Planck.Agent do
 
   defp process_event(%__MODULE__{} = state, {:error, reason}) do
     broadcast(state, :error, %{reason: reason})
-    %{state | turn: Turn.reset_streaming(state.turn)}
+    %{state | turn: Turn.reset_streaming(state.turn, include_calls: true)}
   end
 
   defp process_event(
@@ -1218,19 +1361,80 @@ defmodule Planck.Agent do
 
   defp do_tool_done(%__MODULE__{} = state, call_id, name, result)
        when is_binary(call_id) and is_binary(name) do
-    case Turn.mark_tool_done(state.turn, call_id, result) do
-      :not_running ->
+    event_metadata = %{
+      id: call_id,
+      name: name,
+      result: result,
+      error: elem(result, 0) == :error
+    }
+
+    with {:ok, state} <- mark_tool_done(state, call_id, result),
+         _ = broadcast(state, :tool_end, event_metadata),
+         {:continue, state} <- maybe_finish_tool_executions(state) do
+      {:noreply, state, {:continue, :run_llm}}
+    else
+      {:error, :not_running} ->
         {:noreply, state}
 
-      {:ok, turn} ->
-        state = %{state | turn: turn}
-
-        error? = match?({:error, _}, result)
-        info = %{id: call_id, name: name, result: result, error: error?}
-        broadcast(state, :tool_end, info)
-
-        maybe_finish_tool_executions(state)
+      {:stop, state} ->
+        {:noreply, state}
     end
+  end
+
+  @spec do_approve(String.t(), t()) ::
+          {:reply, :ok, t()}
+          | {:reply, {:error, :not_found}, t()}
+  defp do_approve(call_id, state)
+
+  defp do_approve(call_id, %__MODULE__{} = state) when is_binary(call_id) do
+    case Turn.approve_pending(state.turn, call_id) do
+      {:error, :not_found} = error ->
+        {:reply, error, state}
+
+      {:ok, {entry, turn}} ->
+        state = %{state | turn: turn}
+        state = start_tool_task(entry, state)
+        {:reply, :ok, state}
+    end
+  end
+
+  @spec do_deny(String.t(), String.t() | nil, t()) ::
+          {:reply, :ok, t()}
+          | {:reply, {:error, :not_found}, t()}
+  defp do_deny(call_id, reason, state)
+
+  defp do_deny(call_id, reason, %__MODULE__{} = state)
+       when is_binary(call_id) and is_binary(reason)
+       when is_binary(call_id) and is_nil(reason) do
+    reason = denied_message(reason)
+
+    case Turn.deny_pending(state.turn, call_id, reason) do
+      {:error, :not_found} = error ->
+        {:reply, error, state}
+
+      {:ok, {entry, turn}} ->
+        state = %{state | turn: turn}
+        state = start_tool_task(entry, state)
+        {:reply, :ok, state}
+    end
+  end
+
+  @spec abort_turn(t()) :: t()
+  defp abort_turn(state)
+
+  defp abort_turn(%__MODULE__{} = state) do
+    %{state | turn: Turn.abort(state.turn)}
+  end
+
+  @spec denied_message(nil | String.t()) :: String.t()
+  defp denied_message(reason)
+
+  defp denied_message(nil) do
+    "Tool call denied."
+  end
+
+  defp denied_message(reason) when is_binary(reason) do
+    "Tool call denied due to: #{reason}."
   end
 
   # ---------------------------------------------------------------------------
@@ -1495,7 +1699,8 @@ defmodule Planck.Agent do
   defp drain_control_markers(%__MODULE__{} = state) do
     case Context.drain_control_markers(state.context, state.identity, state.hooks) do
       {:clear, context} ->
-        cleared = %{state | context: context, turn: Turn.new()}
+        state = abort_turn(%{state | context: context})
+        cleared = %{state | turn: Turn.new()}
         broadcast(cleared, :cleared, %{})
         {:clear, cleared}
 
@@ -1512,10 +1717,7 @@ defmodule Planck.Agent do
           {:reply, :ok, t()}
           | {:reply, :ok, t(), {:continue, term()}}
   defp do_abort(state) do
-    Turn.cancel_stream(state.turn)
-    Turn.cancel_all_tools(state.turn)
-    turn = Turn.reset_streaming(state.turn)
-    state = %{state | turn: turn}
+    state = abort_turn(state)
 
     with {:none, state} <- drain_control_markers(state),
          {:ok, state} <- start_queued_turn(state) do
@@ -1606,6 +1808,26 @@ defmodule Planck.Agent do
   end
 
   defp fire_turn_end_hook(%__MODULE__{} = state, _messages) do
+    state
+  end
+
+  @spec fire_turn_start_hook(t()) :: t()
+  defp fire_turn_start_hook(state)
+
+  defp fire_turn_start_hook(%__MODULE__{hooks: %Hooks{turn_start: module}} = state)
+       when is_atom(module) and not is_nil(module) do
+    agent_id = state.identity.id
+    session_id = state.identity.session_id
+    sidecar_node = state.hooks.sidecar_node
+
+    Task.Supervisor.start_child(Planck.Agent.TaskSupervisor, fn ->
+      Hooks.TurnStart.notify(module, agent_id, session_id, sidecar_node)
+    end)
+
+    state
+  end
+
+  defp fire_turn_start_hook(%__MODULE__{} = state) do
     state
   end
 end

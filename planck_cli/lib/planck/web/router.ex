@@ -38,6 +38,9 @@ defmodule Planck.Web.Router do
     post("/sessions/:id/prompt", SessionController, :prompt)
     post("/sessions/:id/abort", SessionController, :abort)
     post("/sessions/:id/cancel_queued", SessionController, :cancel_queued)
+    get("/sessions/:id/pending_approvals", SessionController, :pending_approvals)
+    post("/sessions/:id/approve", SessionController, :approve_tool_call)
+    post("/sessions/:id/deny", SessionController, :deny_tool_call)
     get("/sessions/:id/events", EventController, :stream)
 
     get("/teams", TeamController, :index)

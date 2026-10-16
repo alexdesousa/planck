@@ -5,16 +5,19 @@ points in the agent loop. Each hook is declared in `TEAM.json` as a
 fully-qualified module name; planck_headless resolves it to a module atom at
 session start and dispatches to the sidecar node via RPC.
 
-There are four hook behaviours:
+There are seven hook behaviours:
 
 | Behaviour | TEAM.json field | Fires |
 |---|---|---|
 | `Planck.Agent.Hooks.Compactor` | `compactor` | Before every LLM turn — compact the message history when the context window is full |
 | `Planck.Agent.Hooks.Prompt` | `prompt_hook` | Before every LLM turn — inject dynamic content into the system prompt |
 | `Planck.Agent.Hooks.TurnEnd` | `turn_end_hook` | After every LLM turn ends — inspect the turn and act |
+| `Planck.Agent.Hooks.TurnStart` | `turn_start_hook` | When a new LLM turn begins — observe only, cannot block or inject |
+| `Planck.Agent.Hooks.ToolStart` | `tool_start_hook` | Before every tool call, after argument validation — allow, deny, or park for human approval |
+| `Planck.Agent.Hooks.ToolEnd` | `tool_end_hook` | After every tool call — rewrite result text or attach UI side effects |
 | `Planck.Agent.Hooks.Persistence` | `persistence` | On every message/usage write and history load — pluggable conversation storage |
 
-All four follow the same pattern:
+All seven follow the same pattern:
 
 1. Implement the behaviour in your sidecar with `use Planck.Agent.Hooks.<Name>`.
 2. Declare the module name in `TEAM.json`.
@@ -23,9 +26,11 @@ All four follow the same pattern:
 
 When the sidecar node is unavailable, each hook fails gracefully — the
 compactor falls back to the built-in LLM-based strategy; the prompt and
-turn-end hooks return `nil` / `:ok` without raising; the persistence hook
-falls back to `Planck.Agent.Hooks.Persistence.Default`, the built-in
-SQLite-backed store.
+turn-end hooks return `nil` / `:ok` without raising; the turn-start hook
+logs a warning and returns `:ok`; the tool-start hook proceeds with the
+original arguments and the tool-end hook returns the result unchanged;
+the persistence hook falls back to `Planck.Agent.Hooks.Persistence.Default`,
+the built-in SQLite-backed store.
 
 ---
 
@@ -342,6 +347,147 @@ end
 
 ---
 
+## Tool-start hook — `Planck.Agent.Hooks.ToolStart`
+
+Gates tool calls before they execute. Runs synchronously per call, after
+argument validation (so schema-invalid calls never spend a gate
+evaluation). `nil` hook = current code path, zero overhead.
+
+### Callbacks
+
+```elixir
+@callback proceed(
+            agent_id :: String.t(),
+            tool_name :: String.t(),
+            args :: map()
+          ) ::
+            :ok
+            | {:deny, String.t()}
+            | {:await_approval, String.t()}
+
+@callback proceed_timeout() :: pos_integer()   # default: 5_000 ms
+```
+
+- `:ok` — run the call with its original arguments.
+- `{:deny, reason}` — skip execution; the agent sees an error containing
+  `reason` plus a do-not-work-around notice.
+- `{:await_approval, reason}` — park the call in `turn.running` (no task
+  pid, turn pauses) and broadcast `:tool_blocked`; the call waits until a
+  human resolves it via `Planck.Agent.approve_tool_call/2` or
+  `deny_tool_call/3` (headless passthroughs available). Approval runs the
+  stored args exactly once, skipping the gate for that call only.
+  Entries are one-shot; rewind/stop drops parked entries silently.
+
+Gates return 2-tuples only — UI side effects are attached downstream by
+`ToolEnd` (e.g. the sidecar `ApprovalTagger` writes the approval record
+and tags the blocked error with the widget).
+
+### Example — RLCD bash gate
+
+The bundled `Sidecar.Hooks.BashGate` judges `bash` commands with an RLCD
+model and parks anything irreversible or destructive for human approval —
+it never denies; only the human denies, in the approval modal:
+
+```elixir
+defmodule MySidecar.Hooks.BashGate do
+  use Planck.Agent.Hooks.ToolStart
+
+  @impl true
+  def proceed(_agent_id, "bash", %{"command" => "rm -rf /"} = _args) do
+    {:await_approval, "Looks destructive: this command aims to wipe something"}
+  end
+
+  def proceed(_agent_id, _tool_name, _args), do: :ok
+end
+```
+
+Gate reasons are written for the human reading the modal and translated
+sidecar-side (`Sidecar.Gettext`, locale pushed per request) — what the
+gate returns is what the modal shows, next to the command.
+
+### TEAM.json
+
+```json
+{
+  "type":             "builder",
+  "tool_start_hook":  "MySidecar.Hooks.BashGate"
+}
+```
+
+---
+
+## Tool-end hook — `Planck.Agent.Hooks.ToolEnd`
+
+Transforms tool results before they reach the agent. Runs synchronously
+per call, after execution (and after the loop-nudge). `nil` hook =
+identity, zero overhead.
+
+### Callbacks
+
+```elixir
+@callback transform(
+            agent_id :: String.t(),
+            tool_name :: String.t(),
+            args :: map(),
+            result ::
+              {:ok, String.t()}
+              | {:ok, String.t(), %{ui: ui_content()}}
+              | {:error, String.t()}
+              | {:error, String.t(), %{ui: ui_content()}}
+          ) ::
+            {:ok, String.t()}
+            | {:ok, String.t(), %{ui: ui_content()}}
+            | {:error, String.t()}
+            | {:error, String.t(), %{ui: ui_content()}}
+
+@callback transform_timeout() :: pos_integer()   # default: 5_000 ms
+```
+
+Default is the identity (returns `result` unchanged). The error triple
+`{:error, reason, %{ui:}}` carries a UI side effect alongside a failure
+(e.g. an approval widget served with a blocked call) — extracted exactly
+like ok triples.
+
+### TEAM.json
+
+```json
+{
+  "type":           "builder",
+  "tool_end_hook":  "MySidecar.Hooks.ApprovalTagger"
+}
+```
+
+---
+
+## Turn-start hook — `Planck.Agent.Hooks.TurnStart`
+
+Observer-only: fired in a background task when a new LLM turn begins
+(alongside the `:turn_start` broadcast). Cannot block the turn or inject
+prompt content — `Prompt` remains the sole synchronous injector. Useful
+for memory warmup or metrics.
+
+### Callbacks
+
+```elixir
+@callback notify(
+            agent_id :: String.t(),
+            session_id :: String.t() | nil
+          ) :: :ok
+
+@callback notify_timeout() :: pos_integer()   # default: 30_000 ms
+```
+
+### TEAM.json
+
+```json
+{
+  "type":            "builder",
+  "turn_start_hook": "MySidecar.Hooks.Metrics"
+}
+```
+
+---
+
 ## Persistence — `Planck.Agent.Hooks.Persistence`
 
 Pluggable conversation storage. By default every session is written to the
@@ -383,10 +529,13 @@ prompted.
 @callback load_session_messages(session_id :: String.t(), opts :: keyword()) ::
             {:ok, [session_row()]} | :error
 
+@callback delete_session(session_id :: String.t(), opts :: keyword()) ::
+            :ok | {:error, term()}   # optional — `use` defaults to SQLite file removal
+
 @callback persistence_timeout() :: pos_integer()   # default: 5_000 ms
 ```
 
-Five of the six are agent-scoped — `Planck.Agent` calls them itself, and an
+Five of the seven are agent-scoped — `Planck.Agent` calls them itself, and an
 agent only ever touches its own history: `persist_message/3` on every new
 message, `persist_usage/3` after every turn, `load_messages/3` on session
 resume, `flush_unpersisted/3` before an agent stops, `truncate_after/2` when
@@ -398,6 +547,19 @@ process — planck_headless uses it to hand a chat UI every agent's history for
 a session, interleaved by insertion order, so a closed session can still be
 read back. `session_row()` is `%{db_id:, agent_id:, message:, inserted_at:}`,
 matching the shape `Planck.Agent.Session.messages/2` already returns.
+
+`delete_session/2` is also session-scoped and never called by `Planck.Agent` —
+planck_headless calls it when a session is deleted for good, so the backend
+that owns the session's data is the one that removes it. `opts` carries what
+the backend needs to locate its own storage; for the built-in SQLite backend
+it's `dir:` (the sessions directory holding the `.db` file). Unlike the
+others it's **optional**: `use` supplies a default that delegates to
+`Default` (remove the local `.db` file). Override it when your backend stores
+data somewhere SQLite can't reach — e.g. a Postgres backend should delete the
+session's rows there. The local sessions-directory metadata store that
+planck_headless keeps for the session lives in the same `dir:`, so a custom
+backend that wants the session fully gone from `list_sessions/0` should remove
+that file too.
 
 Ephemeral agents (no `session_id`) never reach a persistence module at all —
 each agent-scoped call is a no-op before dispatching.
@@ -434,6 +596,14 @@ defmodule MySidecar.Persistence.Postgres do
     # return {:ok, [session_row()]} for every agent in the session,
     # interleaved by insertion order, or :error
   end
+
+  # Optional — without this, `use` falls through to the built-in SQLite
+  # file removal, which won't touch Postgres.
+  @impl true
+  def delete_session(session_id, _opts) do
+    # delete this session's rows from Postgres
+    :ok
+  end
 end
 ```
 
@@ -446,7 +616,7 @@ end
 }
 ```
 
-Unlike the other three hooks, an RPC failure here falls back to `Default` (the
+Unlike the other hooks, an RPC failure here falls back to `Default` (the
 real, local, SQLite-backed store) rather than a neutral no-op — losing a
 persisted message on a transient RPC failure is worse than losing a
 compaction pass, so this always still writes somewhere.
@@ -455,15 +625,18 @@ compaction pass, so this always still writes somewhere.
 
 ## Combining hooks
 
-All four hooks are independent and can be declared together:
+All seven hooks are independent and can be declared together:
 
 ```json
 {
-  "type":          "builder",
-  "compactor":     "MySidecar.Compactors.Summary",
-  "prompt_hook":   "MySidecar.Hooks.Memory",
-  "turn_end_hook": "MySidecar.Hooks.SkillReflector",
-  "persistence":   "MySidecar.Persistence.Postgres"
+  "type":            "builder",
+  "compactor":       "MySidecar.Compactors.Summary",
+  "prompt_hook":     "MySidecar.Hooks.Memory",
+  "turn_end_hook":   "MySidecar.Hooks.SkillReflector",
+  "turn_start_hook": "MySidecar.Hooks.Metrics",
+  "tool_start_hook": "MySidecar.Hooks.BashGate",
+  "tool_end_hook":   "MySidecar.Hooks.ApprovalTagger",
+  "persistence":     "MySidecar.Persistence.Postgres"
 }
 ```
 
@@ -474,13 +647,16 @@ Each is resolved and dispatched independently. They share the same
 
 All hooks are dispatched via `:rpc.call/5` when the sidecar node is set.
 Override the timeout callback (`compact_timeout/0`, `hook_timeout/0`,
-`reflect_timeout/0`, `persistence_timeout/0`) when your implementation needs
+`reflect_timeout/0`, `notify_timeout/0`, `proceed_timeout/0`,
+`transform_timeout/0`, `persistence_timeout/0`) when your implementation needs
 more time than the default. The module is consulted for its own timeout — it
 knows its latency better than any caller default.
 
 On `:badrpc` the compactor falls back to the local LLM strategy; the prompt
-hook returns `nil` (no injection); the turn-end hook logs a warning and returns
-`:ok`; the persistence hook logs a warning and falls back to `Default`. No hook
+hook returns `nil` (no injection); the turn-end and turn-start hooks log a
+warning and return `:ok`; the tool-start hook proceeds with the original
+arguments and the tool-end hook returns the result untransformed, both with
+a warning logged; the persistence hook logs a warning and falls back to `Default`. No hook
 raises or crashes the agent.
 
 The compactor's remote dispatch makes two RPC calls when it decides to

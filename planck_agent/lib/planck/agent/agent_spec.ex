@@ -79,6 +79,15 @@ defmodule Planck.Agent.AgentSpec do
     - `:turn_end_hook` — fully-qualified module name of a sidecar turn-end hook,
       e.g. `"MySidecar.Hooks.SkillReflector"`. The module must implement
       `Planck.Agent.Hooks.TurnEnd`. `nil` means no post-turn reflection.
+    - `:turn_start_hook` — fully-qualified module name of a sidecar turn-start observer,
+      e.g. `"MySidecar.Hooks.Metrics"`. The module must implement
+      `Planck.Agent.Hooks.TurnStart`. `nil` means no turn-start observation.
+    - `:tool_start_hook` — fully-qualified module name of a sidecar tool-start gate,
+      e.g. `"MySidecar.Hooks.BashGate"`. The module must implement
+      `Planck.Agent.Hooks.ToolStart`. `nil` means tool calls run ungated.
+    - `:tool_end_hook` — fully-qualified module name of a sidecar tool-end transformer,
+      e.g. `"MySidecar.Hooks.ApprovalTagger"`. The module must implement
+      `Planck.Agent.Hooks.ToolEnd`. `nil` means results pass through unchanged.
     - `:persistence` — fully-qualified module name of a custom persistence
       backend for this agent, e.g. `"MySidecar.Persistence.Postgres"`. The
       module must implement `Planck.Agent.Hooks.Persistence`. `nil` uses the
@@ -98,6 +107,9 @@ defmodule Planck.Agent.AgentSpec do
           compactor: String.t() | nil,
           prompt_hook: String.t() | nil,
           turn_end_hook: String.t() | nil,
+          turn_start_hook: String.t() | nil,
+          tool_start_hook: String.t() | nil,
+          tool_end_hook: String.t() | nil,
           persistence: String.t() | nil
         }
 
@@ -116,6 +128,9 @@ defmodule Planck.Agent.AgentSpec do
     compactor: nil,
     prompt_hook: nil,
     turn_end_hook: nil,
+    turn_start_hook: nil,
+    tool_start_hook: nil,
+    tool_end_hook: nil,
     persistence: nil
   ]
 
@@ -146,6 +161,9 @@ defmodule Planck.Agent.AgentSpec do
       compactor: Keyword.get(fields, :compactor),
       prompt_hook: Keyword.get(fields, :prompt_hook),
       turn_end_hook: Keyword.get(fields, :turn_end_hook),
+      turn_start_hook: Keyword.get(fields, :turn_start_hook),
+      tool_start_hook: Keyword.get(fields, :tool_start_hook),
+      tool_end_hook: Keyword.get(fields, :tool_end_hook),
       persistence: Keyword.get(fields, :persistence)
     }
   end
@@ -212,6 +230,9 @@ defmodule Planck.Agent.AgentSpec do
          compactor: entry["compactor"],
          prompt_hook: entry["prompt_hook"],
          turn_end_hook: entry["turn_end_hook"],
+         turn_start_hook: entry["turn_start_hook"],
+         tool_start_hook: entry["tool_start_hook"],
+         tool_end_hook: entry["tool_end_hook"],
          persistence: entry["persistence"]
        )}
     end
@@ -274,6 +295,9 @@ defmodule Planck.Agent.AgentSpec do
       compactor: resolve_hook_module(spec.compactor),
       prompt_hook: resolve_hook_module(spec.prompt_hook),
       turn_end_hook: resolve_hook_module(spec.turn_end_hook),
+      turn_start_hook: resolve_hook_module(spec.turn_start_hook),
+      tool_start_hook: resolve_hook_module(spec.tool_start_hook),
+      tool_end_hook: resolve_hook_module(spec.tool_end_hook),
       persistence: resolve_hook_module(spec.persistence),
       sidecar_node: Keyword.get(overrides, :sidecar_node)
     ]

@@ -8,10 +8,16 @@ defmodule Planck.Agent.SystemPrompt do
 
   ## Assembly order
 
-  1. Identity line — "You are a <type>." / "You are <name>, a <type>."
-  2. Base system prompt from `spec.system_prompt`
+  1. `before_prompt` hook output
+  2. Identity line — "You are a <type>." / "You are <name>, a <type>."
   3. Per-tool guidance sections (one per inter-agent tool present)
   4. Skills section (from `skill_refresh_fn` if present)
+  5. Base system prompt from `spec.system_prompt` (includes `AGENTS.md` when
+     present — it is prepended to the custom prompt before `build/1` is called)
+  6. `after_prompt` hook output
+
+  The custom prompt is appended last so the agent's own instructions sit
+  closest to the conversation, where they are most salient.
   """
 
   alias Planck.Agent.Hooks
@@ -38,7 +44,8 @@ defmodule Planck.Agent.SystemPrompt do
     list_skills
     load_skill
     list_models
-    classify
+    ask
+    ask_files
     spawn_agent
     call_agent
     send_agent
@@ -63,11 +70,12 @@ defmodule Planck.Agent.SystemPrompt do
         session_id: session_id,
         sidecar_node: sidecar_node
       }) do
-    base
-    |> run_prepend(hook, session_id, sidecar_node)
-    |> prepend_identity_line(name, type)
+    ""
+    |> append_identity_line(name, type)
     |> append_tool_sections(tools)
     |> append_skills(skill_pool, ranked_names, top_skills)
+    |> append_section(base || "")
+    |> run_prepend(hook, session_id, sidecar_node)
     |> run_append(hook, session_id, sidecar_node)
   end
 
@@ -77,38 +85,37 @@ defmodule Planck.Agent.SystemPrompt do
 
   @spec run_prepend(String.t(), module() | nil, String.t() | nil, atom() | nil) :: String.t()
   defp run_prepend(prompt, hook, session_id, sidecar_node) do
-    case Hooks.Prompt.before_prompt(hook, session_id, sidecar_node) do
-      nil -> prompt
-      "" -> prompt
-      section -> if prompt == "", do: section, else: section <> "\n\n" <> prompt
-    end
+    section = Hooks.Prompt.before_prompt(hook, session_id, sidecar_node)
+    prepend_section(prompt, section)
   end
 
   @spec run_append(String.t(), module() | nil, String.t() | nil, atom() | nil) :: String.t()
   defp run_append(prompt, hook, session_id, sidecar_node) do
-    case Hooks.Prompt.after_prompt(hook, session_id, sidecar_node) do
-      nil -> prompt
-      "" -> prompt
-      section -> append_section(prompt, section)
-    end
+    section = Hooks.Prompt.after_prompt(hook, session_id, sidecar_node)
+    append_section(prompt, section)
   end
 
   # ---------------------------------------------------------------------------
   # Identity
   # ---------------------------------------------------------------------------
 
-  @spec prepend_identity_line(String.t(), String.t() | nil, String.t() | nil) :: String.t()
-  defp prepend_identity_line(prompt, nil, nil), do: prompt
+  @spec append_identity_line(String.t(), String.t() | nil, String.t() | nil) :: String.t()
+  defp append_identity_line(prompt, nil, nil), do: prompt
 
-  defp prepend_identity_line(prompt, name, type) do
+  defp append_identity_line(prompt, name, type) do
     line =
       cond do
-        is_binary(name) and is_binary(type) and name != type -> "You are #{name}, a #{type}."
-        is_binary(type) -> "You are a #{type}."
-        true -> "You are #{name}."
+        is_binary(name) and is_binary(type) and name != type ->
+          "You are #{name}, a #{type}."
+
+        is_binary(type) ->
+          "You are a/an #{type}."
+
+        true ->
+          "You are #{name}."
       end
 
-    "#{line}\n\n" <> prompt
+    append_section(prompt, line)
   end
 
   # ---------------------------------------------------------------------------
@@ -210,46 +217,51 @@ defmodule Planck.Agent.SystemPrompt do
     Use before spawning a new agent to see which models are available, their IDs,
     and the base_url required for local providers. Your current model is marked
     `current: true`. Each model's `type` is `"llm"` (spawn_agent) or `"rlcd"`
-    (classify) — check `type` before picking a model for either tool.
+    (ask) — check `type` before picking a model for either tool.
     """
     |> String.trim_trailing()
   end
 
-  defp tool_section("classify") do
+  defp tool_section("ask") do
     """
-    ### classify
+    ### ask
 
-    Use when you need a fast, calibrated decision — routing, extraction, a
-    yes/no confidence check — instead of reasoning it out yourself in text.
+    A fast, calibrated decision from an RLCD model — use when you need
+    routing, extraction, or a yes/no confidence check instead of reasoning
+    it out yourself in text. Only models with `type: \"rlcd\"` are valid
+    (see `list_models`). Answers are probabilities or chosen values, not
+    prose. Each question in `questions` is one of three types:
 
-    Call `list_models` first — only models with `type: \"rlcd\"` are valid.
+    - **choice** — pick exactly one of a fixed set of named options
+      (`criteria` names them). Use when the input falls into exactly one
+      category, e.g. routing an inbound message to the right specialist.
+    - **score** — rate the state on an ordered scale (`criteria` lists the
+      levels, low to high, as concrete situations). Use when the answer is
+      a position rather than a label, e.g. triaging bug severity.
+    - **boolean** — the probability the answer is yes. Use as a confidence
+      gate before a destructive or irreversible action, e.g. \"does this
+      message clearly authorize a refund?\"
+    """
+    |> String.trim_trailing()
+  end
 
-    The result is a probability or chosen value per question, not prose — do
-    not ask it to explain itself, and do not use it for anything that needs
-    multi-step reasoning or tool use.
+  defp tool_section("ask_files") do
+    """
+    ### ask_files
 
-    Each entry in `questions` is one of three types — see the tool schema for
-    exact fields:
+    The same typed questions from `ask` applied to many files at once — use
+    for triage without reading them yourself, e.g. which files relate to a
+    bug or which configs need a migration.
 
-    #### Choice
+    `paths` accepts explicit file paths and glob patterns (e.g.
+    `[\"lib/app.ex\", \"src/**/*.js\"]`), up to 255 total. Each readable
+    file gets one evaluation with the same three question types as `ask`;
+    unreadable files and globs with no matches land in `skipped` with a
+    reason instead of failing the whole call.
 
-    Use when state fits into exactly one of a fixed set of named categories
-    — routing to the right specialist, classifying an inbound message by
-    intent. `criteria` names the options; the answer is the winning option's
-    key and its probability.
-
-    #### Score
-
-    Use when state falls somewhere on an ordered scale rather than a
-    discrete category — severity, quality, how well a draft matches a spec.
-    `criteria` orders the scale low to high; the answer is a value across it.
-
-    #### Boolean
-
-    Use as a yes/no confidence gate before a destructive or irreversible
-    action — "does this message clearly authorize a refund?" `criteria` is
-    optional, clarifying what counts as yes/no; the answer is the
-    probability the answer is yes.
+    Gating recipe: ask one `boolean` question per triage, then act only
+    where that probability exceeds a cutoff you choose (e.g. `> 0.7`) —
+    `read` just those hits in full and leave the rest unread.
     """
     |> String.trim_trailing()
   end
@@ -367,7 +379,23 @@ defmodule Planck.Agent.SystemPrompt do
   # Helpers
   # ---------------------------------------------------------------------------
 
-  @spec append_section(String.t(), String.t()) :: String.t()
-  defp append_section("", section), do: section
-  defp append_section(prompt, section), do: prompt <> "\n\n" <> section
+  @spec append_section(String.t(), nil | String.t()) :: String.t()
+  defp append_section(prompt, section)
+
+  defp append_section(prompt, nil) when is_binary(prompt), do: prompt
+  defp append_section(prompt, "") when is_binary(prompt), do: prompt
+  defp append_section("", section) when is_binary(section), do: section
+
+  defp append_section(prompt, section) when is_binary(prompt) and is_binary(section),
+    do: prompt <> "\n\n" <> section
+
+  @spec prepend_section(String.t(), nil | String.t()) :: String.t()
+  defp prepend_section(prompt, section)
+
+  defp prepend_section(prompt, nil) when is_binary(prompt), do: prompt
+  defp prepend_section(prompt, "") when is_binary(prompt), do: prompt
+  defp prepend_section("", section) when is_binary(section), do: section
+
+  defp prepend_section(prompt, section) when is_binary(prompt) and is_binary(section),
+    do: section <> "\n\n" <> prompt
 end

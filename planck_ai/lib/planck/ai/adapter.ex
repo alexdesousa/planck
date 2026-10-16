@@ -90,8 +90,28 @@ defmodule Planck.AI.Adapter do
     "typesafe:#{m.model || m.id}"
   end
 
+  # Self-hosted / Typesafe-compatible endpoints (e.g. `decider`) serve model
+  # ids outside ReqLLM's catalog, so a bare `%{provider:, id:}` map is
+  # rejected at evaluation time ("Unknown evaluation model spec"). Emit the
+  # full inline spec ReqLLM requires: evaluation capability plus the
+  # `typesafe_systemone` execution contract (`POST <base_url>/v1/systemone`).
   defp build_model_spec(%Model{provider: :typesafe} = m) do
-    %{provider: :typesafe, id: m.model || m.id}
+    id = m.model || m.id
+
+    %{
+      provider: :typesafe,
+      id: id,
+      capabilities: %{evaluate: true},
+      execution: %{
+        evaluate: %{
+          supported: true,
+          family: "typesafe_systemone",
+          wire_protocol: "typesafe_systemone",
+          path: "/v1/systemone",
+          provider_model_id: id
+        }
+      }
+    }
   end
 
   @spec build_context(Context.t()) :: ReqLLM.Context.t()

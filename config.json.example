@@ -1,0 +1,37 @@
+{
+  "providers": {
+    "example-chat": {
+      "type": "openai",
+      "base_url": "https://example.com/v1",
+      "has_api_key": false
+    },
+    "example-rlcd": {
+      "type": "typesafe",
+      "base_url": "https://example.com/rlcd",
+      "has_api_key": false
+    }
+  },
+  "models": [
+    {
+      "id": "example-chat-model",
+      "model": "example-chat-model",
+      "provider": "example-chat",
+      "params": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "presence_penalty": 1.5,
+        "repetition_penalty": 1.0
+      }
+    },
+    {
+      "id": "example-rlcd-model",
+      "model": "example-rlcd-model",
+      "provider": "example-rlcd"
+    }
+  ],
+  "default_provider": "example-chat",
+  "default_model": "example-chat-model",
+  "default_team": "deep-thought"
+}

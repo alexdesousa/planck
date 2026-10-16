@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Planck — One goal, many experts.</title>
+  <title>Planck: One goal, many experts.</title>
   <meta name="description" content="Define a team of specialist agents. Talk to the orchestrator. Planck handles the rest.">
 
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://thebroken.link/planck/">
-  <meta property="og:title" content="Planck — One goal, many experts.">
+  <meta property="og:title" content="Planck: One goal, many experts.">
   <meta property="og:description" content="Define a team of specialist agents. Talk to the orchestrator. Planck handles the rest.">
   <meta property="og:image" content="https://thebroken.link/planck/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Planck — One goal, many experts.">
+  <meta name="twitter:title" content="Planck: One goal, many experts.">
   <meta name="twitter:description" content="Define a team of specialist agents. Talk to the orchestrator. Planck handles the rest.">
   <meta name="twitter:image" content="https://thebroken.link/planck/og-image.png">
 
@@ -399,7 +399,7 @@
   <!-- ── Blog banner ─────────────────────────────────────────────────── -->
   <div class="container" style="text-align:center;padding-bottom:2.5rem;">
     <div class="callout">
-      <span>Why many experts, not one? Read the design rationale —
+      <span>Why many experts, not one? Read the design rationale:
         <a href="https://thebroken.link/building-planck-context-is-the-real-problem/">Context</a> ·
         <a href="https://thebroken.link/building-planck-specialized-teams-vs-general-agents/">Specialized Teams</a> ·
         <a href="https://thebroken.link/building-planck-the-20-80-split/">The 20/80 Split</a>
@@ -424,12 +424,12 @@
         <div class="step">
           <span class="step-num">01</span>
           <h3>Define your team</h3>
-          <p>Planner, builder, reviewer — or whatever the workflow demands. Declare roles, prompts, and tools in a <code>TEAM.json</code>.</p>
+          <p>Planner, builder, reviewer, or whatever the workflow demands. Declare roles, prompts, and tools in a <code>TEAM.json</code>.</p>
         </div>
         <div class="step">
           <span class="step-num">02</span>
           <h3>Agents coordinate</h3>
-          <p>Each agent runs as an OTP process. Delegation, responses, and interrupts flow as BEAM messages — no queues, no glue code.</p>
+          <p>Each agent runs as an OTP process. Delegation, responses, and interrupts flow as BEAM messages, with no queues or glue code.</p>
         </div>
         <div class="step">
           <span class="step-num">03</span>
@@ -450,7 +450,7 @@
       <div class="stack">
         <a href="https://github.com/alexdesousa/planck/tree/main/planck_ai" class="stack-card" style="text-decoration:none;color:inherit;display:block;">
           <span class="pkg-tag">planck_ai</span>
-          <p>Typed LLM provider abstraction. Anthropic, OpenAI, Google Gemini, and any OpenAI-compatible endpoint — one API.</p>
+          <p>Typed LLM provider abstraction. Anthropic, OpenAI, Google Gemini, and any OpenAI-compatible endpoint, all behind one API.</p>
         </a>
         <a href="https://github.com/alexdesousa/planck/tree/main/planck_agent" class="stack-card" style="text-decoration:none;color:inherit;display:block;">
           <span class="pkg-tag">planck_agent</span>
@@ -479,17 +479,17 @@
         <div class="step">
           <span class="step-num">FILES</span>
           <h3>Read, write, edit, run</h3>
-          <p>The orchestrator gets full file and shell access by default. Workers get exactly what you grant them in <code>TEAM.json</code> — nothing more.</p>
+          <p>The orchestrator gets full file and shell access by default. Workers get exactly what you grant them in <code>TEAM.json</code> and nothing more.</p>
         </div>
         <div class="step">
           <span class="step-num">DELEGATE</span>
           <h3>call_agent / send_agent</h3>
-          <p>Blocking or fire-and-forget — an agent asks another and waits, or hands off a task and moves on.</p>
+          <p>Blocking or fire-and-forget: an agent asks another and waits, or hands off a task and moves on.</p>
         </div>
         <div class="step">
           <span class="step-num">ORCHESTRATE</span>
           <h3>spawn_agent / list_models</h3>
-          <p>The orchestrator spawns, redirects, and retires specialists on demand — no fixed team size, no restart to add a role.</p>
+          <p>The orchestrator spawns, redirects, and retires specialists on demand, with no fixed team size and no restart to add a role.</p>
         </div>
         <div class="step">
           <span class="step-num">SKILLS</span>
@@ -497,9 +497,14 @@
           <p>Reusable playbooks pulled into context on demand, not baked into every prompt whether it's relevant or not.</p>
         </div>
         <div class="step">
-          <span class="step-num">CLASSIFY</span>
+          <span class="step-num">ASK</span>
           <h3>Calibrated decisions</h3>
-          <p>Route, score, or gate a decision through an RLCD model (Typesafe, decider) instead of burning a chat model's tokens parsing free text.</p>
+          <p>Route, score, or gate a decision through an RLCD model (Typesafe, decider) instead of burning a chat model's tokens parsing free text. Triage whole batches of files with <code>ask_files</code> without reading them.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">GATE</span>
+          <h3>Human-in-the-loop safety</h3>
+          <p>A <code>tool_start</code> hook can judge every call before it runs: allow, deny, or park it for your approval. The opinionated stack ships a <code>bash</code> gate that parks dangerous commands until you say go.</p>
         </div>
       </div>
     </div>
@@ -610,12 +615,12 @@
         <div class="step">
           <span class="step-num">DOCS</span>
           <h3>Apache Tika</h3>
-          <p>PDF, DOCX, XLSX, PPTX and more — extracted to plain text for agents to read.</p>
+          <p>PDF, DOCX, XLSX, PPTX and more, extracted to plain text for agents to read.</p>
         </div>
         <div class="step">
           <span class="step-num">PROXY</span>
           <h3>Agent-vault</h3>
-          <p>HTTPS credential proxy. API keys are injected into outbound requests by host — agents never see secrets, even via the bash tool.</p>
+          <p>HTTPS credential proxy. API keys are injected into outbound requests by host, so agents never see secrets, even via the bash tool.</p>
         </div>
         <div class="step">
           <span class="step-num">MEMORY</span>
@@ -630,7 +635,7 @@
         <div class="step">
           <span class="step-num">FETCH</span>
           <h3>Web fetch</h3>
-          <p>Pages are fetched and converted to clean Markdown before being handed to the agent. Results are cached in Typesense — repeated fetches within a session are instant.</p>
+          <p>Pages are fetched and converted to clean Markdown before being handed to the agent. Results are cached in Typesense, so repeated fetches within a session are instant.</p>
         </div>
         <div class="step">
           <span class="step-num">SKILLS</span>

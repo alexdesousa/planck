@@ -69,7 +69,7 @@ defmodule Planck.Agent.Session do
   # ---------------------------------------------------------------------------
 
   @doc "Start a session under the SessionSupervisor."
-  @spec start(session_id(), keyword()) :: {:ok, pid()} | {:error, term()}
+  @spec start(session_id(), keyword()) :: DynamicSupervisor.on_start_child()
   def start(session_id, opts \\ []) do
     DynamicSupervisor.start_child(
       Planck.Agent.SessionSupervisor,
@@ -83,6 +83,33 @@ defmodule Planck.Agent.Session do
     case whereis(session_id) do
       {:ok, pid} -> DynamicSupervisor.terminate_child(Planck.Agent.SessionSupervisor, pid)
       error -> error
+    end
+  end
+
+  @doc """
+  Permanently delete a session: stop it if running, then remove its SQLite
+  file. The stop happens first on purpose — removing the file under an open
+  SQLite connection would leave a live GenServer writing to an unlinked
+  inode. A session that is already stopped (or never existed on disk) is
+  not an error; the removal just has nothing to do.
+  """
+  @spec delete(Path.t(), session_id()) :: :ok | {:error, term()}
+  def delete(sessions_dir, session_id) do
+    case whereis(session_id) do
+      {:ok, pid} -> DynamicSupervisor.terminate_child(Planck.Agent.SessionSupervisor, pid)
+      {:error, :not_found} -> :ok
+    end
+
+    case find_by_id(sessions_dir, session_id) do
+      {:ok, path, _name} ->
+        case File.rm(path) do
+          :ok -> :ok
+          {:error, :enoent} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, :not_found} ->
+        :ok
     end
   end
 
@@ -194,9 +221,8 @@ defmodule Planck.Agent.Session do
   @spec get_metadata(session_id()) ::
           {:ok, %{optional(String.t()) => String.t() | nil}} | {:error, :not_found}
   def get_metadata(session_id) do
-    case whereis(session_id) do
-      {:ok, pid} -> GenServer.call(pid, :get_metadata)
-      error -> error
+    with {:ok, pid} <- whereis(session_id) do
+      GenServer.call(pid, :get_metadata)
     end
   end
 

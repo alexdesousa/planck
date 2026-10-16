@@ -20,12 +20,12 @@ fi
 
 if [ ! -f "$PLANCK_DIR/config.json" ]; then
   echo "[setup] Writing default config..."
-  envsubst < /app/default_config.json.template > "$PLANCK_DIR/config.json"
+  envsubst </app/default_config.json.template >"$PLANCK_DIR/config.json"
 fi
 
 if [ ! -f "$PLANCK_DIR/searxng/settings.yml" ]; then
   echo "[setup] Writing default Searxng settings..."
-  envsubst < /app/searxng_settings.yml.template > "$PLANCK_DIR/searxng/settings.yml"
+  envsubst </app/searxng_settings.yml.template >"$PLANCK_DIR/searxng/settings.yml"
 fi
 
 # ── Agent-vault bootstrap ──────────────────────────────────────────────────────
@@ -99,9 +99,9 @@ if [ -n "$AGENT_VAULT_URL" ] && [ -n "$AGENT_VAULT_EMAIL" ] && [ -n "$AGENT_VAUL
         fi
 
         if [ -n "$TOKEN" ]; then
-          echo "AGENT_VAULT_TOKEN=$TOKEN" >> "$PLANCK_ENV"
-          grep -q "^PLANCK_SECRETS_HOOK=" "$PLANCK_ENV" 2>/dev/null || \
-            echo "PLANCK_SECRETS_HOOK=Sidecar.Secrets.AgentVault" >> "$PLANCK_ENV"
+          echo "AGENT_VAULT_TOKEN=$TOKEN" >>"$PLANCK_ENV"
+          grep -q "^PLANCK_SECRETS_HOOK=" "$PLANCK_ENV" 2>/dev/null ||
+            echo "PLANCK_SECRETS_HOOK=Sidecar.Secrets.AgentVault" >>"$PLANCK_ENV"
           echo "[setup] Vault agent token and secrets hook written."
         else
           echo "[setup] Could not create agent token — skipping bootstrap."

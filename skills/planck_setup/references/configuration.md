@@ -38,6 +38,7 @@ when you control access at the infrastructure level.
 ```json
 {
   "default_model":  "sonnet",
+  "default_team":   "build-team",
   "sessions_dir":   ".planck/sessions",
   "skills_dirs":    [".planck/skills", "~/.planck/skills"],
   "teams_dirs":     [".planck/teams", "~/.planck/teams"],
@@ -51,6 +52,7 @@ when you control access at the infrastructure level.
 | Key | Env var | Description |
 |---|---|---|
 | `default_model` | `PLANCK_DEFAULT_MODEL` | Alias of the model used when no team template is specified |
+| `default_team` | `PLANCK_DEFAULT_TEAM` | Team used when a session is started without an explicit team — a team alias or a path to a team directory. When absent (or unresolvable), sessions fall back to the dynamic team. Pass `"dynamic"` explicitly to force a dynamic session |
 | `sessions_dir` | `PLANCK_SESSIONS_DIR` | Where SQLite session files are stored |
 | `skills_dirs` | `PLANCK_SKILLS_DIRS` (colon-separated) | Directories scanned for skills |
 | `teams_dirs` | `PLANCK_TEAMS_DIRS` (colon-separated) | Directories scanned for team templates |
@@ -189,10 +191,11 @@ Useful for:
 `"typesafe"` is a different model *family*, not another chat/agent model —
 Typesafe AI's System One models (e.g. Jev) and wire-compatible self-hosted
 servers (e.g. `decider`) take a **state** and a set of typed questions
-(Choice / Score / Noul) and return calibrated probabilities in a single
+(Choice / Score / Boolean) and return calibrated probabilities in a single
 forward pass. They can't chat, stream, or call tools, so they're never used
 as an agent's own model — instead, an agent calls one through the
-[`classify`](teams.md#orchestrator-only-tools) tool.
+[`ask`](teams.md#orchestrator-only-tools) or
+[`ask_files`](teams.md#ask_files-parameters) tool.
 
 A model declared under a `"typesafe"` provider automatically gets
 `type: "rlcd"` (surfaced by `list_models`/`GET /api/models`); every other

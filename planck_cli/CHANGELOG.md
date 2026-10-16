@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.3.1
+
+### Approval modal
+
+When a `ToolStart` gate parks a tool call for human review, the chat now
+pops an approval modal showing the exact call — tool name, arguments, and
+the gate's reason — with Approve/Deny buttons wired to the new
+approve/deny APIs. The modal auto-shows while any parked call exists
+(fed by the `:tool_blocked` event and rehydrated via
+`list_all_pending_approvals/1` on mount, so a page refresh mid-approval
+still shows what's waiting). Multiple parked calls render as one list with
+a pending counter.
+
+### Agent details modal
+
+Clicking an agent opens a details modal rendering its assembled system
+prompt, resolved hooks, assigned skills, and available commands — backed
+by the new `Planck.Web.AgentInfo` builder and `Headless.system_prompt/1`.
+Also fixes the system prompt rendering stale in the chat.
+
+### Worker overlay with stop button
+
+The worker overlay (extracted from `SessionLive` into `AgentOverlay`) now
+carries a stop button that interrupts the worker's current turn without
+killing the worker.
+
+### Approval HTTP endpoints
+
+Three new endpoints backing the modal, also usable from scripts/CI:
+`GET /api/sessions/:id/pending_approvals?agent_id=…`,
+`POST /api/sessions/:id/approve` (body: `agent_id`, `call_id`), and
+`POST /api/sessions/:id/deny` (body: `agent_id`, `call_id`, optional
+`reason`).
+
+### Model selector rework
+
+The standalone model selector modal is gone — model switching now happens
+inline per agent (orchestrator and workers) via dropdowns, and RLCD
+decision models are excluded from chat model options (they can't serve
+chat; see `planck_headless` v0.2.4).
+
 ## v0.3.0
 
 ### Chat UI for slash commands

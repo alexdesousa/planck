@@ -23,6 +23,8 @@ defmodule Sidecar.Config do
   | `agent_vault_vault` | `AGENT_VAULT_VAULT` | `"planck"` |
   | `beads_url` | `BEADS_URL` | `http://beads:8377` |
   | `beads_token` | `BEADS_TOKEN` | `nil` |
+  | `bash_gate_irreversible_threshold` | `BASH_GATE_IRREVERSIBLE_THRESHOLD` | `0.6` |
+  | `bash_gate_destructive_threshold` | `BASH_GATE_DESTRUCTIVE_THRESHOLD` | `0.7` |
   """
   use Skogsra
 
@@ -103,4 +105,24 @@ defmodule Sidecar.Config do
   app_env :beads_token, :sidecar, :beads_token,
     os_env: "BEADS_TOKEN",
     default: nil
+
+  @envdoc """
+  Confidence the `irreversible` pick needs before `Sidecar.Hooks.BashGate`
+  blocks on its own. Port of upstream `BASH_THRESHOLDS.irreversible`.
+  Restart-required.
+  """
+  app_env :bash_gate_irreversible_threshold, :sidecar, :bash_gate_irreversible_threshold,
+    type: :float,
+    os_env: "BASH_GATE_IRREVERSIBLE_THRESHOLD",
+    default: 0.6
+
+  @envdoc """
+  Destructive-intent probability above which `Sidecar.Hooks.BashGate`
+  blocks whatever the effect pick. Port of upstream
+  `BASH_THRESHOLDS.destructive`. Restart-required.
+  """
+  app_env :bash_gate_destructive_threshold, :sidecar, :bash_gate_destructive_threshold,
+    type: :float,
+    os_env: "BASH_GATE_DESTRUCTIVE_THRESHOLD",
+    default: 0.7
 end

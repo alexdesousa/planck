@@ -74,7 +74,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
 
   # Configures an rlcd model (alongside the "openai"/"llama3.2" model every
   # `write_team` orchestrator declares) so ResourceStore.get().available_models
-  # includes a :typesafe/:rlcd entry — the precondition for classify gating.
+  # includes a :typesafe/:rlcd entry — the precondition for ask gating.
   defp configure_rlcd_model do
     Application.put_env(:planck, :providers, %{
       "openai" => %{"type" => "openai", "has_api_key" => false},
@@ -370,7 +370,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert "list_skills" in (Agent.get_state(pid2).context.tools |> Map.keys())
     end
 
-    test "orchestrator has the classify tool when an rlcd model is configured", %{tmp_dir: dir} do
+    test "orchestrator has the ask tool when an rlcd model is configured", %{tmp_dir: dir} do
       configure_rlcd_model()
       on_exit(fn -> clear_rlcd_model() end)
 
@@ -380,10 +380,10 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
       tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
-      assert "classify" in tool_names
+      assert "ask" in tool_names
     end
 
-    test "classify is absent from the orchestrator when no rlcd model is configured", %{
+    test "ask is absent from the orchestrator when no rlcd model is configured", %{
       tmp_dir: dir
     } do
       team_dir = write_team(dir, "no-rlcd-team")
@@ -392,7 +392,132 @@ defmodule Planck.Headless.SessionLifecycleTest do
       {:ok, orch_pid} = find_orchestrator(meta["team_id"])
 
       tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
-      refute "classify" in tool_names
+      refute "ask" in tool_names
+    end
+
+    test "orchestrator has ask_files exactly when ask is present", %{tmp_dir: dir} do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_team(dir, "rlcd-files-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
+      assert "ask" in tool_names
+      assert "ask_files" in tool_names
+    end
+
+    test "ask_files is absent from the orchestrator when no rlcd model is configured", %{
+      tmp_dir: dir
+    } do
+      team_dir = write_team(dir, "no-rlcd-files-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      tool_names = Agent.get_state(orch_pid).context.tools |> Map.keys()
+      refute "ask_files" in tool_names
+    end
+
+    test "worker granted ask_files via TEAM.json receives it when rlcd is configured", %{
+      tmp_dir: dir
+    } do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_grant_team(dir, "grant-files-team", ["read", "ask_files"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool_names = Agent.get_state(worker_pid).context.tools |> Map.keys()
+      assert "ask_files" in tool_names
+    end
+
+    test "worker granted ask and ask_files receives both when rlcd is configured", %{
+      tmp_dir: dir
+    } do
+      configure_rlcd_model()
+      on_exit(fn -> clear_rlcd_model() end)
+
+      team_dir = write_grant_team(dir, "grant-both-team", ["ask", "ask_files"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool_names = Agent.get_state(worker_pid).context.tools |> Map.keys()
+      assert "ask" in tool_names
+      assert "ask_files" in tool_names
+    end
+
+    test "worker grant of ask_files resolves to nothing when no rlcd is configured", %{
+      tmp_dir: dir
+    } do
+      team_dir = write_grant_team(dir, "grant-no-rlcd-team", ["read", "ask_files"])
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, worker_pid} = find_worker(meta["team_id"])
+
+      tool_names = Agent.get_state(worker_pid).context.tools |> Map.keys()
+      assert "read" in tool_names
+      refute "ask_files" in tool_names
+    end
+
+    test "ask_files reads through the live sidecar read tool when present" do
+      rlcd = %Model{
+        id: "jev-latest",
+        name: "Jev",
+        provider: :typesafe,
+        type: :rlcd,
+        context_window: 32_768,
+        max_tokens: 2_048
+      }
+
+      sidecar_read =
+        Planck.Agent.Tool.new(
+          name: "read",
+          description: "Sidecar read (Tika-extracted).",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, %{"path" => path} ->
+            {:ok, "tika-content-of-#{path}"}
+          end
+        )
+
+      decoy =
+        Planck.Agent.Tool.new(
+          name: "ask_files",
+          description: "Decoy — must never be recursed into.",
+          parameters: %{"type" => "object", "properties" => %{}},
+          execute_fn: fn _agent_id, _id, _args -> raise "recursed into ask_files" end
+        )
+
+      ResourceStore.put_tools([sidecar_read, decoy])
+      on_exit(fn -> ResourceStore.clear_tools() end)
+
+      stub(MockAI, :evaluate, fn _model, state, _qs, _opts ->
+        {:ok, %{object: %{"saw" => state.content}}}
+      end)
+
+      tool = Planck.Agent.Tools.ask_files([rlcd])
+
+      assert {:ok, json} =
+               tool.execute_fn.("agent-1", "tc-1", %{
+                 "provider" => "typesafe",
+                 "model_id" => "jev-latest",
+                 "base_url" => "",
+                 "paths" => ["doc.pdf"],
+                 "questions" => %{}
+               })
+
+      assert %{
+               "results" => [%{"path" => "doc.pdf", "answers" => %{"saw" => saw}}],
+               "skipped" => [],
+               "calls" => 1
+             } = Jason.decode!(json)
+
+      assert saw =~ "doc.pdf"
     end
 
     test "returns error when no default model configured and template is nil" do
@@ -446,9 +571,118 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert meta["team_alias"] == "my-alias-team"
     end
 
-    test "returns error for unknown team alias" do
-      assert {:error, {:team_not_found, "no-such-team"}} =
-               Headless.start_session(template: "no-such-team")
+    test "unknown team alias falls back to the dynamic team with a warning" do
+      import ExUnit.CaptureLog
+
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, session_id} = Headless.start_session(template: "no-such-team")
+          {:ok, meta} = Session.get_metadata(session_id)
+          assert meta["team_alias"] == "no-such-team"
+        end)
+
+      assert log =~ "could not be resolved"
+      assert log =~ "falling back to the dynamic team"
+    end
+
+    defp with_default_team(alias_name) do
+      Application.put_env(:planck, :default_team, alias_name)
+      Config.reload_default_team()
+
+      on_exit(fn ->
+        Application.delete_env(:planck, :default_team)
+        Config.reload_default_team()
+      end)
+    end
+
+    test "no template uses the configured default_team", %{tmp_dir: dir} do
+      write_team(dir, "default-team")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+      with_default_team("default-team")
+
+      assert {:ok, session_id} = Headless.start_session()
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "default-team"
+    end
+
+    test "default_team accepts a path", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "path-default-team")
+
+      with_default_team(team_dir)
+
+      assert {:ok, session_id} = Headless.start_session()
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == team_dir
+    end
+
+    test "unresolvable default_team falls back to the dynamic team", %{tmp_dir: _dir} do
+      import ExUnit.CaptureLog
+
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      with_default_team("deleted-team")
+
+      log =
+        capture_log(fn ->
+          assert {:ok, session_id} = Headless.start_session()
+
+          {:ok, meta} = Session.get_metadata(session_id)
+          assert meta["team_alias"] == "deleted-team"
+          assert [_] = Registry.lookup(Planck.Agent.Registry, {meta["team_id"], :member})
+        end)
+
+      assert log =~ "falling back to the dynamic team"
+    end
+
+    test "explicit template overrides the configured default_team", %{tmp_dir: dir} do
+      write_team(dir, "default-team")
+      write_team(dir, "explicit-team")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+      with_default_team("default-team")
+
+      assert {:ok, session_id} = Headless.start_session(template: "explicit-team")
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "explicit-team"
+    end
+
+    test "\"dynamic\" template stays dynamic even with a default_team configured", %{
+      tmp_dir: dir
+    } do
+      write_team(dir, "default-team")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+      with_default_team("default-team")
+
+      assert {:ok, session_id} = Headless.start_session(template: "dynamic")
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "dynamic"
+    end
+
+    test "a real team named \"dynamic\" takes precedence over the reserved alias", %{
+      tmp_dir: dir
+    } do
+      write_team(dir, "dynamic")
+
+      Application.put_env(:planck, :teams_dirs, [dir])
+      Config.reload_teams_dirs()
+      ResourceStore.reload()
+
+      assert {:ok, session_id} = Headless.start_session(template: "dynamic")
+      {:ok, meta} = Session.get_metadata(session_id)
+      assert meta["team_alias"] == "dynamic"
     end
 
     # Sidecar tools and sessions
@@ -1286,7 +1520,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
 
     test "returns error for unknown session" do
-      assert {:error, :not_found} = Headless.close_session("ghost-session")
+      assert {:error, :team_id_not_found} = Headless.close_session("ghost-session")
     end
 
     test "SQLite file is retained after close", %{tmp_dir: dir, sessions_dir: sessions_dir} do
@@ -1295,6 +1529,84 @@ defmodule Planck.Headless.SessionLifecycleTest do
       Headless.close_session(session_id)
 
       assert {:ok, _path, _name} = Session.find_by_id(sessions_dir, session_id)
+    end
+  end
+
+  # --- delete_session/1 ---
+
+  defmodule DeleteRecordingPersistence do
+    use Planck.Agent.Hooks.Persistence
+
+    @impl true
+    def persist_message(_session_id, _agent_id, message), do: message
+    @impl true
+    def persist_usage(_session_id, _agent_id, _usage), do: :ok
+    @impl true
+    def load_messages(_session_id, _agent_id, _opts), do: {:ok, []}
+    @impl true
+    def flush_unpersisted(_session_id, _agent_id, _messages), do: :noop
+    @impl true
+    def truncate_after(_session_id, _message_id), do: :ok
+    @impl true
+    def load_session_messages(_session_id, _opts), do: {:ok, []}
+
+    @impl true
+    def delete_session(session_id, opts) do
+      case :persistent_term.get({__MODULE__, :parent}, nil) do
+        nil -> :ok
+        parent -> send(parent, {:delete_session, session_id, opts})
+      end
+
+      :ok
+    end
+  end
+
+  describe "delete_session/1" do
+    test "removes the SQLite file for the default backend", %{
+      tmp_dir: dir,
+      sessions_dir: sessions_dir
+    } do
+      team_dir = write_team(dir, "delete-default-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      assert {:ok, _path, _} = Session.find_by_id(sessions_dir, session_id)
+
+      assert :ok = Headless.delete_session(session_id)
+      assert {:error, :not_found} = Session.find_by_id(sessions_dir, session_id)
+    end
+
+    test "stops active agents and the session before deleting", %{
+      tmp_dir: dir,
+      sessions_dir: sessions_dir
+    } do
+      team_dir = write_team(dir, "delete-active-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+
+      assert :ok = Headless.delete_session(session_id)
+      refute Process.alive?(orch_pid)
+      assert {:error, :not_found} = Session.whereis(session_id)
+      assert {:error, :not_found} = Session.find_by_id(sessions_dir, session_id)
+    end
+
+    test "dispatches to the session's custom persistence backend", %{
+      tmp_dir: dir,
+      sessions_dir: sessions_dir
+    } do
+      :persistent_term.put({DeleteRecordingPersistence, :parent}, self())
+      on_exit(fn -> :persistent_term.erase({DeleteRecordingPersistence, :parent}) end)
+
+      module_name = inspect(DeleteRecordingPersistence)
+      team_dir = write_team_with_persistence(dir, "delete-custom-team", module_name)
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+
+      assert :ok = Headless.delete_session(session_id)
+      assert_received {:delete_session, ^session_id, opts}
+      assert opts[:dir] == sessions_dir
+    end
+
+    test "unknown session is a no-op" do
+      assert :ok = Headless.delete_session("ghost-session")
     end
   end
 
@@ -1309,7 +1621,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
     end
 
     test "returns error for closed session" do
-      assert {:error, :not_found} = Headless.prompt("no-session", "hi")
+      assert {:error, :team_id_not_found} = Headless.prompt("no-session", "hi")
     end
   end
 
@@ -1665,7 +1977,7 @@ defmodule Planck.Headless.SessionLifecycleTest do
       assert_receive {:agent_event, :turn_end, _}, 2_000
     end
 
-    test "rejects a solo team with additional members", %{tmp_dir: dir} do
+    test "solo team with additional members falls back to the dynamic team", %{tmp_dir: dir} do
       team_dir = Path.join(dir, "solo-plus-worker")
       File.mkdir_p!(team_dir)
 
@@ -1689,8 +2001,18 @@ defmodule Planck.Headless.SessionLifecycleTest do
         })
       )
 
-      assert {:error, reason} = Headless.start_session(template: team_dir)
-      assert reason =~ "a \"solo\" team cannot have additional members"
+      import ExUnit.CaptureLog
+
+      configure_available_model("llama3.2")
+      on_exit(fn -> clear_available_model() end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, _session_id} = Headless.start_session(template: team_dir)
+        end)
+
+      assert log =~ "could not be resolved"
+      assert log =~ "falling back to the dynamic team"
     end
   end
 
@@ -2025,6 +2347,59 @@ defmodule Planck.Headless.SessionLifecycleTest do
         Enum.find_value(members, fn {_pid, m} -> m.type == "reviewer" && m.id end)
 
       assert reconstructed_id == original_worker_id
+    end
+
+    defmodule ResumePromptHook do
+      use Planck.Agent.Hooks.Prompt
+
+      @impl true
+      def before_prompt(_session_id), do: "resume hook before"
+    end
+
+    test "reconstructed dynamic worker inherits the orchestrator's hooks", %{tmp_dir: dir} do
+      team_dir = write_hooked_team(dir, "hook-inherit")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      orch_id = orchestrator_id_for(meta["team_id"])
+
+      # The orchestrator itself carries the hook.
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+      assert Agent.get_state(orch_pid).hooks.prompt == ResumePromptHook
+
+      call_id = "spawn-hook-1"
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:assistant, [
+          {:tool_call, call_id, "spawn_agent",
+           %{
+             "type" => "reviewer",
+             "name" => "Reviewer",
+             "description" => "Reviews code.",
+             "system_prompt" => "You are a reviewer.",
+             "provider" => "openai",
+             "model_id" => "llama3.2",
+             "tools" => []
+           }}
+        ])
+      )
+
+      Session.append(
+        session_id,
+        orch_id,
+        Message.new(:tool_result, [{:tool_result, call_id, "worker-hook-abc"}])
+      )
+
+      Headless.close_session(session_id)
+      {:ok, ^session_id} = Headless.resume_session(session_id)
+
+      {:ok, new_meta} = Session.get_metadata(session_id)
+      [{worker_pid, _} | _] = Registry.lookup(Agent.Registry, {new_meta["team_id"], "reviewer"})
+
+      hooks = Agent.get_state(worker_pid).hooks
+      assert hooks.prompt == ResumePromptHook
+      assert Agent.system_prompt(worker_pid) =~ "resume hook before"
     end
 
     test "failed spawn_agent (error result) is skipped on reconstruct", %{tmp_dir: dir} do
@@ -2380,6 +2755,30 @@ defmodule Planck.Headless.SessionLifecycleTest do
     team_dir
   end
 
+  defp write_hooked_team(dir, alias_name) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read"],
+            "prompt_hook" => "Planck.Headless.SessionLifecycleTest.ResumePromptHook"
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
   defp write_team_with_worker(dir, alias_name) do
     team_dir = Path.join(dir, alias_name)
     File.mkdir_p!(team_dir)
@@ -2410,10 +2809,59 @@ defmodule Planck.Headless.SessionLifecycleTest do
     team_dir
   end
 
+  defp write_grant_team(dir, alias_name, worker_tools) do
+    team_dir = Path.join(dir, alias_name)
+    File.mkdir_p!(team_dir)
+
+    File.write!(
+      Path.join(team_dir, "TEAM.json"),
+      Jason.encode!(%{
+        "name" => alias_name,
+        "members" => [
+          %{
+            "type" => "orchestrator",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You coordinate.",
+            "tools" => ["read"]
+          },
+          %{
+            "type" => "worker",
+            "provider" => "openai",
+            "model_id" => "llama3.2",
+            "system_prompt" => "You implement.",
+            "tools" => worker_tools
+          }
+        ]
+      })
+    )
+
+    team_dir
+  end
+
   defp find_orchestrator(team_id) do
     case Registry.lookup(Agent.Registry, {team_id, "orchestrator"}) do
       [{pid, _} | _] -> {:ok, pid}
       [] -> {:error, :not_found}
+    end
+  end
+
+  # --- system_prompt/1 ---
+
+  describe "system_prompt/1" do
+    test "returns the assembled prompt for a running agent", %{tmp_dir: dir} do
+      team_dir = write_team(dir, "sysprompt-team")
+      {:ok, session_id} = Headless.start_session(template: team_dir)
+      {:ok, meta} = Session.get_metadata(session_id)
+      {:ok, orch_pid} = find_orchestrator(meta["team_id"])
+      agent_id = Agent.get_info(orch_pid).id
+
+      assert {:ok, prompt} = Headless.system_prompt(agent_id)
+      assert prompt =~ "You coordinate."
+    end
+
+    test "returns {:error, :agent_not_found} for an unknown agent id" do
+      assert Headless.system_prompt("deadbeefdeadbeef") == {:error, :agent_not_found}
     end
   end
 

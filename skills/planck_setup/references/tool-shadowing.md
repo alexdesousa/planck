@@ -75,6 +75,13 @@ The same rule applies to sidecar tools. If your sidecar exposes a tool named
 useful when your sidecar needs to intercept file reads to enforce logging,
 encryption, or access control.
 
+Shadowing also reaches `ask_files` (since v0.3.1): when it evaluates files it
+reads each one through the **live** `"read"` tool from the resource store —
+your sidecar's shadow if one is registered (once it connects), the built-in
+otherwise — not a hardcoded `File.read/1`. A sandboxed or extraction-aware
+`read` therefore applies to `ask_files` batch reads too, with the same path
+semantics.
+
 ## Notes
 
 - Shadowing is **name-based** — the tool's `name` field is the key.

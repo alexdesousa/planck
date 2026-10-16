@@ -33,7 +33,9 @@ defmodule Planck.Agent.Hooks.Prompt do
       Hooks.Prompt.after_prompt(state.hooks.prompt, state.identity.session_id, state.hooks.sidecar_node)
 
   - `module: nil` — returns `nil` (no injection).
-  - `sidecar_node: nil` — calls `module.prepend/1` / `module.append/1` in-process.
+  - `sidecar_node: nil` — calls `module.before_prompt/1` / `module.after_prompt/1`
+    in-process; returns `nil` (with a warning) when the module is not loaded on
+    the calling node — e.g. a session that started before its sidecar connected.
   - `sidecar_node` set — calls via RPC; returns `nil` on `:badrpc`.
 
   The default RPC timeout is #{@default_timeout_ms} ms; override `hook_timeout/0`
@@ -87,7 +89,7 @@ defmodule Planck.Agent.Hooks.Prompt do
   def before_prompt(nil, _session_id, _sidecar_node), do: nil
 
   def before_prompt(module, session_id, nil) do
-    module.before_prompt(session_id)
+    local_call(module, :before_prompt, session_id)
   end
 
   def before_prompt(module, session_id, sidecar_node) do
@@ -104,7 +106,7 @@ defmodule Planck.Agent.Hooks.Prompt do
   def after_prompt(nil, _session_id, _sidecar_node), do: nil
 
   def after_prompt(module, session_id, nil) do
-    module.after_prompt(session_id)
+    local_call(module, :after_prompt, session_id)
   end
 
   def after_prompt(module, session_id, sidecar_node) do
@@ -114,6 +116,20 @@ defmodule Planck.Agent.Hooks.Prompt do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  @spec local_call(module(), :before_prompt | :after_prompt, String.t() | nil) ::
+          String.t() | nil
+  defp local_call(module, callback, session_id) do
+    if Code.ensure_loaded?(module) do
+      apply(module, callback, [session_id])
+    else
+      Logger.warning(
+        "[Planck.Agent.Hooks.Prompt] #{inspect(module)} not loaded on #{inspect(node())} — skipping #{callback}"
+      )
+
+      nil
+    end
+  end
 
   @spec dispatch(module(), :before_prompt | :after_prompt, String.t() | nil, atom()) ::
           String.t() | nil

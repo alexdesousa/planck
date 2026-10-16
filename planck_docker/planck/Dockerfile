@@ -54,7 +54,8 @@ RUN cd planck_docker/sidecar \
     && export CROSS_COMPILE=1 \
     && export ERL_CXXFLAGS="-I${ERL_ROOT_DIR}/erts-${ERTS_VSN}/include -I${EI_DIR}/include" \
     && export ERL_LDFLAGS="-L${EI_DIR}/lib" \
-    && mix do local.hex --force + local.rebar --force + setup + compile
+    && mix setup \
+    && mix compile
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM hexpm/elixir:1.20.4-erlang-29.1-ubuntu-noble-20260911
